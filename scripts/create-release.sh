@@ -19,8 +19,8 @@ echo "Extracting release notes for $VERSION from CHANGELOG.md..."
 TEMP_FILE=$(mktemp)
 
 # Extract the section for this version from CHANGELOG
-awk -v version="## \\[$VERSION_NO_V\\]" '
-    $0 ~ version { capture = 1; print "Release " $2 " " $3 " " $4; next }
+awk -v version="$VERSION_NO_V" '
+    /^## \[/ && $0 ~ version { capture = 1; print "Release " $2 " " $3 " " $4; next }
     /^## \[/ && capture { exit }
     capture && /^###/ { print "" }
     capture { print }

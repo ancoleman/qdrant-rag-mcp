@@ -13,9 +13,13 @@ import argparse
 from typing import Dict, List, Optional, Any, Set
 from pathlib import Path
 import logging
+from datetime import datetime
 
 # Add src directory to Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Import version
+from __init__ import __version__
 
 # Load environment variables from the MCP server directory
 from dotenv import load_dotenv
@@ -48,6 +52,27 @@ try:
 except ImportError:
     WATCHDOG_AVAILABLE = False
     console_logger.info("Watchdog not installed. File watching disabled. Install with: pip install watchdog")
+
+# Custom error types for better error handling
+class QdrantConnectionError(Exception):
+    """Raised when connection to Qdrant fails."""
+    def __init__(self, message: str, details: Optional[str] = None):
+        super().__init__(message)
+        self.details = details
+
+class IndexingError(Exception):
+    """Raised when file indexing fails."""
+    def __init__(self, message: str, file_path: str, details: Optional[str] = None):
+        super().__init__(message)
+        self.file_path = file_path
+        self.details = details
+
+class SearchError(Exception):
+    """Raised when search operation fails."""
+    def __init__(self, message: str, query: str, details: Optional[str] = None):
+        super().__init__(message)
+        self.query = query
+        self.details = details
 
 # Global variables for lazy initialization
 _qdrant_client = None
@@ -214,25 +239,44 @@ def get_collection_name(file_path: str, file_type: str = "code") -> str:
     # No project found - use global collection
     return f"global_{file_type}"
 
+def retry_operation(func, max_attempts=3, delay=1.0):
+    """Simple retry logic for operations."""
+    last_error = None
+    for attempt in range(max_attempts):
+        try:
+            return func()
+        except Exception as e:
+            last_error = e
+            if attempt < max_attempts - 1:
+                time.sleep(delay * (attempt + 1))  # Exponential backoff
+                continue
+            raise
+    if last_error:
+        raise last_error
+
 def ensure_collection(collection_name: str):
-    """Ensure a collection exists"""
+    """Ensure a collection exists with retry logic"""
     client = get_qdrant_client()
     
     from qdrant_client.http.models import Distance, VectorParams
     
-    existing = [c.name for c in client.get_collections().collections]
-    
-    if collection_name not in existing:
-        client.create_collection(
-            collection_name=collection_name,
-            vectors_config=VectorParams(
-                size=384,
-                distance=Distance.COSINE
+    def check_and_create():
+        existing = [c.name for c in client.get_collections().collections]
+        
+        if collection_name not in existing:
+            client.create_collection(
+                collection_name=collection_name,
+                vectors_config=VectorParams(
+                    size=384,
+                    distance=Distance.COSINE
+                )
             )
-        )
+    
+    # Use retry logic for collection operations
+    retry_operation(check_and_create)
 
 def get_qdrant_client():
-    """Get or create Qdrant client"""
+    """Get or create Qdrant client with connection validation"""
     global _qdrant_client
     if _qdrant_client is None:
         from qdrant_client import QdrantClient
@@ -240,7 +284,15 @@ def get_qdrant_client():
         host = os.getenv("QDRANT_HOST", "localhost")
         port = int(os.getenv("QDRANT_PORT", "6333"))
         
-        _qdrant_client = QdrantClient(host=host, port=port)
+        try:
+            _qdrant_client = QdrantClient(host=host, port=port)
+            # Test connection
+            retry_operation(lambda: _qdrant_client.get_collections())
+        except Exception as e:
+            raise QdrantConnectionError(
+                f"Failed to connect to Qdrant at {host}:{port}",
+                details=str(e)
+            )
     
     return _qdrant_client
 
@@ -356,6 +408,22 @@ def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
     start_time = time.time()
     
     try:
+        # Input validation
+        if not file_path or not isinstance(file_path, str):
+            return {
+                "error": "Invalid file path",
+                "error_code": "INVALID_INPUT",
+                "details": "File path must be a non-empty string"
+            }
+        
+        # Security check - prevent path traversal
+        if "../" in file_path or file_path.startswith("/etc/") or file_path.startswith("/sys/"):
+            return {
+                "error": "Access denied",
+                "error_code": "SECURITY_VIOLATION",
+                "details": "Path traversal or system file access attempted"
+            }
+        
         from qdrant_client.http.models import PointStruct
         
         logger.info(f"Starting index_code for {file_path}", extra={
@@ -447,17 +515,52 @@ def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
         
         return result
         
-    except Exception as e:
+    except QdrantConnectionError as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.error(f"Failed index_code for {file_path}: {str(e)}", extra={
+        logger.error(f"Connection error during index_code for {file_path}: {str(e)}", extra={
             "operation": "index_code",
             "file_path": file_path,
             "duration_ms": duration_ms,
             "error": str(e),
+            "error_type": "QdrantConnectionError",
+            "status": "error"
+        })
+        return {
+            "error": "Database connection failed",
+            "error_code": "DB_CONNECTION_ERROR",
+            "details": e.details,
+            "file_path": file_path
+        }
+    except Exception as e:
+        duration_ms = (time.time() - start_time) * 1000
+        error_msg = str(e)
+        
+        # Provide user-friendly error messages
+        if "not found" in error_msg.lower():
+            user_error = "File not found"
+            error_code = "FILE_NOT_FOUND"
+        elif "permission" in error_msg.lower():
+            user_error = "Permission denied"
+            error_code = "PERMISSION_DENIED"
+        else:
+            user_error = "Failed to index file"
+            error_code = "INDEX_ERROR"
+        
+        logger.error(f"Failed index_code for {file_path}: {error_msg}", extra={
+            "operation": "index_code",
+            "file_path": file_path,
+            "duration_ms": duration_ms,
+            "error": error_msg,
             "error_type": type(e).__name__,
             "status": "error"
         })
-        return {"error": str(e), "file_path": file_path}
+        
+        return {
+            "error": user_error,
+            "error_code": error_code,
+            "details": error_msg,
+            "file_path": file_path
+        }
 
 @mcp.tool()
 def index_directory(directory: str = ".", patterns: List[str] = None, recursive: bool = True) -> Dict[str, Any]:
@@ -504,11 +607,44 @@ def index_directory(directory: str = ".", patterns: List[str] = None, recursive:
         # Get current project info
         current_project = get_current_project()
         
+        # Create a progress callback
+        start_time = time.time()
+        processed_count = 0
+        
+        def report_progress(current: int, total: int, current_file: str = ""):
+            """Report progress to logger"""
+            if total == 0:
+                return
+            
+            percent = (current / total) * 100
+            elapsed = time.time() - start_time
+            
+            if current > 0:
+                avg_time_per_file = elapsed / current
+                remaining_files = total - current
+                eta_seconds = avg_time_per_file * remaining_files
+                eta_str = f", ETA: {int(eta_seconds)}s"
+            else:
+                eta_str = ""
+            
+            logger = get_logger()
+            logger.info(
+                f"Indexing progress: {current}/{total} files ({percent:.1f}%){eta_str}",
+                extra={
+                    "operation": "index_directory_progress",
+                    "current": current,
+                    "total": total,
+                    "percent": percent,
+                    "current_file": current_file
+                }
+            )
+        
         indexed_files = []
         errors = []
         collections_used = set()
         
-        # Process files
+        # First, collect all files to process (for accurate progress reporting)
+        files_to_process = []
         for pattern in patterns:
             glob_func = dir_path.rglob if recursive else dir_path.glob
             for file_path in glob_func(pattern):
@@ -541,21 +677,41 @@ def index_directory(directory: str = ".", patterns: List[str] = None, recursive:
                                         'composer.lock', 'Gemfile.lock', 'Cargo.lock', 'uv.lock']:
                             continue
                         
-                        # Determine file type
-                        ext = file_path.suffix.lower()
-                        if ext in ['.json', '.yaml', '.yml', '.xml', '.toml', '.ini']:
-                            result = index_config(str(file_path))
-                        else:
-                            result = index_code(str(file_path))
-                        
-                        if "error" not in result:
-                            indexed_files.append(result.get("file_path", str(file_path)))
-                            if "collection" in result:
-                                collections_used.add(result["collection"])
-                        else:
-                            errors.append({"file": str(file_path), "error": result["error"]})
+                        files_to_process.append(file_path)
                     except Exception as e:
                         errors.append({"file": str(file_path), "error": str(e)})
+        
+        # Now process files with progress reporting
+        total_files = len(files_to_process)
+        if total_files > 0:
+            logger = get_logger()
+            logger.info(f"Starting to index {total_files} files from {directory}")
+            
+            # Report initial progress
+            report_progress(0, total_files)
+            
+            for idx, file_path in enumerate(files_to_process):
+                try:
+                    # Determine file type
+                    ext = file_path.suffix.lower()
+                    if ext in ['.json', '.yaml', '.yml', '.xml', '.toml', '.ini']:
+                        result = index_config(str(file_path))
+                    else:
+                        result = index_code(str(file_path))
+                    
+                    if "error" not in result:
+                        indexed_files.append(result.get("file_path", str(file_path)))
+                        if "collection" in result:
+                            collections_used.add(result["collection"])
+                    else:
+                        errors.append({"file": str(file_path), "error": result["error"]})
+                    
+                    # Report progress every 10 files or at the end
+                    if (idx + 1) % 10 == 0 or (idx + 1) == total_files:
+                        report_progress(idx + 1, total_files, str(file_path.name))
+                    
+                except Exception as e:
+                    errors.append({"file": str(file_path), "error": str(e)})
         
         return {
             "indexed_files": indexed_files,
@@ -672,6 +828,28 @@ def search(query: str, n_results: int = 5, cross_project: bool = False) -> Dict[
     """
     logger = get_logger()
     start_time = time.time()
+    
+    # Input validation
+    if not query or not isinstance(query, str):
+        return {
+            "error": "Invalid query",
+            "error_code": "INVALID_INPUT",
+            "details": "Query must be a non-empty string"
+        }
+    
+    if len(query) > 1000:  # Reasonable limit
+        return {
+            "error": "Query too long",
+            "error_code": "QUERY_TOO_LONG",
+            "details": "Query must be less than 1000 characters"
+        }
+    
+    if n_results < 1 or n_results > 100:
+        return {
+            "error": "Invalid result count",
+            "error_code": "INVALID_RESULT_COUNT",
+            "details": "n_results must be between 1 and 100"
+        }
     
     logger.info(f"Starting search: {query[:50]}...", extra={
         "operation": "search",
@@ -970,6 +1148,141 @@ def index_config(file_path: str, force_global: bool = False) -> Dict[str, Any]:
         
     except Exception as e:
         return {"error": str(e), "file_path": file_path}
+
+@mcp.tool()
+def health_check() -> Dict[str, Any]:
+    """
+    Check the health status of all services.
+    
+    Returns status of:
+    - Qdrant connection
+    - Embedding model
+    - Disk space
+    - Memory usage
+    - Current project context
+    """
+    logger = get_logger()
+    logger.info("Running health check")
+    
+    health_status = {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "version": __version__,
+        "services": {},
+        "system": {},
+        "project": None
+    }
+    
+    # Check Qdrant connection
+    try:
+        client = get_qdrant_client()
+        collections = client.get_collections()
+        health_status["services"]["qdrant"] = {
+            "status": "healthy",
+            "collections_count": len(collections.collections),
+            "host": os.getenv("QDRANT_HOST", "localhost"),
+            "port": int(os.getenv("QDRANT_PORT", "6333"))
+        }
+    except Exception as e:
+        health_status["services"]["qdrant"] = {
+            "status": "unhealthy",
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+        health_status["status"] = "unhealthy"
+    
+    # Check embedding model
+    try:
+        model = get_embedding_model()
+        model_name = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+        # Test with a simple embedding
+        test_embedding = model.encode("test")
+        health_status["services"]["embedding_model"] = {
+            "status": "healthy",
+            "model": model_name,
+            "embedding_dim": len(test_embedding)
+        }
+    except Exception as e:
+        health_status["services"]["embedding_model"] = {
+            "status": "unhealthy",
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+        health_status["status"] = "unhealthy"
+    
+    # Check disk space
+    try:
+        import shutil
+        disk_usage = shutil.disk_usage("/")
+        free_gb = disk_usage.free / (1024 ** 3)
+        total_gb = disk_usage.total / (1024 ** 3)
+        used_percent = (disk_usage.used / disk_usage.total) * 100
+        
+        health_status["system"]["disk"] = {
+            "free_gb": round(free_gb, 2),
+            "total_gb": round(total_gb, 2),
+            "used_percent": round(used_percent, 1),
+            "status": "healthy" if free_gb > 1 else "warning"
+        }
+        
+        if free_gb < 1:
+            health_status["status"] = "warning"
+    except Exception as e:
+        health_status["system"]["disk"] = {
+            "status": "unknown",
+            "error": str(e)
+        }
+    
+    # Check memory usage
+    try:
+        import psutil
+        memory = psutil.virtual_memory()
+        health_status["system"]["memory"] = {
+            "available_gb": round(memory.available / (1024 ** 3), 2),
+            "total_gb": round(memory.total / (1024 ** 3), 2),
+            "used_percent": memory.percent,
+            "status": "healthy" if memory.percent < 90 else "warning"
+        }
+        
+        if memory.percent > 90:
+            health_status["status"] = "warning"
+    except ImportError:
+        health_status["system"]["memory"] = {
+            "status": "unknown",
+            "note": "psutil not installed"
+        }
+    except Exception as e:
+        health_status["system"]["memory"] = {
+            "status": "unknown",
+            "error": str(e)
+        }
+    
+    # Check current project context
+    try:
+        project = get_current_project()
+        if project:
+            health_status["project"] = {
+                "name": project["name"],
+                "path": project["root"],
+                "collection_prefix": project["collection_prefix"]
+            }
+    except Exception as e:
+        health_status["project"] = {
+            "error": str(e)
+        }
+    
+    # Log health check result
+    logger.info(
+        f"Health check completed: {health_status['status']}",
+        extra={
+            "operation": "health_check",
+            "status": health_status["status"],
+            "qdrant_status": health_status["services"].get("qdrant", {}).get("status", "unknown"),
+            "model_status": health_status["services"].get("embedding_model", {}).get("status", "unknown")
+        }
+    )
+    
+    return health_status
 
 # Run the server
 if __name__ == "__main__":

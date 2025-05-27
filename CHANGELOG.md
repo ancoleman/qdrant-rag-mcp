@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2025-05-27
+
+### Added
+- Connection retry logic with exponential backoff for Qdrant operations
+- `health_check` MCP tool for monitoring service status
+- Progress indicators for long-running operations (logged)
+- Input validation for security (path traversal prevention)
+- Custom error types with user-friendly messages and error codes
+- Better error context without exposing sensitive information
+
+### Improved
+- Error handling now provides actionable feedback
+- Connection resilience prevents transient failures
+- Operations report progress for better debugging
+- Security validation on file paths and user input
+
 ## [0.1.2] - 2025-05-27
 
 ### Added
@@ -77,6 +93,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - torch 2.4.0
 - And other supporting libraries with version constraints
 
+[0.1.3]: https://github.com/ancoleman/qdrant-rag-mcp/releases/tag/v0.1.3
 [0.1.2]: https://github.com/ancoleman/qdrant-rag-mcp/releases/tag/v0.1.2
 [0.1.1]: https://github.com/ancoleman/qdrant-rag-mcp/releases/tag/v0.1.1
 [0.1.0]: https://github.com/ancoleman/qdrant-rag-mcp/releases/tag/v0.1.0

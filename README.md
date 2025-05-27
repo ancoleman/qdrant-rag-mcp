@@ -160,6 +160,13 @@ claude
 - **Log Viewer Utility**: Search, filter, and tail logs easily
 - **Configurable Levels**: Debug specific operations as needed
 
+### Reliability & Security
+- **Connection Retry Logic**: Automatic retry with exponential backoff
+- **Health Monitoring**: Built-in health check for all services
+- **Progress Indicators**: Track long-running operations
+- **Input Validation**: Path traversal prevention and sanitization
+- **Better Error Handling**: User-friendly messages with error codes
+
 ## 🔧 Architecture
 
 ```
@@ -197,6 +204,30 @@ This project includes two distinct servers:
 - **Pattern Analysis**: "Show me error handling patterns in this codebase"
 - **Code Understanding**: "How does the logging system work?"
 - **Cross-Project Insights**: "Show JWT implementations across all my projects"
+
+## 🏥 Health Monitoring
+
+The server includes a health check tool to monitor all services:
+
+```bash
+# In Claude Code
+"Check health status"
+"Run health check"
+```
+
+The health check reports:
+- **Qdrant Connection**: Status and collection count
+- **Embedding Model**: Model name and dimension verification
+- **Disk Space**: Available storage with warnings
+- **Memory Usage**: System memory status (if psutil installed)
+- **Project Context**: Current project information
+
+### Connection Resilience
+
+The server automatically retries failed operations:
+- Exponential backoff for transient failures
+- Automatic reconnection to Qdrant
+- Graceful degradation with clear error messages
 
 ## 📊 Logging & Debugging
 

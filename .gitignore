@@ -52,3 +52,6 @@ Thumbs.db
 .coverage
 htmlcov/
 .pytest_cache/.claude/
+
+# Claude project file
+CLAUDE.md

@@ -6,6 +6,7 @@ A context-aware Model Context Protocol (MCP) server that provides semantic searc
 
 - **🎯 Context-Aware**: Automatically detects and scopes to your current project
 - **🔍 Hybrid Search**: Combines semantic understanding with keyword matching for +30% better precision
+- **🧠 AST-Based Chunking**: Structure-aware code parsing for Python, Shell, and Go (-40% tokens)
 - **📁 Multi-Project Support**: Keep different projects' knowledge separate
 - **🚀 Fast Local Execution**: Supports Apple Silicon MPS acceleration
 - **🔧 Specialized Indexers**: Language-aware code parsing and config file understanding
@@ -71,6 +72,7 @@ echo 'export QDRANT_RAG_AUTO_INDEX=true' >> ~/.zshrc
 
 ### Technical Documentation
 - **[Enhanced RAG Guide](docs/technical/enhanced-qdrant-rag-guide.md)** - Technical implementation details
+- **[AST Chunking Implementation](docs/technical/ast-chunking-implementation.md)** - How AST-based chunking works (v0.1.5+)
 - **[Hybrid Search Implementation](docs/technical/hybrid-search-implementation.md)** - How hybrid search works (v0.1.4+)
 - **[MCP Protocol Research](docs/technical/qdrant_mcp_research.md)** - Research on MCP protocol and race conditions
 - **[Installation Playbook](docs/technical/installation-playbook.md)** - Detailed breakdown of how installation works
@@ -143,6 +145,13 @@ claude
 - **Advanced Config Indexer**: Support for JSON, XML, YAML, TOML, INI, ENV files
 - **Structure-Aware Chunking**: Functions, classes, and config sections
 - **Rich Metadata**: Line numbers, imports, dependencies, schema extraction
+
+### AST-Based Chunking (v0.1.5+)
+- **Structure-Aware Parsing**: Uses Abstract Syntax Trees to understand code structure
+- **Complete Code Units**: Never splits functions or classes in the middle
+- **Multi-Language Support**: Python, Shell scripts (.sh, .bash), and Go (.go)
+- **Hierarchical Metadata**: Tracks relationships (module → class → method)
+- **40-60% Fewer Chunks**: More efficient token usage while preserving meaning
 
 ### Hybrid Search (v0.1.4+)
 - **Three Search Modes**: Hybrid (default), vector-only, keyword-only

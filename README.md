@@ -80,6 +80,7 @@ echo 'export QDRANT_RAG_AUTO_INDEX=true' >> ~/.zshrc
 ### I want to...
 
 - **Get started quickly** → [Complete Setup & Usage Guide](docs/complete-setup-and-usage-guide.md)
+- **Load context fast in Claude** → [Quick Context Setup](docs/quick-context-setup.md)
 - **Use RAG in ALL my projects** → [MCP Scope Configuration Guide](docs/mcp-scope-configuration-guide.md)
 - **Understand project isolation** → [Context-Aware Guide](docs/context-aware-guide.md)
 - **See practical examples** → [Usage Examples](docs/rag-usage-examples.md)

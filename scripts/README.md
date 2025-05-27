@@ -100,6 +100,20 @@ This directory contains utility scripts for the Qdrant RAG MCP Server. Each scri
 ./scripts/fix_qdrant.sh
 ```
 
+### `start-session.sh`
+**Purpose**: Start Claude Code with optimal context
+- Generates project context file
+- Enables auto-indexing
+- Provides first-command suggestions
+- **When to use**: Starting a new Claude Code session for development
+```bash
+# From any project directory
+./scripts/start-session.sh
+
+# Or from qdrant-rag directory for a different project
+./scripts/start-session.sh /path/to/project
+```
+
 ### `create-release.sh`
 **Purpose**: Create a new release with detailed notes
 - Extracts release notes from CHANGELOG.md

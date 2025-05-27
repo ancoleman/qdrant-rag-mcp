@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- `start-session.sh` script for optimal Claude Code context loading
+- Quick Context Setup guide for fast session starts
+- `create-release.sh` script for automated release tagging
+- Session starter generates project context file
+
+### Improved
+- Documentation now includes quick context loading strategies
+- Scripts README updated with new utilities
+- Main README links to quick context setup guide
+
+### Fixed
+- Git release tags now include detailed release notes (retroactively updated v0.1.1-v0.1.3)
+
 ## [0.1.3] - 2025-05-27
 
 ### Added

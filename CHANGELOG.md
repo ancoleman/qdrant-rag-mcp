@@ -132,6 +132,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - torch 2.4.0
 - And other supporting libraries with version constraints
 
+[0.1.4]: https://github.com/ancoleman/qdrant-rag-mcp/releases/tag/v0.1.4
 [0.1.3]: https://github.com/ancoleman/qdrant-rag-mcp/releases/tag/v0.1.3
 [0.1.2]: https://github.com/ancoleman/qdrant-rag-mcp/releases/tag/v0.1.2
 [0.1.1]: https://github.com/ancoleman/qdrant-rag-mcp/releases/tag/v0.1.1

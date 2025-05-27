@@ -260,6 +260,43 @@ def get_config_indexer():
         _config_indexer = ConfigIndexer()
     return _config_indexer
 
+def clear_project_collections() -> Dict[str, Any]:
+    """
+    Clear all collections for the current project.
+    Returns info about what was cleared.
+    """
+    current_project = get_current_project()
+    if not current_project:
+        return {"error": "No project context found", "cleared": []}
+    
+    client = get_qdrant_client()
+    cleared = []
+    errors = []
+    
+    # Get all collections
+    existing_collections = [c.name for c in client.get_collections().collections]
+    
+    # Find project collections
+    for collection_type in ['code', 'config']:
+        collection_name = f"{current_project['collection_prefix']}_{collection_type}"
+        
+        if collection_name in existing_collections:
+            try:
+                # Delete the collection
+                client.delete_collection(collection_name)
+                cleared.append(collection_name)
+                logger.info(f"Cleared collection: {collection_name}")
+            except Exception as e:
+                error_msg = f"Failed to clear {collection_name}: {str(e)}"
+                errors.append(error_msg)
+                logger.error(error_msg)
+    
+    return {
+        "project": current_project['name'],
+        "cleared_collections": cleared,
+        "errors": errors if errors else None
+    }
+
 @mcp.tool()
 def get_context() -> Dict[str, Any]:
     """Get current project context"""
@@ -482,6 +519,66 @@ def index_directory(directory: str = ".", patterns: List[str] = None, recursive:
             "project_context": current_project["name"] if current_project else "no project",
             "directory": str(dir_path),
             "errors": errors if errors else None
+        }
+        
+    except Exception as e:
+        return {"error": str(e), "directory": directory}
+
+@mcp.tool()
+def reindex_directory(
+    directory: str = ".", 
+    patterns: List[str] = None, 
+    recursive: bool = True,
+    force: bool = False
+) -> Dict[str, Any]:
+    """
+    Reindex a directory by first clearing existing project data.
+    
+    This prevents stale data from deleted/moved files.
+    Use this when files have been renamed, moved, or deleted.
+    
+    Args:
+        directory: Directory to reindex (default: current directory)
+        patterns: Optional file patterns to include
+        recursive: Whether to search subdirectories
+        force: Skip confirmation (for automation)
+    
+    Returns:
+        Reindex results including what was cleared and indexed
+    """
+    try:
+        # Get current project context
+        current_project = get_current_project()
+        if not current_project and not force:
+            return {
+                "error": "No project context found. Use force=True to reindex anyway.",
+                "directory": directory
+            }
+        
+        # Clear existing collections
+        clear_result = clear_project_collections()
+        
+        # Check if clear had errors
+        if clear_result.get("errors"):
+            return {
+                "error": "Failed to clear some collections",
+                "clear_errors": clear_result["errors"],
+                "directory": directory
+            }
+        
+        # Now index the directory
+        index_result = index_directory(directory, patterns, recursive)
+        
+        # Combine results
+        return {
+            "directory": directory,
+            "cleared_collections": clear_result.get("cleared_collections", []),
+            "indexed_files": index_result.get("indexed_files", []),
+            "total_indexed": index_result.get("total", 0),
+            "collections": index_result.get("collections", []),
+            "project_context": current_project["name"] if current_project else "no project",
+            "errors": index_result.get("errors"),
+            "message": f"Reindexed {index_result.get('total', 0)} files after clearing {len(clear_result.get('cleared_collections', []))} collections"
         }
         
     except Exception as e:

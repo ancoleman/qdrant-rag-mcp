@@ -1,0 +1,100 @@
+# Qdrant RAG Ignore File
+# This file specifies patterns for files and directories that should not be indexed
+
+# Version control
+.git/
+.svn/
+.hg/
+
+# Dependencies
+node_modules/
+vendor/
+bower_components/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+.env/
+ENV/
+env.bak/
+venv.bak/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.tox/
+*.egg-info/
+dist/
+build/
+
+# Data and logs
+data/
+logs/
+*.log
+*.sqlite
+*.db
+
+# IDE and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Build artifacts
+target/
+out/
+*.class
+*.jar
+*.war
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+*.orig
+
+# Lock files
+package-lock.json
+yarn.lock
+poetry.lock
+Pipfile.lock
+uv.lock
+composer.lock
+Gemfile.lock
+Cargo.lock
+
+# Environment files (excluded for security - contains secrets)
+.env
+.env.*
+!.env.example
+
+# Note: Other dotfiles like .gitignore, .dockerignore, .eslintrc 
+# are intentionally NOT excluded as they contain useful project configuration
+
+# Cache
+.cache/
+*.cache
+
+# Media files (usually not needed for code analysis)
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.mp4
+*.mp3
+*.wav
+*.pdf
+*.zip
+*.tar.gz

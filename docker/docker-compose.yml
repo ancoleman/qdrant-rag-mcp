@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  # Qdrant Vector Database - Always runs in Docker
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant_mcp
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"  # gRPC port
+    volumes:
+      - ../data/qdrant_storage:/qdrant/storage
+    environment:
+      - QDRANT__LOG_LEVEL=INFO
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    networks:
+      - mcp_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Optional: RAG Server in Docker (for testing/development)
+  # NOTE: For normal usage, the MCP server runs locally via Claude CLI
+  # Uncomment below if you need to test the server in Docker
+  
+  # rag-server:
+  #   build:
+  #     context: ..
+  #     dockerfile: docker/Dockerfile
+  #   container_name: rag_mcp_server
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8080:8080"
+  #   environment:
+  #     - QDRANT_HOST=qdrant
+  #     - QDRANT_PORT=6333
+  #     - SERVER_PORT=8080
+  #     - LOG_LEVEL=${LOG_LEVEL:-INFO}
+  #     - EMBEDDING_MODEL=${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
+  #     - SENTENCE_TRANSFORMERS_HOME=/app/data/models
+  #     - PYTHONUNBUFFERED=1
+  #     - MPS_DEVICE_ENABLE=0  # MPS doesn't work in Docker
+  #     - TOKENIZERS_PARALLELISM=${TOKENIZERS_PARALLELISM:-false}
+  #   volumes:
+  #     - ../config:/app/config
+  #     - ../logs:/app/logs
+  #     - ../data/models:/app/data/models
+  #   depends_on:
+  #     qdrant:
+  #       condition: service_healthy
+  #   networks:
+  #     - mcp_network
+
+networks:
+  mcp_network:
+    driver: bridge

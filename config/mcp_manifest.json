@@ -1,0 +1,421 @@
+{
+  "name": "qdrant-rag-server",
+  "version": "1.0.0",
+  "description": "RAG (Retrieval-Augmented Generation) server with Qdrant vector database for code and configuration indexing",
+  "author": "Your Name",
+  "license": "MIT",
+  "protocol": "http",
+  "transport": {
+    "type": "http",
+    "config": {
+      "host": "localhost",
+      "port": 8080,
+      "base_path": "/"
+    }
+  },
+  "capabilities": {
+    "index": true,
+    "search": true,
+    "delete": true,
+    "update": true,
+    "analyze": true
+  },
+  "methods": [
+    {
+      "name": "index_code",
+      "description": "Index source code files with metadata extraction",
+      "category": "indexing",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Path to the code file to index"
+          }
+        },
+        "required": ["file_path"]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "indexed": {
+            "type": "integer",
+            "description": "Number of chunks indexed"
+          },
+          "file_path": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "name": "index_config",
+      "description": "Index configuration files (JSON, XML, YAML)",
+      "category": "indexing",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Path to the configuration file"
+          }
+        },
+        "required": ["file_path"]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "indexed": {
+            "type": "integer"
+          },
+          "file_path": {
+            "type": "string"
+          },
+          "file_type": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "index_directory",
+      "description": "Index an entire directory recursively",
+      "category": "indexing",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "directory": {
+            "type": "string",
+            "description": "Path to the directory to index"
+          },
+          "patterns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "File patterns to index (e.g., *.py, *.js)",
+            "default": ["*.py", "*.js", "*.java", "*.json", "*.xml", "*.yaml", "*.yml"]
+          }
+        },
+        "required": ["directory"]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "indexed_files": {
+            "type": "array"
+          },
+          "total": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "search",
+      "description": "Search across all indexed content",
+      "category": "search",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query"
+          },
+          "n_results": {
+            "type": "integer",
+            "description": "Number of results to return",
+            "default": 5
+          }
+        },
+        "required": ["query"]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "score": {
+                  "type": "number"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "payload": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "query": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "search_code",
+      "description": "Search specifically in code files",
+      "category": "search",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query"
+          },
+          "n_results": {
+            "type": "integer",
+            "default": 5
+          },
+          "filters": {
+            "type": "object",
+            "description": "Additional filters (e.g., file_type, language)",
+            "properties": {
+              "file_type": {
+                "type": "string"
+              },
+              "language": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "search_config",
+      "description": "Search specifically in configuration files",
+      "category": "search",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "n_results": {
+            "type": "integer",
+            "default": 5
+          },
+          "file_type": {
+            "type": "string",
+            "description": "Filter by config file type (json, xml, yaml)"
+          }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "get_context",
+      "description": "Get surrounding context for a specific code chunk",
+      "category": "search",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string"
+          },
+          "chunk_index": {
+            "type": "integer",
+            "default": 0
+          },
+          "context_size": {
+            "type": "integer",
+            "description": "Number of chunks before and after",
+            "default": 2
+          }
+        },
+        "required": ["file_path"]
+      }
+    },
+    {
+      "name": "update_index",
+      "description": "Update an existing file in the index",
+      "category": "index",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string"
+          }
+        },
+        "required": ["file_path"]
+      }
+    },
+    {
+      "name": "delete_document",
+      "description": "Remove a file from the index",
+      "category": "index",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string"
+          }
+        },
+        "required": ["file_path"]
+      }
+    },
+    {
+      "name": "should_activate",
+      "description": "Check if server should handle a query",
+      "category": "meta",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": ["query"]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "should_activate": {
+            "type": "boolean"
+          },
+          "trigger_type": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_stats",
+      "description": "Get indexing and search statistics",
+      "category": "meta",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "indexed_files": {
+            "type": "integer"
+          },
+          "total_chunks": {
+            "type": "integer"
+          },
+          "collections": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "name": "health",
+      "description": "Health check endpoint",
+      "category": "meta",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "services": {
+            "type": "object"
+          },
+          "uptime": {
+            "type": "number"
+          }
+        }
+      }
+    }
+  ],
+  "configuration": {
+    "embeddings": {
+      "description": "Embedding model configuration",
+      "type": "object",
+      "properties": {
+        "model": {
+          "type": "string",
+          "default": "all-MiniLM-L6-v2",
+          "description": "Sentence transformer model to use"
+        },
+        "device": {
+          "type": "string",
+          "enum": ["auto", "cpu", "cuda", "mps"],
+          "default": "auto",
+          "description": "Device to run embeddings on"
+        },
+        "batch_size": {
+          "type": "integer",
+          "default": 32,
+          "description": "Batch size for embedding generation"
+        }
+      }
+    },
+    "indexing": {
+      "description": "Indexing configuration",
+      "type": "object",
+      "properties": {
+        "chunk_size": {
+          "type": "integer",
+          "default": 1000,
+          "description": "Default chunk size for text splitting"
+        },
+        "chunk_overlap": {
+          "type": "integer",
+          "default": 200,
+          "description": "Overlap between chunks"
+        },
+        "code_chunk_size": {
+          "type": "integer",
+          "default": 1500,
+          "description": "Chunk size for code files"
+        }
+      }
+    },
+    "search": {
+      "description": "Search configuration",
+      "type": "object",
+      "properties": {
+        "max_results": {
+          "type": "integer",
+          "default": 5,
+          "description": "Maximum number of search results"
+        },
+        "score_threshold": {
+          "type": "number",
+          "default": 0.7,
+          "description": "Minimum similarity score threshold"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "qdrant-client": ">=1.7.3",
+    "sentence-transformers": ">=2.3.1",
+    "langchain": ">=0.1.4",
+    "mcp": ">=0.1.0"
+  },
+  "startup": {
+    "command": "./scripts/start_server.sh",
+    "environment": {
+      "PYTHONPATH": "/app",
+      "LOG_LEVEL": "INFO"
+    },
+    "health_check": {
+      "endpoint": "/health",
+      "interval": 30,
+      "timeout": 5,
+      "retries": 3
+    }
+  }
+}

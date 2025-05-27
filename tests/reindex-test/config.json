@@ -1,0 +1,21 @@
+{
+  "project": "reindex-test",
+  "version": "1.0.0",
+  "description": "Test project for reindex functionality",
+  "settings": {
+    "greeting": {
+      "default": "Hello",
+      "formal": "Good day",
+      "casual": "Hey"
+    },
+    "farewell": {
+      "default": "Goodbye",
+      "formal": "Farewell",
+      "casual": "See ya"
+    }
+  },
+  "test_data": {
+    "users": ["Alice", "Bob", "Charlie"],
+    "messages": ["Test message 1", "Test message 2"]
+  }
+}

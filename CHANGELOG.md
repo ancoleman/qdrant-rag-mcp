@@ -5,17 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.1] - 2025-05-27
 
 ### Added
 - New `reindex_directory` MCP tool for clean reindexing
 - `clear_project_collections()` helper function to remove stale data
 - Force flag for automated reindexing workflows
 - Documentation explaining when to use reindex vs index
+- Test suite for reindex functionality in `tests/reindex-test/`
+- Comprehensive reindex testing plan in `docs/technical/reindex-testing-plan.md`
 
 ### Fixed
 - Stale data persisting after file deletions/renames
 - Search results showing non-existent files
+
+### Changed
+- Updated `src/__init__.py` with correct author information
 
 ## [0.1.0] - 2025-05-27
 
@@ -58,4 +63,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - torch 2.4.0
 - And other supporting libraries with version constraints
 
+[0.1.1]: https://github.com/ancoleman/qdrant-rag-mcp/releases/tag/v0.1.1
 [0.1.0]: https://github.com/ancoleman/qdrant-rag-mcp/releases/tag/v0.1.0

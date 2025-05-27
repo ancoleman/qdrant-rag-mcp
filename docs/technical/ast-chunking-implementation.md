@@ -1,6 +1,6 @@
 # AST-Based Hierarchical Chunking Implementation
 
-This document describes the AST-based chunking feature implemented in v0.1.5 of the Qdrant RAG MCP Server.
+This document describes the AST-based chunking feature implemented in v0.1.5-v0.1.6 of the Qdrant RAG MCP Server.
 
 ## Overview
 
@@ -10,6 +10,7 @@ AST (Abstract Syntax Tree) based chunking is a revolutionary approach to code in
 - **Better search results** as chunks represent meaningful code units
 - **Hierarchical context** with relationships between classes, methods, and functions
 - **Progressive retrieval** - fetch only the specific method/class needed
+- **Multi-language support** - Python (v0.1.5), Shell scripts, and Go (v0.1.6)
 
 ## Architecture
 
@@ -90,10 +91,31 @@ def update_user(self, user_id, **kwargs):
     # ... rest of method
 ```
 
+## Supported Languages
+
+### Python (v0.1.5)
+- Uses built-in `ast` module for parsing
+- Preserves complete functions, classes, and methods
+- Groups imports together
+- Maintains docstrings and decorators
+
+### Shell Scripts (v0.1.6)
+- Supports `.sh` and `.bash` files
+- Extracts shell functions with proper boundaries
+- Separates setup/configuration code from functions
+- Handles both `function name() {}` and `name() {}` syntax
+
+### Go (v0.1.6)
+- Supports `.go` files
+- Extracts packages, imports, functions, methods, structs, and interfaces
+- Preserves Go's visibility rules (exported vs unexported)
+- Maintains receiver types for methods
+
 ## Chunk Types
 
-The AST chunker creates several types of chunks:
+The AST chunker creates language-specific chunk types:
 
+### Python
 1. **imports** - All import statements grouped together
 2. **class** - Complete class (if small enough)
 3. **class_definition** - Class signature and docstring (for large classes)
@@ -101,10 +123,24 @@ The AST chunker creates several types of chunks:
 5. **method** - Class methods
 6. **module** - Module-level code and scripts
 
+### Shell Scripts
+1. **setup** - Top-level variables and configuration before first function
+2. **function** - Shell functions
+3. **script** - Complete script (when no functions are found)
+
+### Go
+1. **package** - Package declaration and imports
+2. **function** - Standalone functions
+3. **method** - Methods with receivers
+4. **struct** - Struct definitions
+5. **interface** - Interface definitions
+6. **module** - Fallback for unparseable files
+
 ## Metadata Structure
 
 Each AST chunk includes rich metadata:
 
+### Python Example
 ```json
 {
   "chunk_type": "method",
@@ -121,8 +157,37 @@ Each AST chunk includes rich metadata:
   },
   "returns": "bool",
   "is_method": true,
+  "language": "python",
   "line_start": 15,
   "line_end": 28
+}
+```
+
+### Shell Script Example
+```json
+{
+  "chunk_type": "function",
+  "name": "setup_environment",
+  "hierarchy": ["script", "setup_environment"],
+  "language": "shell",
+  "is_exported": false,
+  "line_start": 14,
+  "line_end": 24
+}
+```
+
+### Go Example
+```json
+{
+  "chunk_type": "method",
+  "name": "Info",
+  "hierarchy": ["package", "SimpleLogger", "Info"],
+  "language": "go",
+  "is_method": true,
+  "receiver_type": "SimpleLogger",
+  "is_exported": true,
+  "line_start": 34,
+  "line_end": 36
 }
 ```
 
@@ -172,29 +237,37 @@ results = await mcp.search({"query": "user authentication"})
 
 ## Future Enhancements
 
-1. **Language Support**
-   - JavaScript/TypeScript (using babel parser)
+1. **Additional Language Support**
+   - JavaScript/TypeScript (using babel parser or tree-sitter)
    - Java (using JavaParser)
-   - Go (using go/ast)
+   - Rust (using syn or tree-sitter)
+   - C/C++ (using tree-sitter)
 
 2. **Advanced Features**
    - Cross-reference analysis
    - Dependency graph building
    - Call hierarchy tracking
+   - Symbol resolution
 
 3. **Optimizations**
    - Incremental AST updates
    - Cached parse trees
    - Parallel parsing
+   - Language server protocol integration
 
 ## Configuration
 
-AST chunking is enabled by default for Python files. To disable:
+AST chunking is enabled by default for supported languages (Python, Shell, Go). To disable:
 
 ```python
 # In code_indexer.py initialization
 indexer = CodeIndexer(use_ast_chunking=False)
 ```
+
+Supported file extensions:
+- Python: `.py`
+- Shell: `.sh`, `.bash`
+- Go: `.go`
 
 ## Migration
 

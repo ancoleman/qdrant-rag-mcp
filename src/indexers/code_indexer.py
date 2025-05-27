@@ -83,14 +83,17 @@ class CodeIndexer:
             raise FileNotFoundError(f"File not found: {file_path}")
         
         # Check if we should use AST chunking
-        if self.use_ast_chunking and file_path.suffix == '.py':
+        ast_supported = ['.py', '.sh', '.bash', '.go']
+        if self.use_ast_chunking and file_path.suffix in ast_supported:
             return self._index_with_ast(file_path)
         else:
             return self._index_with_text_splitter(file_path)
     
     def _index_with_ast(self, file_path: Path) -> List[CodeChunk]:
         """Index using AST-based chunking"""
-        ast_chunker = create_ast_chunker('python', 
+        # Determine language from extension
+        language = file_path.suffix
+        ast_chunker = create_ast_chunker(language, 
                                        max_chunk_size=self.chunk_size,
                                        min_chunk_size=100)
         
@@ -106,11 +109,14 @@ class CodeIndexer:
             code_chunks = []
             for ast_chunk in ast_chunks:
                 # Extract metadata from AST chunk
+                # Get language from metadata or infer from extension
+                lang = ast_chunk.metadata.get('language', self.get_language_from_file(str(file_path)))
+                
                 metadata = {
                     "file_path": str(file_path),
                     "file_name": file_path.name,
                     "file_type": file_path.suffix,
-                    "language": "python",
+                    "language": lang,
                     "chunk_type": ast_chunk.chunk_type,
                     "hierarchy": ast_chunk.hierarchy,
                     "name": ast_chunk.name,
@@ -351,7 +357,8 @@ class CodeIndexer:
             ".scala": "scala",
             ".r": "r",
             ".m": "matlab",
-            ".sh": "bash",
+            ".sh": "shell",
+            ".bash": "shell",
             ".ps1": "powershell"
         }
         

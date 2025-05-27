@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6] - 2025-05-27
+
+### Added
+- **Extended AST Support** for Shell scripts and Go language
+- Shell script chunking (`.sh`, `.bash`) with function extraction
+- Go code chunking (`.go`) with package, struct, interface, and method support
+- Language-specific metadata for better code understanding
+- Test suite for multi-language AST chunking
+
+### Changed
+- AST chunking now supports Python, Shell, and Go files
+- CodeIndexer automatically detects language from file extension
+- Improved factory pattern for creating language-specific chunkers
+
+### Technical Details
+- ShellScriptChunker extracts functions and setup code separately
+- GoChunker preserves Go's visibility rules (exported vs unexported)
+- Hierarchical metadata maintained across all supported languages
+
 ## [0.1.5] - 2025-05-27
 
 ### Added

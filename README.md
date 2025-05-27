@@ -119,6 +119,21 @@ claude
 # Just search - no manual indexing needed
 ```
 
+**Reindexing (Clean Index)**
+```bash
+# Use reindex when files have been:
+# - Renamed or moved
+# - Deleted
+# - You see stale results
+
+# In Claude:
+# "Reindex this project" - Clears old data before indexing
+# "Reindex the src directory" - Clean reindex of specific directory
+
+# Regular index only adds new content
+# Reindex removes old + adds new content
+```
+
 ## ✨ Key Features
 
 ### Enhanced Indexing

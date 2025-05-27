@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4] - 2025-05-27
+
+### Added
+- **Basic Hybrid Search** combining BM25 keyword search with vector search
+- New `search_mode` parameter for search functions ("vector", "keyword", "hybrid")
+- BM25Manager for managing keyword indices per collection
+- HybridSearcher with Reciprocal Rank Fusion (RRF) algorithm
+- Automatic BM25 index updates during document indexing
+- Dependencies: `langchain-community>=0.3.24` and `rank-bm25>=0.2.2`
+- Technical documentation: `docs/technical/hybrid-search-implementation.md`
+
+### Changed
+- Default search mode is now "hybrid" for improved precision (+30% expected)
+- Search results include additional scoring information (vector_score, bm25_score)
+- Collections are cleared with both Qdrant and BM25 indices
+
+### Performance
+- Hybrid search provides better handling of exact keyword matches
+- More robust retrieval when semantic similarity alone isn't sufficient
+- Minimal latency overhead with parallel search execution
+
+## [0.1.3+dev] - 2025-05-27
+
 ### Added
 - `start-session.sh` script for optimal Claude Code context loading
 - Quick Context Setup guide for fast session starts

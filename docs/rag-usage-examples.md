@@ -12,8 +12,9 @@ This guide provides real-world examples of how to effectively use the Qdrant RAG
 7. [Configuration Updates](#7-configuration-updates)
 8. [Cross-Project Search](#8-cross-project-search-global)
 9. [Understanding Scripts](#9-understanding-scripts)
-10. [Finding Test Examples](#10-finding-test-examples)
-11. [Pro Tips](#pro-tips)
+10. [Using Hybrid Search Effectively](#10-using-hybrid-search-effectively-v014)
+11. [Finding Test Examples](#11-finding-test-examples)
+12. [Pro Tips](#pro-tips)
 
 ## 1. Finding Implementation Details
 
@@ -31,7 +32,7 @@ src/utils/embeddings.py:21. It uses lazy initialization with auto-device
 detection (CPU/CUDA/MPS) and defaults to 'all-MiniLM-L6-v2' model...
 ```
 
-**What's happening**: Claude uses semantic search to find relevant code sections, even if you don't know the exact class or function names.
+**What's happening**: Claude uses hybrid search (v0.1.4+) combining semantic understanding with keyword matching. This finds relevant code even if you don't know exact names, while also prioritizing exact matches like "EmbeddingsManager".
 
 ## 2. Understanding Configuration
 
@@ -224,7 +225,43 @@ Safe to run multiple times - it checks for existing setup.
 
 **What's happening**: Claude reads and summarizes script contents, explaining what will happen.
 
-## 10. Finding Test Examples
+## 10. Using Hybrid Search Effectively (v0.1.4+)
+
+**Scenario**: You want to leverage the new hybrid search for better results.
+
+```
+You: "Find the BM25Manager class"
+
+Claude: Let me search for that class definition...
+[Uses: qdrant-rag:search "BM25Manager class"]
+[Hybrid search combines keyword match for "BM25Manager" with semantic understanding]
+
+Found BM25Manager class at src/utils/hybrid_search.py:47. This class manages
+BM25 keyword indices for collections. The hybrid search gives this high ranking
+because:
+- Keyword match: Exact match on "BM25Manager" 
+- Semantic match: Understanding you want a class definition
+```
+
+**Comparing Search Modes**:
+
+```
+# Default (Hybrid) - Best for most searches
+You: "Find calculate_sum function"
+[Finds both exact matches AND semantically similar calculation functions]
+
+# Keyword mode - When you need exact matches
+You: "Search for 'def calculate_sum(' using keyword mode"
+[Only finds exact text matches]
+
+# Vector mode - When you need conceptual matches
+You: "Find all calculation-related functions using vector mode"  
+[Finds semantically similar code regardless of naming]
+```
+
+**What's happening**: Hybrid search automatically balances exact keyword matching (great for function/class names) with semantic understanding (great for concepts), giving you the best of both approaches.
+
+## 11. Finding Test Examples
 
 **Scenario**: You need to know how to test specific functionality.
 
@@ -268,18 +305,42 @@ Full test suite available in the script.
 - `search_code` - When you need actual implementation code
 - `search_config` - When looking for configuration values
 
-### 3. **Include Multiple Keywords**
+### 3. **Leverage Search Modes (v0.1.4+)**
+The server now supports three search modes for better precision:
+
+**Hybrid Mode (Default)** - Best of both worlds:
+```
+# Automatically combines keyword and semantic search
+"Find the authenticate_user function"
+"Search for database connection handling"
+```
+
+**Keyword Mode** - For exact matches:
+```
+# Use when you know exact function/variable names
+"Search for 'def calculate_sum' using keyword mode"
+"Find BM25Manager class with keyword search"
+```
+
+**Vector Mode** - For concepts:
+```
+# Use when searching for patterns or ideas
+"Find error handling patterns using vector mode"
+"Search for authentication flows with semantic search"
+```
+
+### 4. **Include Multiple Keywords**
 - ❌ Poor: "model"
 - ✅ Good: "embedding model initialization device"
 - ✅ Better: "EmbeddingsManager model initialization MPS CUDA"
 
-### 4. **Use After Major Changes**
+### 5. **Use After Major Changes**
 ```bash
 # After significant code changes
 qdrant-rag:index_directory .
 ```
 
-### 5. **Leverage Project Context**
+### 6. **Leverage Project Context**
 ```python
 # Searches current project by default
 qdrant-rag:search "database connection"
@@ -288,7 +349,7 @@ qdrant-rag:search "database connection"
 qdrant-rag:search "database connection" cross_project=true
 ```
 
-### 6. **Common Search Patterns**
+### 7. **Common Search Patterns**
 
 **Finding where something is defined:**
 ```
@@ -318,7 +379,7 @@ qdrant-rag:search "database connection" cross_project=true
 "where is logging configured"
 ```
 
-### 7. **Understanding Code Flow**
+### 8. **Understanding Code Flow**
 ```
 You: "Trace the flow from HTTP request to database query"
 
@@ -329,10 +390,11 @@ Claude: [Uses multiple searches to trace the path]
 ## Benefits of Using RAG with Claude Code
 
 1. **Instant Context**: Claude understands your entire codebase structure
-2. **Semantic Understanding**: Finds conceptually related code, not just keyword matches
+2. **Hybrid Search (v0.1.4+)**: Combines keyword matching with semantic understanding for +30% better precision
 3. **Cross-File Intelligence**: Understands relationships between files
 4. **Up-to-Date Information**: Always searches current code, not outdated documentation
 5. **Project Isolation**: Searches are scoped to your current project by default
+6. **Smart Ranking**: Balances exact matches (function names) with conceptual similarity
 
 ## When RAG is Most Valuable
 

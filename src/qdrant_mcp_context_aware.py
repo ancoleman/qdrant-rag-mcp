@@ -36,6 +36,8 @@ mcp = FastMCP("qdrant-rag-context")
 
 # Import project-aware logging
 from utils.logging import get_project_logger, get_error_logger, log_operation
+# Import hybrid search
+from utils.hybrid_search import get_hybrid_searcher
 
 # Configure basic console logging for startup messages
 logging.basicConfig(
@@ -352,6 +354,11 @@ def clear_project_collections() -> Dict[str, Any]:
                 # Delete the collection
                 client.delete_collection(collection_name)
                 cleared.append(collection_name)
+                
+                # Clear BM25 index
+                hybrid_searcher = get_hybrid_searcher()
+                hybrid_searcher.bm25_manager.clear_index(collection_name)
+                
                 get_logger().info(f"Cleared collection: {collection_name}")
             except Exception as e:
                 error_msg = f"Failed to clear {collection_name}: {str(e)}"
@@ -494,6 +501,47 @@ def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
                 collection_name=collection_name,
                 points=points
             )
+            
+            # Update BM25 index
+            hybrid_searcher = get_hybrid_searcher()
+            documents = []
+            for i, chunk in enumerate(chunks):
+                doc = {
+                    "id": f"{str(abs_path)}_{chunk.chunk_index}",
+                    "content": chunk.content,
+                    "file_path": str(abs_path),
+                    "chunk_index": chunk.chunk_index,
+                    "line_start": chunk.line_start,
+                    "line_end": chunk.line_end,
+                    "language": chunk.metadata.get("language", ""),
+                    "chunk_type": chunk.metadata.get("chunk_type", "general")
+                }
+                documents.append(doc)
+            
+            # Get all documents in collection for BM25 update
+            # Note: In production, we'd want incremental updates
+            all_docs = []
+            scroll_result = qdrant_client.scroll(
+                collection_name=collection_name,
+                limit=100,
+                with_payload=True,
+                with_vectors=False
+            )
+            
+            for point in scroll_result[0]:
+                doc = {
+                    "id": f"{point.payload['file_path']}_{point.payload['chunk_index']}",
+                    "content": point.payload.get("content", ""),
+                    "file_path": point.payload.get("file_path", ""),
+                    "chunk_index": point.payload.get("chunk_index", 0),
+                    "line_start": point.payload.get("line_start", 0),
+                    "line_end": point.payload.get("line_end", 0),
+                    "language": point.payload.get("language", ""),
+                    "chunk_type": point.payload.get("chunk_type", "general")
+                }
+                all_docs.append(doc)
+                
+            hybrid_searcher.bm25_manager.update_index(collection_name, all_docs)
         
         duration_ms = (time.time() - start_time) * 1000
         result = {
@@ -817,7 +865,7 @@ def reindex_directory(
         return {"error": str(e), "directory": directory}
 
 @mcp.tool()
-def search(query: str, n_results: int = 5, cross_project: bool = False) -> Dict[str, Any]:
+def search(query: str, n_results: int = 5, cross_project: bool = False, search_mode: str = "hybrid") -> Dict[str, Any]:
     """
     Search indexed content (defaults to current project only)
     
@@ -825,6 +873,7 @@ def search(query: str, n_results: int = 5, cross_project: bool = False) -> Dict[
         query: Search query
         n_results: Number of results
         cross_project: If True, search across all projects (default: False)
+        search_mode: Search mode - "vector", "keyword", or "hybrid" (default: "hybrid")
     """
     logger = get_logger()
     start_time = time.time()
@@ -855,7 +904,8 @@ def search(query: str, n_results: int = 5, cross_project: bool = False) -> Dict[
         "operation": "search",
         "query_length": len(query),
         "n_results": n_results,
-        "cross_project": cross_project
+        "cross_project": cross_project,
+        "search_mode": search_mode
     })
     
     try:
@@ -888,25 +938,138 @@ def search(query: str, n_results: int = 5, cross_project: bool = False) -> Dict[
         
         # Search across collections
         all_results = []
+        hybrid_searcher = get_hybrid_searcher()
         
         for collection in search_collections:
             try:
-                results = qdrant_client.search(
-                    collection_name=collection,
-                    query_vector=query_embedding,
-                    limit=n_results
-                )
-                
-                for result in results:
-                    payload = result.payload
-                    all_results.append({
-                        "score": result.score,
-                        "type": "code" if "_code" in collection else "config",
-                        "collection": collection,
-                        **payload
-                    })
+                if search_mode == "vector":
+                    # Vector search only
+                    results = qdrant_client.search(
+                        collection_name=collection,
+                        query_vector=query_embedding,
+                        limit=n_results
+                    )
+                    
+                    for result in results:
+                        payload = result.payload
+                        all_results.append({
+                            "score": result.score,
+                            "type": "code" if "_code" in collection else "config",
+                            "collection": collection,
+                            **payload
+                        })
+                        
+                elif search_mode == "keyword":
+                    # BM25 keyword search only
+                    bm25_results = hybrid_searcher.bm25_manager.search(
+                        collection_name=collection,
+                        query=query,
+                        k=n_results
+                    )
+                    
+                    # Fetch full documents from Qdrant
+                    for doc_id, score in bm25_results:
+                        # Parse doc_id to get file_path and chunk_index
+                        parts = doc_id.rsplit('_', 1)
+                        if len(parts) == 2:
+                            file_path = parts[0]
+                            chunk_index = int(parts[1])
+                            
+                            # Fetch from Qdrant
+                            filter_conditions = {
+                                "must": [
+                                    {"key": "file_path", "match": {"value": file_path}},
+                                    {"key": "chunk_index", "match": {"value": chunk_index}}
+                                ]
+                            }
+                            
+                            search_result = qdrant_client.search(
+                                collection_name=collection,
+                                query_vector=[0.0] * 384,  # Dummy vector
+                                query_filter=filter_conditions,
+                                limit=1
+                            )
+                            
+                            if search_result:
+                                payload = search_result[0].payload
+                                all_results.append({
+                                    "score": score,
+                                    "type": "code" if "_code" in collection else "config",
+                                    "collection": collection,
+                                    **payload
+                                })
+                                
+                else:  # hybrid mode
+                    # Get vector search results
+                    vector_results = []
+                    vector_scores_map = {}  # Store vector scores by doc_id
+                    search_results = qdrant_client.search(
+                        collection_name=collection,
+                        query_vector=query_embedding,
+                        limit=n_results * 2  # Get more for fusion
+                    )
+                    
+                    for result in search_results:
+                        doc_id = f"{result.payload['file_path']}_{result.payload['chunk_index']}"
+                        score = float(result.score)
+                        vector_results.append((doc_id, score))
+                        vector_scores_map[doc_id] = score
+                    
+                    # Get BM25 results
+                    bm25_results = hybrid_searcher.bm25_manager.search(
+                        collection_name=collection,
+                        query=query,
+                        k=n_results * 2
+                    )
+                    bm25_scores_map = {doc_id: score for doc_id, score in bm25_results}
+                    
+                    # Fuse results using RRF
+                    fused_results = hybrid_searcher.reciprocal_rank_fusion(
+                        vector_results=vector_results,
+                        bm25_results=bm25_results,
+                        k=60,
+                        vector_weight=0.7,
+                        bm25_weight=0.3
+                    )
+                    
+                    # Fetch full documents for top results
+                    for result in fused_results[:n_results]:
+                        doc_id = result.content  # doc_id is stored in content field
+                        parts = doc_id.rsplit('_', 1)
+                        if len(parts) == 2:
+                            file_path = parts[0]
+                            chunk_index = int(parts[1])
+                            
+                            # Fetch from Qdrant
+                            filter_conditions = {
+                                "must": [
+                                    {"key": "file_path", "match": {"value": file_path}},
+                                    {"key": "chunk_index", "match": {"value": chunk_index}}
+                                ]
+                            }
+                            
+                            search_result = qdrant_client.search(
+                                collection_name=collection,
+                                query_vector=[0.0] * 384,  # Dummy vector
+                                query_filter=filter_conditions,
+                                limit=1
+                            )
+                            
+                            if search_result:
+                                payload = search_result[0].payload
+                                all_results.append({
+                                    "score": result.combined_score,
+                                    "vector_score": vector_scores_map.get(doc_id, None),
+                                    "bm25_score": bm25_scores_map.get(doc_id, None),
+                                    "type": "code" if "_code" in collection else "config",
+                                    "collection": collection,
+                                    "search_mode": search_mode,
+                                    **payload
+                                })
+                                
             except Exception as e:
                 # Skip if collection doesn't exist
+                logger.debug(f"Error searching collection {collection}: {e}")
                 pass
         
         # Sort by score
@@ -923,6 +1086,7 @@ def search(query: str, n_results: int = 5, cross_project: bool = False) -> Dict[
             "total": len(all_results),
             "project_context": current_project["name"] if current_project else "no project",
             "search_scope": "all projects" if cross_project else "current project",
+            "search_mode": search_mode,
             "collections_searched": search_collections
         }
         
@@ -932,6 +1096,7 @@ def search(query: str, n_results: int = 5, cross_project: bool = False) -> Dict[
             "duration_ms": duration_ms,
             "results_found": len(all_results),
             "collections_searched": len(search_collections),
+            "search_mode": search_mode,
             "status": "success"
         })
         
@@ -950,7 +1115,7 @@ def search(query: str, n_results: int = 5, cross_project: bool = False) -> Dict[
         return {"error": str(e), "query": query}
 
 @mcp.tool()
-def search_code(query: str, language: Optional[str] = None, n_results: int = 5, cross_project: bool = False) -> Dict[str, Any]:
+def search_code(query: str, language: Optional[str] = None, n_results: int = 5, cross_project: bool = False, search_mode: str = "hybrid") -> Dict[str, Any]:
     """
     Search specifically in code files (defaults to current project)
     
@@ -959,6 +1124,7 @@ def search_code(query: str, language: Optional[str] = None, n_results: int = 5, 
         language: Filter by programming language
         n_results: Number of results
         cross_project: If True, search across all projects
+        search_mode: Search mode - "vector", "keyword", or "hybrid" (default: "hybrid")
     """
     try:
         embedding_model = get_embedding_model()
@@ -1137,6 +1303,44 @@ def index_config(file_path: str, force_global: bool = False) -> Dict[str, Any]:
                 collection_name=collection_name,
                 points=points
             )
+            
+            # Update BM25 index
+            hybrid_searcher = get_hybrid_searcher()
+            documents = []
+            for i, chunk in enumerate(chunks):
+                doc = {
+                    "id": f"{str(abs_path)}_{chunk.chunk_index}",
+                    "content": chunk.content,
+                    "file_path": str(abs_path),
+                    "chunk_index": chunk.chunk_index,
+                    "file_type": chunk.metadata.get("file_type", ""),
+                    "path": chunk.metadata.get("path", ""),
+                    "value": chunk.metadata.get("value", "")
+                }
+                documents.append(doc)
+            
+            # Get all documents in collection for BM25 update
+            all_docs = []
+            scroll_result = qdrant_client.scroll(
+                collection_name=collection_name,
+                limit=100,
+                with_payload=True,
+                with_vectors=False
+            )
+            
+            for point in scroll_result[0]:
+                doc = {
+                    "id": f"{point.payload['file_path']}_{point.payload['chunk_index']}",
+                    "content": point.payload.get("content", ""),
+                    "file_path": point.payload.get("file_path", ""),
+                    "chunk_index": point.payload.get("chunk_index", 0),
+                    "file_type": point.payload.get("file_type", ""),
+                    "path": point.payload.get("path", ""),
+                    "value": point.payload.get("value", "")
+                }
+                all_docs.append(doc)
+                
+            hybrid_searcher.bm25_manager.update_index(collection_name, all_docs)
         
         return {
             "indexed": len(chunks),

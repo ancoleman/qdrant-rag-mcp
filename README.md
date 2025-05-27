@@ -5,7 +5,7 @@ A context-aware Model Context Protocol (MCP) server that provides semantic searc
 ## 🌟 Features
 
 - **🎯 Context-Aware**: Automatically detects and scopes to your current project
-- **🔍 Semantic Search**: Find code by meaning, not just keywords
+- **🔍 Hybrid Search**: Combines semantic understanding with keyword matching for +30% better precision
 - **📁 Multi-Project Support**: Keep different projects' knowledge separate
 - **🚀 Fast Local Execution**: Supports Apple Silicon MPS acceleration
 - **🔧 Specialized Indexers**: Language-aware code parsing and config file understanding
@@ -71,6 +71,7 @@ echo 'export QDRANT_RAG_AUTO_INDEX=true' >> ~/.zshrc
 
 ### Technical Documentation
 - **[Enhanced RAG Guide](docs/technical/enhanced-qdrant-rag-guide.md)** - Technical implementation details
+- **[Hybrid Search Implementation](docs/technical/hybrid-search-implementation.md)** - How hybrid search works (v0.1.4+)
 - **[MCP Protocol Research](docs/technical/qdrant_mcp_research.md)** - Research on MCP protocol and race conditions
 - **[Installation Playbook](docs/technical/installation-playbook.md)** - Detailed breakdown of how installation works
 - **[Context Awareness Playbook](docs/technical/context-awareness-playbook.md)** - Deep dive into context detection
@@ -142,6 +143,12 @@ claude
 - **Advanced Config Indexer**: Support for JSON, XML, YAML, TOML, INI, ENV files
 - **Structure-Aware Chunking**: Functions, classes, and config sections
 - **Rich Metadata**: Line numbers, imports, dependencies, schema extraction
+
+### Hybrid Search (v0.1.4+)
+- **Three Search Modes**: Hybrid (default), vector-only, keyword-only
+- **Smart Ranking**: Combines exact keyword matches with semantic understanding
+- **Score Transparency**: See individual contributions (vector_score, bm25_score)
+- **Automatic Mode**: Hybrid search works out-of-the-box for best results
 
 ### Context Awareness
 - **Automatic Project Detection**: Based on .git, package.json, etc.

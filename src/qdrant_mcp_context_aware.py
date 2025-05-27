@@ -478,20 +478,35 @@ def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
             # Generate unique chunk ID
             chunk_id = hashlib.md5(f"{abs_path}_{chunk.chunk_index}".encode()).hexdigest()
             
+            # Build payload with hierarchical metadata
+            payload = {
+                "file_path": str(abs_path),
+                "display_path": display_path,
+                "chunk_index": chunk.chunk_index,
+                "line_start": chunk.line_start,
+                "line_end": chunk.line_end,
+                "language": chunk.metadata.get("language", ""),
+                "content": chunk.content,
+                "chunk_type": chunk.metadata.get("chunk_type", "general"),
+                "project": collection_name.rsplit('_', 1)[0]
+            }
+            
+            # Add hierarchical metadata if available
+            if "hierarchy" in chunk.metadata:
+                payload["hierarchy"] = chunk.metadata["hierarchy"]
+            if "name" in chunk.metadata:
+                payload["name"] = chunk.metadata["name"]
+            
+            # Add any additional metadata
+            for key in ["async", "decorators", "args", "returns", "is_method", "bases", 
+                       "method_count", "import_count", "modules", "has_methods"]:
+                if key in chunk.metadata:
+                    payload[key] = chunk.metadata[key]
+            
             point = PointStruct(
                 id=chunk_id,
                 vector=embedding,
-                payload={
-                    "file_path": str(abs_path),
-                    "display_path": display_path,
-                    "chunk_index": chunk.chunk_index,
-                    "line_start": chunk.line_start,
-                    "line_end": chunk.line_end,
-                    "language": chunk.metadata.get("language", ""),
-                    "content": chunk.content,
-                    "chunk_type": chunk.metadata.get("chunk_type", "general"),
-                    "project": collection_name.rsplit('_', 1)[0]
-                }
+                payload=payload
             )
             points.append(point)
         

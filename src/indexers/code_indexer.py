@@ -15,6 +15,14 @@ from dataclasses import dataclass
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
+# Import AST chunker
+try:
+    from utils.ast_chunker import create_ast_chunker, ASTChunk
+    AST_CHUNKING_AVAILABLE = True
+except ImportError:
+    AST_CHUNKING_AVAILABLE = False
+    ASTChunk = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -33,9 +41,10 @@ class CodeChunk:
 class CodeIndexer:
     """Handles indexing of source code files"""
     
-    def __init__(self, chunk_size: int = 1500, chunk_overlap: int = 300):
+    def __init__(self, chunk_size: int = 1500, chunk_overlap: int = 300, use_ast_chunking: bool = True):
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
+        self.use_ast_chunking = use_ast_chunking and AST_CHUNKING_AVAILABLE
         
         # Language-specific settings
         self.language_settings = {
@@ -73,6 +82,61 @@ class CodeIndexer:
         if not file_path.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
         
+        # Check if we should use AST chunking
+        if self.use_ast_chunking and file_path.suffix == '.py':
+            return self._index_with_ast(file_path)
+        else:
+            return self._index_with_text_splitter(file_path)
+    
+    def _index_with_ast(self, file_path: Path) -> List[CodeChunk]:
+        """Index using AST-based chunking"""
+        ast_chunker = create_ast_chunker('python', 
+                                       max_chunk_size=self.chunk_size,
+                                       min_chunk_size=100)
+        
+        if not ast_chunker:
+            # Fallback to text splitter
+            return self._index_with_text_splitter(file_path)
+        
+        try:
+            # Get AST chunks
+            ast_chunks = ast_chunker.chunk_file(str(file_path))
+            
+            # Convert ASTChunk to CodeChunk
+            code_chunks = []
+            for ast_chunk in ast_chunks:
+                # Extract metadata from AST chunk
+                metadata = {
+                    "file_path": str(file_path),
+                    "file_name": file_path.name,
+                    "file_type": file_path.suffix,
+                    "language": "python",
+                    "chunk_type": ast_chunk.chunk_type,
+                    "hierarchy": ast_chunk.hierarchy,
+                    "name": ast_chunk.name,
+                    **ast_chunk.metadata
+                }
+                
+                code_chunk = CodeChunk(
+                    content=ast_chunk.content,
+                    file_path=str(file_path),
+                    chunk_index=ast_chunk.chunk_index,
+                    chunk_count=len(ast_chunks),
+                    line_start=ast_chunk.line_start,
+                    line_end=ast_chunk.line_end,
+                    metadata=metadata
+                )
+                code_chunks.append(code_chunk)
+            
+            logger.info(f"AST indexed {file_path}: {len(code_chunks)} chunks")
+            return code_chunks
+            
+        except Exception as e:
+            logger.warning(f"AST chunking failed for {file_path}, falling back to text splitter: {e}")
+            return self._index_with_text_splitter(file_path)
+    
+    def _index_with_text_splitter(self, file_path: Path) -> List[CodeChunk]:
+        """Index using traditional text splitting"""
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
@@ -109,7 +173,7 @@ class CodeIndexer:
             )
             code_chunks.append(code_chunk)
         
-        logger.info(f"Indexed {file_path}: {len(code_chunks)} chunks")
+        logger.info(f"Text-split indexed {file_path}: {len(code_chunks)} chunks")
         return code_chunks
     
     def _extract_metadata(self, content: str, file_path: Path) -> Dict[str, Any]:

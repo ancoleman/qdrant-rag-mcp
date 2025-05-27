@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7] - 2025-05-27
+
+### Fixed
+- Shell scripts (`.sh`, `.bash`, `.zsh`, `.fish`) are now included in default indexing patterns
+- Fixed bug where shell scripts were not being indexed during `index_directory` operations
+
+### Changed
+- Updated default file patterns in `index_directory` to include common shell script extensions
+
 ## [0.1.6] - 2025-05-27
 
 ### Added

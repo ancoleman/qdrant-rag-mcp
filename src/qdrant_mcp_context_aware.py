@@ -638,6 +638,7 @@ def index_directory(directory: str = ".", patterns: List[str] = None, recursive:
     try:
         if patterns is None:
             patterns = ["*.py", "*.js", "*.ts", "*.jsx", "*.tsx", "*.java", "*.go", "*.rs", 
+                       "*.sh", "*.bash", "*.zsh", "*.fish",  # Shell scripts
                        "*.json", "*.yaml", "*.yml", "*.xml", "*.toml", "*.ini",
                        ".gitignore", ".dockerignore", ".prettierrc*", ".eslintrc*", 
                        ".editorconfig", ".npmrc", ".yarnrc", ".ragignore"]

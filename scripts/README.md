@@ -56,6 +56,32 @@ This directory contains utility scripts for the Qdrant RAG MCP Server. Each scri
 
 ## 🔧 Testing & Debugging
 
+### `qdrant-logs`
+**Purpose**: View and search project-aware logs
+- Search and filter JSON structured logs
+- Follow logs in real-time
+- Export logs for analysis
+- **When to use**: Debugging issues, monitoring operations, performance analysis
+```bash
+# View logs for current project
+./scripts/qdrant-logs
+
+# Follow logs in real-time
+./scripts/qdrant-logs -f
+
+# Filter by operation and level
+./scripts/qdrant-logs --operation index_code --level ERROR
+
+# Search with regex
+./scripts/qdrant-logs --search "failed.*authentication"
+
+# List all projects with logs
+./scripts/qdrant-logs --list-projects
+
+# Export last 100 logs as JSON
+./scripts/qdrant-logs --tail 100 --export json > debug.json
+```
+
 ### `test_http_api.sh`
 **Purpose**: Test HTTP API endpoints
 - Comprehensive API testing suite

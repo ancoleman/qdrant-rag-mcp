@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2025-05-27
+
+### Added
+- Project-aware logging system that separates logs by project context
+- Structured JSON logging with operation timing and metadata
+- Log viewer utility `qdrant-logs` for searching and filtering logs
+- Logging configuration in `server_config.json` with environment variable support
+- Automatic log rotation (daily + size-based at 10MB)
+- Operation-level logging for index, search, and reindex operations
+
+### Changed
+- Log directories now use user-friendly names (e.g. `qdrant-rag_70e24d/` instead of `project_70e24d3b08fc/`)
+- Improved log viewer to support both old and new directory formats
+
 ## [0.1.1] - 2025-05-27
 
 ### Added
@@ -63,5 +77,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - torch 2.4.0
 - And other supporting libraries with version constraints
 
+[0.1.2]: https://github.com/ancoleman/qdrant-rag-mcp/releases/tag/v0.1.2
 [0.1.1]: https://github.com/ancoleman/qdrant-rag-mcp/releases/tag/v0.1.1
 [0.1.0]: https://github.com/ancoleman/qdrant-rag-mcp/releases/tag/v0.1.0

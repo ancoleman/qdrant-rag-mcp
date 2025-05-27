@@ -153,6 +153,13 @@ claude
 - **Local Mode**: Native macOS execution for maximum performance
 - **Smart Caching**: Efficient model storage and loading
 
+### Project-Aware Logging
+- **Automatic Log Separation**: Logs organized by project, no mixing
+- **Structured JSON Format**: Rich metadata for every operation
+- **Performance Tracking**: Operation timing and success metrics
+- **Log Viewer Utility**: Search, filter, and tail logs easily
+- **Configurable Levels**: Debug specific operations as needed
+
 ## 🔧 Architecture
 
 ```
@@ -190,6 +197,47 @@ This project includes two distinct servers:
 - **Pattern Analysis**: "Show me error handling patterns in this codebase"
 - **Code Understanding**: "How does the logging system work?"
 - **Cross-Project Insights**: "Show JWT implementations across all my projects"
+
+## 📊 Logging & Debugging
+
+The server includes comprehensive project-aware logging for debugging and monitoring.
+
+### View Logs
+
+```bash
+# View logs for current project
+./scripts/qdrant-logs
+
+# Follow logs in real-time
+./scripts/qdrant-logs -f
+
+# Filter by log level
+./scripts/qdrant-logs --level ERROR
+
+# Search logs
+./scripts/qdrant-logs --search "index.*failed"
+
+# View logs for specific project
+./scripts/qdrant-logs --project /path/to/project
+
+# Export logs for analysis
+./scripts/qdrant-logs --export json > debug-logs.json
+```
+
+### Log Location
+
+Logs are stored in `~/.mcp-servers/qdrant-rag/logs/`:
+- `global/` - Server startup and non-project operations
+- `projects/` - Separated by project with friendly names (e.g., `qdrant-rag_70e24d/`)
+- `errors/` - Critical errors across all projects
+
+### Configuration
+
+Control logging via environment variables:
+```bash
+export QDRANT_LOG_LEVEL=DEBUG        # Set log level
+export QDRANT_LOG_DIR=/custom/path   # Custom log directory
+```
 
 ## 🐛 Common Issues & Solutions
 

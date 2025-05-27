@@ -37,6 +37,21 @@
     "config": "config_collection",
     "docs": "docs_collection"
   },
+  "logging": {
+    "enabled": true,
+    "level": "${QDRANT_LOG_LEVEL:-INFO}",
+    "base_dir": "${QDRANT_LOG_DIR:-~/.mcp-servers/qdrant-rag/logs}",
+    "rotation": {
+      "max_days": 7,
+      "max_size_mb": 10,
+      "compress": false
+    },
+    "categories": {
+      "indexing": "DEBUG",
+      "search": "INFO",
+      "errors": "ERROR"
+    }
+  },
   "models": {
     "available": {
       "general": [

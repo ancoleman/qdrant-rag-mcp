@@ -30,12 +30,15 @@ from mcp.server.fastmcp import FastMCP
 # Initialize FastMCP server
 mcp = FastMCP("qdrant-rag-context")
 
-# Configure logging
+# Import project-aware logging
+from utils.logging import get_project_logger, get_error_logger, log_operation
+
+# Configure basic console logging for startup messages
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-logger = logging.getLogger(__name__)
+console_logger = logging.getLogger(__name__)
 
 # Try to import watchdog for file watching
 try:
@@ -44,7 +47,7 @@ try:
     WATCHDOG_AVAILABLE = True
 except ImportError:
     WATCHDOG_AVAILABLE = False
-    logger.info("Watchdog not installed. File watching disabled. Install with: pip install watchdog")
+    console_logger.info("Watchdog not installed. File watching disabled. Install with: pip install watchdog")
 
 # Global variables for lazy initialization
 _qdrant_client = None
@@ -123,7 +126,7 @@ if WATCHDOG_AVAILABLE:
             if not files:
                 return
                 
-            logger.info(f"🔄 Auto-reindexing {len(files)} changed files...")
+            get_logger().info(f"🔄 Auto-reindexing {len(files)} changed files...")
             
             success = 0
             for file_path in files:
@@ -138,11 +141,11 @@ if WATCHDOG_AVAILABLE:
                     if "error" not in result:
                         success += 1
                     else:
-                        logger.warning(f"Failed to index {file_path}: {result['error']}")
+                        get_logger().warning(f"Failed to index {file_path}: {result['error']}")
                 except Exception as e:
-                    logger.error(f"Error indexing {file_path}: {e}")
+                    get_logger().error(f"Error indexing {file_path}: {e}")
                     
-            logger.info(f"✅ Auto-indexed {success}/{len(files)} files")
+            get_logger().info(f"✅ Auto-indexed {success}/{len(files)} files")
 
 def get_current_project() -> Optional[Dict[str, str]]:
     """Detect current project based on working directory"""
@@ -172,6 +175,18 @@ def get_current_project() -> Optional[Dict[str, str]]:
         "collection_prefix": f"dir_{cwd.name.replace(' ', '_').replace('-', '_')}"
     }
     return _current_project
+
+def get_logger():
+    """Get a logger instance with current project context."""
+    project = get_current_project()
+    if project:
+        # Add project path to the context
+        project_context = {
+            "name": project["name"],
+            "path": project["root"]
+        }
+        return get_project_logger(project_context)
+    return get_project_logger()
 
 def get_collection_name(file_path: str, file_type: str = "code") -> str:
     """Get collection name for a file, respecting project boundaries"""
@@ -285,11 +300,11 @@ def clear_project_collections() -> Dict[str, Any]:
                 # Delete the collection
                 client.delete_collection(collection_name)
                 cleared.append(collection_name)
-                logger.info(f"Cleared collection: {collection_name}")
+                get_logger().info(f"Cleared collection: {collection_name}")
             except Exception as e:
                 error_msg = f"Failed to clear {collection_name}: {str(e)}"
                 errors.append(error_msg)
-                logger.error(error_msg)
+                get_logger().error(error_msg)
     
     return {
         "project": current_project['name'],
@@ -337,8 +352,17 @@ def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
         file_path: Path to the file to index
         force_global: If True, index to global collection instead of project
     """
+    logger = get_logger()
+    start_time = time.time()
+    
     try:
         from qdrant_client.http.models import PointStruct
+        
+        logger.info(f"Starting index_code for {file_path}", extra={
+            "operation": "index_code",
+            "file_path": file_path,
+            "force_global": force_global
+        })
         
         # Resolve to absolute path
         abs_path = Path(file_path).resolve()
@@ -403,7 +427,8 @@ def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
                 points=points
             )
         
-        return {
+        duration_ms = (time.time() - start_time) * 1000
+        result = {
             "indexed": len(chunks),
             "file_path": display_path,
             "collection": collection_name,
@@ -411,7 +436,27 @@ def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
             "project_context": current_project["name"] if current_project else "global"
         }
         
+        logger.info(f"Completed index_code for {display_path}", extra={
+            "operation": "index_code",
+            "file_path": display_path,
+            "duration_ms": duration_ms,
+            "chunks_indexed": len(chunks),
+            "collection": collection_name,
+            "status": "success"
+        })
+        
+        return result
+        
     except Exception as e:
+        duration_ms = (time.time() - start_time) * 1000
+        logger.error(f"Failed index_code for {file_path}: {str(e)}", extra={
+            "operation": "index_code",
+            "file_path": file_path,
+            "duration_ms": duration_ms,
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "status": "error"
+        })
         return {"error": str(e), "file_path": file_path}
 
 @mcp.tool()
@@ -546,6 +591,16 @@ def reindex_directory(
     Returns:
         Reindex results including what was cleared and indexed
     """
+    logger = get_logger()
+    start_time = time.time()
+    
+    logger.info(f"Starting reindex_directory for {directory}", extra={
+        "operation": "reindex_directory",
+        "directory": directory,
+        "recursive": recursive,
+        "force": force
+    })
+    
     try:
         # Get current project context
         current_project = get_current_project()
@@ -570,7 +625,8 @@ def reindex_directory(
         index_result = index_directory(directory, patterns, recursive)
         
         # Combine results
-        return {
+        duration_ms = (time.time() - start_time) * 1000
+        result = {
             "directory": directory,
             "cleared_collections": clear_result.get("cleared_collections", []),
             "indexed_files": index_result.get("indexed_files", []),
@@ -581,7 +637,27 @@ def reindex_directory(
             "message": f"Reindexed {index_result.get('total', 0)} files after clearing {len(clear_result.get('cleared_collections', []))} collections"
         }
         
+        logger.info(f"Completed reindex_directory for {directory}", extra={
+            "operation": "reindex_directory",
+            "directory": directory,
+            "duration_ms": duration_ms,
+            "files_indexed": index_result.get('total', 0),
+            "collections_cleared": len(clear_result.get('cleared_collections', [])),
+            "status": "success"
+        })
+        
+        return result
+        
     except Exception as e:
+        duration_ms = (time.time() - start_time) * 1000
+        logger.error(f"Failed reindex_directory for {directory}: {str(e)}", extra={
+            "operation": "reindex_directory",
+            "directory": directory,
+            "duration_ms": duration_ms,
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "status": "error"
+        })
         return {"error": str(e), "directory": directory}
 
 @mcp.tool()
@@ -594,6 +670,16 @@ def search(query: str, n_results: int = 5, cross_project: bool = False) -> Dict[
         n_results: Number of results
         cross_project: If True, search across all projects (default: False)
     """
+    logger = get_logger()
+    start_time = time.time()
+    
+    logger.info(f"Starting search: {query[:50]}...", extra={
+        "operation": "search",
+        "query_length": len(query),
+        "n_results": n_results,
+        "cross_project": cross_project
+    })
+    
     try:
         embedding_model = get_embedding_model()
         qdrant_client = get_qdrant_client()
@@ -652,7 +738,8 @@ def search(query: str, n_results: int = 5, cross_project: bool = False) -> Dict[
         # Get context info
         current_project = get_current_project()
         
-        return {
+        duration_ms = (time.time() - start_time) * 1000
+        result = {
             "results": all_results,
             "query": query,
             "total": len(all_results),
@@ -661,7 +748,27 @@ def search(query: str, n_results: int = 5, cross_project: bool = False) -> Dict[
             "collections_searched": search_collections
         }
         
+        logger.info(f"Completed search: {query[:50]}...", extra={
+            "operation": "search",
+            "query_length": len(query),
+            "duration_ms": duration_ms,
+            "results_found": len(all_results),
+            "collections_searched": len(search_collections),
+            "status": "success"
+        })
+        
+        return result
+        
     except Exception as e:
+        duration_ms = (time.time() - start_time) * 1000
+        logger.error(f"Failed search: {query[:50]}... - {str(e)}", extra={
+            "operation": "search",
+            "query_length": len(query),
+            "duration_ms": duration_ms,
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "status": "error"
+        })
         return {"error": str(e), "query": query}
 
 @mcp.tool()
@@ -877,33 +984,33 @@ if __name__ == "__main__":
     observer = None
     if args.watch:
         if not WATCHDOG_AVAILABLE:
-            logger.error("❌ Watchdog not installed. Install with: pip install watchdog")
+            console_logger.error("❌ Watchdog not installed. Install with: pip install watchdog")
             sys.exit(1)
             
         # Perform initial index if requested
         if args.initial_index:
-            logger.info(f"📦 Performing initial index of {args.watch_dir}...")
+            console_logger.info(f"📦 Performing initial index of {args.watch_dir}...")
             result = index_directory(args.watch_dir)
-            logger.info(f"✅ Initial index complete: {result.get('total', 0)} files indexed")
+            console_logger.info(f"✅ Initial index complete: {result.get('total', 0)} files indexed")
         
         # Start file watcher
         event_handler = RagFileWatcher(debounce_seconds=args.debounce)
         observer = Observer()
         observer.schedule(event_handler, args.watch_dir, recursive=True)
         observer.start()
-        logger.info(f"👀 File watcher started for {args.watch_dir}")
-        logger.info(f"⏱️  Debounce: {args.debounce}s")
+        console_logger.info(f"👀 File watcher started for {args.watch_dir}")
+        console_logger.info(f"⏱️  Debounce: {args.debounce}s")
         
     try:
         # Run MCP server
-        logger.info("🚀 Starting Qdrant RAG MCP Server...")
+        console_logger.info("🚀 Starting Qdrant RAG MCP Server...")
         if args.watch:
-            logger.info("✅ Auto-reindexing enabled")
+            console_logger.info("✅ Auto-reindexing enabled")
         mcp.run()
     except KeyboardInterrupt:
-        logger.info("🛑 Shutting down...")
+        console_logger.info("🛑 Shutting down...")
     finally:
         if observer:
             observer.stop()
             observer.join()
-            logger.info("👋 File watcher stopped")
+            console_logger.info("👋 File watcher stopped")

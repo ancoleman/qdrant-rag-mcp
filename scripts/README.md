@@ -100,6 +100,17 @@ This directory contains utility scripts for the Qdrant RAG MCP Server. Each scri
 ./scripts/fix_qdrant.sh
 ```
 
+### `create-release.sh`
+**Purpose**: Create a new release with detailed notes
+- Extracts release notes from CHANGELOG.md
+- Creates annotated git tag with full details
+- **When to use**: When creating a new version release
+```bash
+# First update CHANGELOG.md with release notes
+# Then run:
+./scripts/create-release.sh v0.1.4
+```
+
 ## 📦 Optional/Advanced
 
 ### `auto_indexer.py`

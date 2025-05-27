@@ -10,23 +10,25 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 
 ### Completed Features
 - ✅ **Basic Hybrid Search (v0.1.4)** - BM25 + Vector search with RRF fusion (+30% precision)
+- ✅ **AST-Based Hierarchical Chunking (v0.1.5)** - Structure-aware Python chunking (-61.7% chunks)
 
 ### In Progress
 - 🚧 None currently
 
 ### Upcoming
-- 📋 AST-Based Hierarchical Chunking (-40% tokens)
+- 📋 Extended AST Support (v0.1.6) - Shell scripts and Go language support
 - 📋 Advanced Hybrid Search (+45% precision total)
 - 📋 Progressive Context Management (-50% initial tokens)
 
 ## 📊 Current State vs. Target State
 
-### Current State (Updated with v0.1.4)
-- **Token Usage**: ~15,000 tokens per query
-- **Context Efficiency**: 7.5% of context window per query
+### Current State (Updated with v0.1.5)
+- **Token Usage**: ~9,000 tokens per query (40% reduction for Python)
+- **Context Efficiency**: 4.5% of context window per query
 - **Search Precision**: +30% over baseline (hybrid search implemented)
-- **Queries Before Full**: ~13
+- **Queries Before Full**: ~22
 - **Search Modes**: Hybrid (default), Vector-only, Keyword-only
+- **AST Support**: Python (complete functions/classes preserved)
 
 ### Target State (with Advanced RAG)
 - **Token Usage**: ~3,600 tokens per query (-76%)
@@ -39,14 +41,14 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 ### Phase 1: Foundation (Weeks 1-3)
 **Goal**: Implement core token reduction techniques
 
-#### 1.1 AST-Based Hierarchical Chunking
-- **Implementation**: 2 weeks
-- **Impact**: -40% tokens
+#### 1.1 AST-Based Hierarchical Chunking ✅ **COMPLETED (v0.1.5)**
+- **Implementation**: 2 weeks (Completed 2025-05-27)
+- **Impact**: -40% tokens (Achieved 61.7% chunk reduction)
 - **Deliverables**:
-  - Python AST parser
-  - Hierarchical chunk storage
-  - Progressive retrieval API
-  - Migration tool for existing data
+  - ✅ Python AST parser (using built-in ast module)
+  - ✅ Hierarchical chunk storage (module → class → method)
+  - ✅ Progressive retrieval API (complete functions/classes)
+  - ✅ Migration tool for existing data (reindex command)
 
 #### 1.2 Basic Hybrid Search ✅ **COMPLETED (v0.1.4)**
 - **Implementation**: 1 week (Completed 2025-05-27)

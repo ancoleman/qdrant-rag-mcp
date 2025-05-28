@@ -19,7 +19,10 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # Import version
-from __init__ import __version__
+try:
+    from . import __version__
+except ImportError:
+    __version__ = "0.1.9"  # Fallback version
 
 # Load environment variables from the MCP server directory
 from dotenv import load_dotenv

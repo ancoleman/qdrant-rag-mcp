@@ -1505,7 +1505,8 @@ def search_code(query: str, language: Optional[str] = None, n_results: int = 5, 
                     payload = result.payload
                     all_results.append({
                         "score": result.score,
-                        "file_path": payload.get("display_path", payload.get("file_path", "")),
+                        "file_path": payload.get("file_path", ""),  # Keep actual file_path for internal use
+                        "display_path": payload.get("display_path", payload.get("file_path", "")),  # Add display_path separately
                         "language": payload.get("language", ""),
                         "line_range": {
                             "start": payload.get("line_start", 0),
@@ -1513,7 +1514,9 @@ def search_code(query: str, language: Optional[str] = None, n_results: int = 5, 
                         },
                         "content": payload.get("content", ""),
                         "chunk_type": payload.get("chunk_type", "general"),
-                        "project": payload.get("project", "unknown")
+                        "project": payload.get("project", "unknown"),
+                        "chunk_index": payload.get("chunk_index", 0),
+                        "collection": collection
                     })
             except:
                 pass
@@ -1614,7 +1617,7 @@ def search_code(query: str, language: Optional[str] = None, n_results: int = 5, 
             for expanded in expanded_results:
                 result = {
                     "score": expanded["score"],
-                    "file_path": expanded.get("file_path", ""),
+                    "file_path": expanded.get("display_path", expanded.get("file_path", "")),  # Use display_path for user output
                     "language": expanded.get("language", ""),
                     "line_range": {
                         "start": expanded.get("line_start", 0),

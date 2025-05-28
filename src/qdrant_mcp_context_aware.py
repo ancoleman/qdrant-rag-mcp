@@ -499,7 +499,7 @@ def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
             
             # Add any additional metadata
             for key in ["async", "decorators", "args", "returns", "is_method", "bases", 
-                       "method_count", "import_count", "modules", "has_methods"]:
+                       "method_count", "import_count", "modules", "has_methods", "dependencies"]:
                 if key in chunk.metadata:
                     payload[key] = chunk.metadata[key]
             
@@ -881,7 +881,7 @@ def reindex_directory(
         return {"error": str(e), "directory": directory}
 
 @mcp.tool()
-def search(query: str, n_results: int = 5, cross_project: bool = False, search_mode: str = "hybrid") -> Dict[str, Any]:
+def search(query: str, n_results: int = 5, cross_project: bool = False, search_mode: str = "hybrid", include_dependencies: bool = False) -> Dict[str, Any]:
     """
     Search indexed content (defaults to current project only)
     
@@ -890,6 +890,7 @@ def search(query: str, n_results: int = 5, cross_project: bool = False, search_m
         n_results: Number of results
         cross_project: If True, search across all projects (default: False)
         search_mode: Search mode - "vector", "keyword", or "hybrid" (default: "hybrid")
+        include_dependencies: If True, include files that import/are imported by the results
     """
     logger = get_logger()
     start_time = time.time()
@@ -1088,6 +1089,64 @@ def search(query: str, n_results: int = 5, cross_project: bool = False, search_m
                 logger.debug(f"Error searching collection {collection}: {e}")
                 pass
         
+        # Handle dependency inclusion if requested
+        if include_dependencies and all_results:
+            try:
+                from utils.dependency_resolver import DependencyResolver
+                
+                # Collect unique file paths from results
+                result_files = set()
+                for result in all_results:
+                    if 'file_path' in result:
+                        result_files.add(result['file_path'])
+                
+                # Find dependent files using stored metadata
+                dependent_files = set()
+                
+                for collection in search_collections:
+                    if "_code" in collection:  # Only process code collections
+                        resolver = DependencyResolver(qdrant_client, collection)
+                        resolver.load_dependencies_from_collection()
+                        
+                        # Find dependencies for this collection
+                        collection_deps = resolver.find_dependencies_for_files(result_files)
+                        dependent_files.update(collection_deps)
+                
+                # Fetch dependent files from Qdrant
+                if dependent_files:
+                    for collection in search_collections:
+                        for dep_file in dependent_files:
+                            # Search for the first chunk of each dependent file
+                            filter_conditions = {
+                                "must": [
+                                    {"key": "file_path", "match": {"value": dep_file}},
+                                    {"key": "chunk_index", "match": {"value": 0}}
+                                ]
+                            }
+                            
+                            dep_results = qdrant_client.search(
+                                collection_name=collection,
+                                query_vector=query_embedding,
+                                query_filter=filter_conditions,
+                                limit=1
+                            )
+                            
+                            if dep_results:
+                                result = dep_results[0]
+                                payload = result.payload
+                                # Mark as dependency result with lower score
+                                all_results.append({
+                                    "score": result.score * 0.7,  # Reduce score for dependencies
+                                    "type": "code" if "_code" in collection else "config",
+                                    "collection": collection,
+                                    "is_dependency": True,
+                                    "dependency_type": "related",
+                                    **payload
+                                })
+                                
+            except Exception as e:
+                logger.warning(f"Failed to include dependencies: {e}")
+        
         # Sort by score
         all_results.sort(key=lambda x: x["score"], reverse=True)
         all_results = all_results[:n_results]
@@ -1131,7 +1190,7 @@ def search(query: str, n_results: int = 5, cross_project: bool = False, search_m
         return {"error": str(e), "query": query}
 
 @mcp.tool()
-def search_code(query: str, language: Optional[str] = None, n_results: int = 5, cross_project: bool = False, search_mode: str = "hybrid") -> Dict[str, Any]:
+def search_code(query: str, language: Optional[str] = None, n_results: int = 5, cross_project: bool = False, search_mode: str = "hybrid", include_dependencies: bool = False) -> Dict[str, Any]:
     """
     Search specifically in code files (defaults to current project)
     
@@ -1141,6 +1200,7 @@ def search_code(query: str, language: Optional[str] = None, n_results: int = 5, 
         n_results: Number of results
         cross_project: If True, search across all projects
         search_mode: Search mode - "vector", "keyword", or "hybrid" (default: "hybrid")
+        include_dependencies: If True, include files that import/are imported by the results
     """
     try:
         embedding_model = get_embedding_model()
@@ -1200,6 +1260,73 @@ def search_code(query: str, language: Optional[str] = None, n_results: int = 5, 
                     })
             except:
                 pass
+        
+        # Handle dependency inclusion if requested
+        if include_dependencies and all_results:
+            try:
+                from utils.dependency_resolver import DependencyResolver
+                
+                # Collect unique file paths from results
+                result_files = set()
+                for result in all_results:
+                    file_path = result.get("file_path", "")
+                    if file_path:
+                        result_files.add(file_path)
+                
+                # Find dependent files using stored metadata
+                dependent_files = set()
+                
+                for collection in search_collections:
+                    resolver = DependencyResolver(qdrant_client, collection)
+                    resolver.load_dependencies_from_collection()
+                    
+                    # Find dependencies for this collection
+                    collection_deps = resolver.find_dependencies_for_files(result_files)
+                    dependent_files.update(collection_deps)
+                
+                # Fetch dependent files from Qdrant
+                if dependent_files:
+                    for collection in search_collections:
+                        for dep_file in dependent_files:
+                            # Search for the first chunk of each dependent file
+                            dep_filter = {
+                                "must": [
+                                    {"key": "file_path", "match": {"value": dep_file}},
+                                    {"key": "chunk_index", "match": {"value": 0}}
+                                ]
+                            }
+                            
+                            if language:
+                                dep_filter["must"].append({"key": "language", "match": {"value": language}})
+                            
+                            dep_results = qdrant_client.search(
+                                collection_name=collection,
+                                query_vector=query_embedding,
+                                query_filter=dep_filter,
+                                limit=1
+                            )
+                            
+                            if dep_results:
+                                result = dep_results[0]
+                                payload = result.payload
+                                # Mark as dependency result with lower score
+                                all_results.append({
+                                    "score": result.score * 0.7,  # Reduce score for dependencies
+                                    "file_path": payload.get("display_path", payload.get("file_path", "")),
+                                    "language": payload.get("language", ""),
+                                    "line_range": {
+                                        "start": payload.get("line_start", 0),
+                                        "end": payload.get("line_end", 0)
+                                    },
+                                    "content": payload.get("content", ""),
+                                    "chunk_type": payload.get("chunk_type", "general"),
+                                    "project": payload.get("project", "unknown"),
+                                    "is_dependency": True,
+                                    "dependency_type": "related"
+                                })
+                                
+            except Exception as e:
+                logger.warning(f"Failed to include dependencies: {e}")
         
         # Sort and limit
         all_results.sort(key=lambda x: x["score"], reverse=True)

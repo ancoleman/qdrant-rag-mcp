@@ -15,13 +15,19 @@ from dataclasses import dataclass
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
-# Import AST chunker
+# Import AST chunker and dependency graph
 try:
     from utils.ast_chunker import create_ast_chunker, ASTChunk
     AST_CHUNKING_AVAILABLE = True
 except ImportError:
     AST_CHUNKING_AVAILABLE = False
     ASTChunk = None
+
+try:
+    from utils.dependency_graph import get_dependency_graph
+    DEPENDENCY_GRAPH_AVAILABLE = True
+except ImportError:
+    DEPENDENCY_GRAPH_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +111,14 @@ class CodeIndexer:
             # Get AST chunks
             ast_chunks = ast_chunker.chunk_file(str(file_path))
             
+            # Extract dependencies if available
+            file_deps = None
+            if DEPENDENCY_GRAPH_AVAILABLE:
+                dep_graph = get_dependency_graph()
+                # Convert AST chunks to dict format for dependency extraction
+                chunks_dict = [chunk.to_dict() for chunk in ast_chunks]
+                file_deps = dep_graph.extract_dependencies_from_chunks(chunks_dict, str(file_path))
+            
             # Convert ASTChunk to CodeChunk
             code_chunks = []
             for ast_chunk in ast_chunks:
@@ -122,6 +136,13 @@ class CodeIndexer:
                     "name": ast_chunk.name,
                     **ast_chunk.metadata
                 }
+                
+                # Add dependency info to first chunk (usually imports)
+                if file_deps and ast_chunk.chunk_index == 0:
+                    metadata["dependencies"] = {
+                        "imports": [{"module": imp.module, "names": imp.names} for imp in file_deps.imports],
+                        "exports": file_deps.exports
+                    }
                 
                 code_chunk = CodeChunk(
                     content=ast_chunk.content,

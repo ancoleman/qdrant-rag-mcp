@@ -6,7 +6,8 @@ A context-aware Model Context Protocol (MCP) server that provides semantic searc
 
 - **🎯 Context-Aware**: Automatically detects and scopes to your current project
 - **🔍 Hybrid Search**: Combines semantic understanding with keyword matching for +30% better precision
-- **🧠 AST-Based Chunking**: Structure-aware code parsing for Python, Shell, and Go (-40% tokens)
+- **🧠 AST-Based Chunking**: Structure-aware code parsing for Python, Shell, Go, JavaScript, and TypeScript (-40% tokens)
+- **🔗 Dependency-Aware Search**: Automatically includes files that import or are imported by your search results
 - **📁 Multi-Project Support**: Keep different projects' knowledge separate
 - **🚀 Fast Local Execution**: Supports Apple Silicon MPS acceleration
 - **🔧 Specialized Indexers**: Language-aware code parsing and config file understanding
@@ -136,6 +137,18 @@ claude
 
 # Regular index only adds new content
 # Reindex removes old + adds new content
+```
+
+**Dependency-Aware Search (v0.1.9+)**
+```bash
+# In Claude - search with dependencies:
+# "Search for 'validate_user' and include files that import it"
+# "Find 'database connection' including dependent files"
+
+# The include_dependencies parameter automatically:
+# - Finds files that import the search results
+# - Finds files imported by the search results
+# - Shows related code for better understanding
 ```
 
 ## ✨ Key Features

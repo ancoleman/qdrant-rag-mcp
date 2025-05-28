@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.9] - 2025-05-27
+
+### Added
+- **Dependency-Aware Search** - First phase of Advanced Hybrid Search implementation
+- New `include_dependencies` parameter for `search` and `search_code` functions
+- Dependency graph builder that extracts import/export relationships from AST data
+- Automatic inclusion of files that import or are imported by search results
+- Dependency tracking across the entire codebase with bidirectional relationships
+- Related files are included with reduced scores (0.7x) to maintain relevance
+
+### Technical Details
+- `DependencyGraphBuilder` class manages import/export relationships
+- Integrates with existing AST chunking to extract dependency metadata
+- Stores import information (module names, imported symbols) in chunk metadata
+- Builds reverse dependency mappings (which files import a given file)
+- Supports relative and absolute imports with path resolution
+- Performance optimized with lazy loading and caching
+
+### Changed
+- Code indexer now extracts and stores dependency information
+- Search results can include dependent files when `include_dependencies=True`
+- Improved code understanding by showing related files in search results
+
 ## [0.1.8] - 2025-05-27
 
 ### Added

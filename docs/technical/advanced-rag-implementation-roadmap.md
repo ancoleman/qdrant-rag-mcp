@@ -13,12 +13,14 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 - ✅ **AST-Based Hierarchical Chunking (v0.1.5)** - Structure-aware Python chunking (-61.7% chunks)
 - ✅ **Extended AST Support (v0.1.6)** - Shell scripts and Go language support
 - ✅ **JavaScript/TypeScript AST Support (v0.1.8)** - Full JS/TS parsing with React component support
+- ✅ **Dependency-Aware Search (v0.1.9)** - Import/export tracking with related file inclusion
 
 ### In Progress
 - 🚧 None currently
 
 ### Upcoming
-- 📋 Advanced Hybrid Search (+45% precision total)
+- 📋 Advanced Hybrid Search - v0.2.0 (Enhanced ranking signals)
+- 📋 Advanced Hybrid Search - v0.2.1 (Adaptive search intelligence)
 - 📋 Progressive Context Management (-50% initial tokens)
 - 📋 Query Enhancement (+35% recall)
 
@@ -65,14 +67,44 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 ### Phase 2: Enhancement (Weeks 4-6)
 **Goal**: Improve search quality and efficiency
 
-#### 2.1 Advanced Hybrid Search
-- **Implementation**: 1.5 weeks
+#### 2.1 Advanced Hybrid Search 🚧 **IN PROGRESS**
+- **Implementation**: 1.5 weeks (Split into 3 releases)
 - **Impact**: +45% precision total
+- **Release Strategy**: Incremental delivery across 3 versions
+
+##### v0.1.9: Dependency-Aware Search ✅ **COMPLETED**
+- **Status**: ✅ Completed (2025-05-27)
+- **Focus**: Extract and use code dependencies for smarter retrieval
 - **Deliverables**:
-  - Dependency graph builder
-  - Reciprocal rank fusion
-  - Query-adaptive weighting
-  - Multi-signal search API
+  - ✅ Dependency graph builder using existing AST data
+  - ✅ Extract imports/exports relationships
+  - ✅ Store dependencies in Qdrant metadata
+  - ✅ Add `include_dependencies` parameter to search
+- **Benefits**: Find related code automatically
+- **Risk**: Low - builds on AST infrastructure
+- **Impact**: Users can now search with `include_dependencies=True` to automatically include files that import or are imported by the search results
+
+##### v0.2.0: Enhanced Ranking Signals (4-5 days)
+- **Status**: 📋 Planned
+- **Focus**: Multi-signal ranking for better precision
+- **Deliverables**:
+  - File proximity scoring (same directory boost)
+  - Dependency distance ranking (direct imports scored higher)
+  - Code structure similarity metrics
+  - Recency weighting for recent changes
+- **Benefits**: More relevant search results
+- **Risk**: Medium - requires weight tuning
+
+##### v0.2.1: Adaptive Search Intelligence (5-6 days)
+- **Status**: 📋 Planned
+- **Focus**: Smart query understanding and dynamic optimization
+- **Deliverables**:
+  - Query intent classification (navigation vs. understanding)
+  - Dynamic BM25/vector weight adjustment
+  - Learning from usage patterns (optional)
+  - Multi-signal search API with advanced parameters
+- **Benefits**: Optimal search for different query types
+- **Risk**: Higher - complex implementation
 
 #### 2.2 Progressive Context Management
 - **Implementation**: 1.5 weeks

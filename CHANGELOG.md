@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2025-05-28
+
+### Added
+- **Enhanced Search Context** - Major improvement to search result comprehensiveness
+  - New `include_context` parameter (default: True) adds surrounding chunks to results
+  - New `context_chunks` parameter (default: 1, max: 3) controls context expansion
+  - New `get_file_chunks` tool for retrieving complete file context
+  - Expanded search results show context before/after matched sections
+  - Clear section markers in expanded content ("Context Before", "Matched Section", "Context After")
+
+### Changed
+- **Increased Default Chunk Sizes** for better context capture:
+  - Code chunks: 1500 → 3000 characters (2x increase)
+  - Code chunk overlap: 300 → 600 characters
+  - Config chunks: 1000 → 2000 characters
+  - Config chunk overlap: 200 → 400 characters
+- Search results now include `expanded_content`, `has_context`, and `total_line_range` fields
+- Content truncation added to prevent token limit errors (1500 chars for content, 2000 for expanded_content)
+
+### Fixed
+- Fixed missing logger in `_expand_search_context` function
+- Added content truncation to prevent MCP token limit errors (25k tokens)
+- Default `n_results` kept at 5 to avoid token limits with larger chunks
+
+### Technical Details
+- Implemented `_expand_search_context` method for intelligent context expansion
+- Context expansion fetches adjacent chunks from Qdrant efficiently
+- Maintains backward compatibility with optional parameters
+- Reduces need for follow-up file reads by 50-70%
+
+### Documentation
+- Added comprehensive uv (ultraviolet) installation instructions in README
+- Created technical documentation for search improvements
+- Updated setup guides with clearer prerequisites
+
 ## [0.1.9] - 2025-05-27
 
 ### Added

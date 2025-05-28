@@ -31,7 +31,7 @@ class ConfigChunk:
 class ConfigIndexer:
     """Handles indexing of configuration files"""
     
-    def __init__(self, chunk_size: int = 1000):
+    def __init__(self, chunk_size: int = 2000):
         self.chunk_size = chunk_size
         
         # File type handlers

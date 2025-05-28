@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     from . import __version__
 except ImportError:
-    __version__ = "0.1.9"  # Fallback version
+    __version__ = "0.2.0"  # Fallback version
 
 # Load environment variables from the MCP server directory
 from dotenv import load_dotenv
@@ -259,6 +259,139 @@ def retry_operation(func, max_attempts=3, delay=1.0):
     if last_error:
         raise last_error
 
+def _truncate_content(content: str, max_length: int = 1500) -> str:
+    """Truncate content to prevent token limit issues"""
+    if len(content) <= max_length:
+        return content
+    # Truncate and add indicator
+    return content[:max_length] + "\n... (truncated)"
+
+def _expand_search_context(results: List[Dict[str, Any]], qdrant_client, search_collections: List[str], context_chunks: int = 1) -> List[Dict[str, Any]]:
+    """Expand search results with surrounding chunks for better context"""
+    logger = get_logger()
+    expanded_results = []
+    seen_chunks = set()  # Track which chunks we've already added
+    
+    # Limit context chunks to reasonable amount
+    context_chunks = min(context_chunks, 3)
+    
+    for result in results:
+        # Create a group of related chunks
+        chunk_group = {
+            "primary_chunk": result,
+            "context_before": [],
+            "context_after": [],
+            "expanded_content": ""
+        }
+        
+        file_path = result.get("file_path", "")
+        chunk_index = result.get("chunk_index", 0)
+        collection = result.get("collection", "")
+        
+        if not file_path or collection not in search_collections:
+            # Can't expand, just include the original
+            expanded_results.append(result)
+            continue
+        
+        # Track this chunk
+        chunk_key = f"{file_path}:{chunk_index}"
+        seen_chunks.add(chunk_key)
+        
+        # Fetch surrounding chunks
+        try:
+            # Get chunks before
+            for i in range(1, context_chunks + 1):
+                target_index = chunk_index - i
+                if target_index >= 0:
+                    before_filter = {
+                        "must": [
+                            {"key": "file_path", "match": {"value": file_path}},
+                            {"key": "chunk_index", "match": {"value": target_index}}
+                        ]
+                    }
+                    
+                    before_results = qdrant_client.search(
+                        collection_name=collection,
+                        query_vector=[0.0] * 384,  # Dummy vector for filter-only search
+                        query_filter=before_filter,
+                        limit=1
+                    )
+                    
+                    if before_results:
+                        before_chunk = before_results[0].payload
+                        chunk_group["context_before"].insert(0, before_chunk)
+                        seen_chunks.add(f"{file_path}:{target_index}")
+            
+            # Get chunks after
+            for i in range(1, context_chunks + 1):
+                target_index = chunk_index + i
+                after_filter = {
+                    "must": [
+                        {"key": "file_path", "match": {"value": file_path}},
+                        {"key": "chunk_index", "match": {"value": target_index}}
+                    ]
+                }
+                
+                after_results = qdrant_client.search(
+                    collection_name=collection,
+                    query_vector=[0.0] * 384,  # Dummy vector for filter-only search
+                    query_filter=after_filter,
+                    limit=1
+                )
+                
+                if after_results:
+                    after_chunk = after_results[0].payload
+                    chunk_group["context_after"].append(after_chunk)
+                    seen_chunks.add(f"{file_path}:{target_index}")
+            
+            # Build expanded content with clear markers
+            expanded_parts = []
+            
+            # Add before context
+            if chunk_group["context_before"]:
+                expanded_parts.append("=== Context Before ===")
+                for ctx in chunk_group["context_before"]:
+                    lines = f"[Lines {ctx.get('line_start', '?')}-{ctx.get('line_end', '?')}]"
+                    expanded_parts.append(f"{lines}\n{ctx.get('content', '')}")
+                expanded_parts.append("")
+            
+            # Add main chunk with highlighting
+            expanded_parts.append("=== Matched Section ===")
+            main_lines = f"[Lines {result.get('line_start', '?')}-{result.get('line_end', '?')}]"
+            expanded_parts.append(f"{main_lines}\n{result.get('content', '')}")
+            expanded_parts.append("")
+            
+            # Add after context
+            if chunk_group["context_after"]:
+                expanded_parts.append("=== Context After ===")
+                for ctx in chunk_group["context_after"]:
+                    lines = f"[Lines {ctx.get('line_start', '?')}-{ctx.get('line_end', '?')}]"
+                    expanded_parts.append(f"{lines}\n{ctx.get('content', '')}")
+            
+            # Update result with expanded content
+            expanded_result = result.copy()
+            expanded_result["expanded_content"] = "\n".join(expanded_parts)
+            expanded_result["has_context"] = True
+            expanded_result["context_chunks_before"] = len(chunk_group["context_before"])
+            expanded_result["context_chunks_after"] = len(chunk_group["context_after"])
+            
+            # Calculate total line range
+            all_chunks = chunk_group["context_before"] + [result] + chunk_group["context_after"]
+            if all_chunks:
+                expanded_result["total_line_range"] = {
+                    "start": min(c.get("line_start", float('inf')) for c in all_chunks if c.get("line_start")),
+                    "end": max(c.get("line_end", 0) for c in all_chunks if c.get("line_end"))
+                }
+            
+            expanded_results.append(expanded_result)
+            
+        except Exception as e:
+            logger.debug(f"Failed to expand context for chunk: {e}")
+            # On error, just include the original result
+            expanded_results.append(result)
+    
+    return expanded_results
+
 def ensure_collection(collection_name: str):
     """Ensure a collection exists with retry logic"""
     client = get_qdrant_client()
@@ -404,6 +537,111 @@ def get_context() -> Dict[str, Any]:
             "working_directory": str(Path.cwd()),
             "message": "No project detected in current directory"
         }
+
+@mcp.tool()
+def get_file_chunks(file_path: str, start_chunk: int = 0, end_chunk: Optional[int] = None) -> Dict[str, Any]:
+    """
+    Get all chunks for a specific file or a range of chunks
+    
+    Args:
+        file_path: Path to the file
+        start_chunk: Starting chunk index (default: 0)
+        end_chunk: Ending chunk index (inclusive, default: all chunks)
+    
+    Returns:
+        File chunks with full content
+    """
+    try:
+        # Resolve to absolute path
+        abs_path = Path(file_path).resolve()
+        
+        # Get services
+        qdrant_client = get_qdrant_client()
+        
+        # Determine collection
+        collection_name = get_collection_name(str(abs_path), "code")
+        
+        # Build filter for the file
+        filter_conditions = {
+            "must": [
+                {"key": "file_path", "match": {"value": str(abs_path)}}
+            ]
+        }
+        
+        # If specific chunk range requested
+        if end_chunk is not None:
+            filter_conditions["must"].append({
+                "key": "chunk_index", 
+                "range": {
+                    "gte": start_chunk,
+                    "lte": end_chunk
+                }
+            })
+        elif start_chunk > 0:
+            filter_conditions["must"].append({
+                "key": "chunk_index",
+                "range": {"gte": start_chunk}
+            })
+        
+        # Fetch all matching chunks
+        chunks = []
+        offset = None
+        limit = 100  # Fetch in batches
+        
+        while True:
+            results, next_offset = qdrant_client.scroll(
+                collection_name=collection_name,
+                scroll_filter=filter_conditions,
+                limit=limit,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False
+            )
+            
+            chunks.extend(results)
+            
+            if next_offset is None:
+                break
+            offset = next_offset
+        
+        # Sort by chunk index
+        chunks.sort(key=lambda x: x.payload.get("chunk_index", 0))
+        
+        # Format results
+        formatted_chunks = []
+        for chunk in chunks:
+            payload = chunk.payload
+            formatted_chunks.append({
+                "chunk_index": payload.get("chunk_index", 0),
+                "line_start": payload.get("line_start", 0),
+                "line_end": payload.get("line_end", 0),
+                "content": payload.get("content", ""),
+                "chunk_type": payload.get("chunk_type", "general"),
+                "metadata": {
+                    k: v for k, v in payload.items() 
+                    if k not in ["content", "file_path", "chunk_index", "line_start", "line_end"]
+                }
+            })
+        
+        # Build full content
+        if formatted_chunks:
+            full_content = "\n".join([
+                f"=== Chunk {c['chunk_index']} [Lines {c['line_start']}-{c['line_end']}] ===\n{c['content']}"
+                for c in formatted_chunks
+            ])
+        else:
+            full_content = ""
+        
+        return {
+            "file_path": str(abs_path),
+            "total_chunks": len(formatted_chunks),
+            "chunks": formatted_chunks,
+            "full_content": full_content,
+            "collection": collection_name
+        }
+        
+    except Exception as e:
+        return {"error": str(e), "file_path": file_path}
 
 @mcp.tool()
 def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
@@ -884,7 +1122,7 @@ def reindex_directory(
         return {"error": str(e), "directory": directory}
 
 @mcp.tool()
-def search(query: str, n_results: int = 5, cross_project: bool = False, search_mode: str = "hybrid", include_dependencies: bool = False) -> Dict[str, Any]:
+def search(query: str, n_results: int = 5, cross_project: bool = False, search_mode: str = "hybrid", include_dependencies: bool = False, include_context: bool = True, context_chunks: int = 1) -> Dict[str, Any]:
     """
     Search indexed content (defaults to current project only)
     
@@ -894,6 +1132,8 @@ def search(query: str, n_results: int = 5, cross_project: bool = False, search_m
         cross_project: If True, search across all projects (default: False)
         search_mode: Search mode - "vector", "keyword", or "hybrid" (default: "hybrid")
         include_dependencies: If True, include files that import/are imported by the results
+        include_context: If True, include surrounding chunks for more context (default: True)
+        context_chunks: Number of chunks before/after to include (default: 1, max: 3)
     """
     logger = get_logger()
     start_time = time.time()
@@ -1154,6 +1394,17 @@ def search(query: str, n_results: int = 5, cross_project: bool = False, search_m
         all_results.sort(key=lambda x: x["score"], reverse=True)
         all_results = all_results[:n_results]
         
+        # Expand context if requested
+        if include_context and all_results:
+            all_results = _expand_search_context(all_results, qdrant_client, search_collections, context_chunks)
+        
+        # Truncate content in results to prevent token limit issues
+        for result in all_results:
+            if "content" in result:
+                result["content"] = _truncate_content(result["content"], max_length=1500)
+            if "expanded_content" in result:
+                result["expanded_content"] = _truncate_content(result["expanded_content"], max_length=2000)
+        
         # Get context info
         current_project = get_current_project()
         
@@ -1193,7 +1444,7 @@ def search(query: str, n_results: int = 5, cross_project: bool = False, search_m
         return {"error": str(e), "query": query}
 
 @mcp.tool()
-def search_code(query: str, language: Optional[str] = None, n_results: int = 5, cross_project: bool = False, search_mode: str = "hybrid", include_dependencies: bool = False) -> Dict[str, Any]:
+def search_code(query: str, language: Optional[str] = None, n_results: int = 5, cross_project: bool = False, search_mode: str = "hybrid", include_dependencies: bool = False, include_context: bool = True, context_chunks: int = 1) -> Dict[str, Any]:
     """
     Search specifically in code files (defaults to current project)
     
@@ -1204,7 +1455,10 @@ def search_code(query: str, language: Optional[str] = None, n_results: int = 5, 
         cross_project: If True, search across all projects
         search_mode: Search mode - "vector", "keyword", or "hybrid" (default: "hybrid")
         include_dependencies: If True, include files that import/are imported by the results
+        include_context: If True, include surrounding chunks for more context (default: True)
+        context_chunks: Number of chunks before/after to include (default: 1, max: 3)
     """
+    logger = get_logger()
     try:
         embedding_model = get_embedding_model()
         qdrant_client = get_qdrant_client()
@@ -1334,6 +1588,62 @@ def search_code(query: str, language: Optional[str] = None, n_results: int = 5, 
         # Sort and limit
         all_results.sort(key=lambda x: x["score"], reverse=True)
         all_results = all_results[:n_results]
+        
+        # Expand context if requested
+        if include_context and all_results:
+            # Convert search_code results to standard format for context expansion
+            formatted_results = []
+            for result in all_results:
+                formatted_result = {
+                    "score": result["score"],
+                    "file_path": result.get("file_path", ""),
+                    "chunk_index": result.get("chunk_index", 0),
+                    "collection": result.get("collection", ""),
+                    "line_start": result.get("line_range", {}).get("start", 0),
+                    "line_end": result.get("line_range", {}).get("end", 0),
+                    "content": result.get("content", ""),
+                    **result  # Include all other fields
+                }
+                formatted_results.append(formatted_result)
+            
+            # Expand context
+            expanded_results = _expand_search_context(formatted_results, qdrant_client, search_collections, context_chunks)
+            
+            # Convert back to search_code format
+            all_results = []
+            for expanded in expanded_results:
+                result = {
+                    "score": expanded["score"],
+                    "file_path": expanded.get("file_path", ""),
+                    "language": expanded.get("language", ""),
+                    "line_range": {
+                        "start": expanded.get("line_start", 0),
+                        "end": expanded.get("line_end", 0)
+                    },
+                    "content": expanded.get("content", ""),
+                    "chunk_type": expanded.get("chunk_type", "general"),
+                    "project": expanded.get("project", "unknown")
+                }
+                
+                # Add expanded content if available
+                if "expanded_content" in expanded:
+                    result["expanded_content"] = expanded["expanded_content"]
+                    result["has_context"] = expanded.get("has_context", False)
+                    result["total_line_range"] = expanded.get("total_line_range", result["line_range"])
+                
+                # Preserve dependency info
+                if expanded.get("is_dependency"):
+                    result["is_dependency"] = True
+                    result["dependency_type"] = expanded.get("dependency_type", "related")
+                
+                all_results.append(result)
+        
+        # Truncate content in results to prevent token limit issues
+        for result in all_results:
+            if "content" in result:
+                result["content"] = _truncate_content(result["content"], max_length=1500)
+            if "expanded_content" in result:
+                result["expanded_content"] = _truncate_content(result["expanded_content"], max_length=2000)
         
         current_project = get_current_project()
         

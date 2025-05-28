@@ -47,14 +47,14 @@ class Config:
                 "show_progress_bar": True
             },
             "indexing": {
-                "chunk_size": 1000,
-                "chunk_overlap": 200,
-                "code_chunk_size": 1500,
-                "code_chunk_overlap": 300,
+                "chunk_size": 2000,
+                "chunk_overlap": 400,
+                "code_chunk_size": 3000,
+                "code_chunk_overlap": 600,
                 "batch_size": 100
             },
             "search": {
-                "max_results": 5,
+                "max_results": 10,
                 "score_threshold": 0.7,
                 "rerank": True
             },

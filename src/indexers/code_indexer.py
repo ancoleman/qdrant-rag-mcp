@@ -47,7 +47,7 @@ class CodeChunk:
 class CodeIndexer:
     """Handles indexing of source code files"""
     
-    def __init__(self, chunk_size: int = 1500, chunk_overlap: int = 300, use_ast_chunking: bool = True):
+    def __init__(self, chunk_size: int = 3000, chunk_overlap: int = 600, use_ast_chunking: bool = True):
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.use_ast_chunking = use_ast_chunking and AST_CHUNKING_AVAILABLE

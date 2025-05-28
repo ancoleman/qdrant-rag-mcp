@@ -8,6 +8,28 @@ The Qdrant RAG server operates in two modes:
 1. **MCP Server Mode**: Integrates directly with Claude Code for seamless AI-assisted development
 2. **HTTP API Mode**: Provides REST endpoints for testing and standalone usage
 
+## 📋 Prerequisites
+
+- **Claude Code CLI**: Install from [claude.ai/code](https://claude.ai/code)
+- **Docker**: For running Qdrant vector database
+- **Python 3.10+**: Required for the MCP server
+- **uv (Ultraviolet)**: Fast Python package manager
+
+### Installing uv
+
+This project uses `uv` for dependency management. Install it with:
+
+```bash
+# macOS/Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Homebrew
+brew install uv
+
+# Windows
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
 ## 🚀 Quick Start
 
 ### Option 1: MCP Mode (Recommended for Claude Code)

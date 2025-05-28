@@ -25,7 +25,24 @@ Complete documentation for setting up and using the Qdrant RAG server with Claud
 ### Prerequisites
 - Claude Code CLI
 - Docker
-- Python 3.10+ with `uv`
+- Python 3.10+ with `uv` (ultraviolet package manager)
+
+### Installing uv (Ultraviolet)
+
+This project uses `uv` for fast, reliable Python package management. If you don't have it installed:
+
+```bash
+# macOS/Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Or with Homebrew
+brew install uv
+
+# Windows
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+**Why uv?** It's 10-100x faster than pip and provides better dependency resolution. [Learn more](https://github.com/astral-sh/uv)
 
 ### Installation
 

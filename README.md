@@ -7,11 +7,14 @@ A context-aware Model Context Protocol (MCP) server that provides semantic searc
 - **🎯 Context-Aware**: Automatically detects and scopes to your current project
 - **🔍 Hybrid Search**: Combines semantic understanding with keyword matching for +30% better precision
 - **🧠 AST-Based Chunking**: Structure-aware code parsing for Python, Shell, Go, JavaScript, and TypeScript (-40% tokens)
-- **🔗 Dependency-Aware Search**: Automatically includes files that import or are imported by your search results
+- **🔗 Dependency-Aware Search**: Automatically includes files that import or are imported by your search results (v0.1.9)
 - **📁 Multi-Project Support**: Keep different projects' knowledge separate
 - **🚀 Fast Local Execution**: Supports Apple Silicon MPS acceleration
 - **🔧 Specialized Indexers**: Language-aware code parsing and config file understanding
 - **🔄 Optional Auto-Indexing**: Keep your index up-to-date automatically as files change
+- **📊 Project-Aware Logging**: Automatic log separation by project with rich debugging tools
+- **🏥 Health Monitoring**: Built-in health checks with detailed system status
+- **♻️ Smart Reindexing**: Clean slate reindexing to prevent stale data from deleted/moved files
 
 ## 📚 Documentation Overview
 
@@ -162,9 +165,25 @@ claude
 ### AST-Based Chunking (v0.1.5+)
 - **Structure-Aware Parsing**: Uses Abstract Syntax Trees to understand code structure
 - **Complete Code Units**: Never splits functions or classes in the middle
-- **Multi-Language Support**: Python, Shell scripts (.sh, .bash), and Go (.go)
+- **Multi-Language Support**: Python, JavaScript/TypeScript, Shell scripts, and Go
 - **Hierarchical Metadata**: Tracks relationships (module → class → method)
 - **40-60% Fewer Chunks**: More efficient token usage while preserving meaning
+- **Language-Specific Features**:
+  - Python: Classes, methods, functions with decorators and docstrings
+  - JavaScript/TypeScript: ES6 modules, React components, arrow functions (v0.1.8)
+  - Shell: Function extraction with setup code preservation
+  - Go: Packages, structs, interfaces with visibility rules
+
+### Dependency-Aware Search (v0.1.9+)
+- **Automatic Dependency Inclusion**: Find files that import or are imported by your search results
+- **Bidirectional Relationships**: Tracks both imports and exports across the codebase
+- **Smart Scoring**: Related files included with reduced scores to maintain relevance
+- **Import Resolution**: Handles relative and absolute imports with path resolution
+- **Use Cases**:
+  - Find all files using a specific function or class
+  - Understand the impact of changes by seeing dependent code
+  - Trace code flow through import chains
+  - Discover usage patterns across your project
 
 ### Hybrid Search (v0.1.4+)
 - **Three Search Modes**: Hybrid (default), vector-only, keyword-only
@@ -311,12 +330,27 @@ export QDRANT_LOG_DIR=/custom/path   # Custom log directory
 
 ## 📈 Recent Improvements
 
+### v0.1.9 (Latest)
+- ✅ **Dependency-Aware Search**: Automatically include files that import or are imported by search results
+- ✅ **Dependency Graph Builder**: Tracks bidirectional import/export relationships across codebase
+- ✅ **Enhanced Code Understanding**: See how code modules relate and depend on each other
+
+### v0.1.8
+- ✅ **JavaScript/TypeScript Support**: Full AST parsing for JS/TS files including React components
+- ✅ **ES6 Module Support**: Handles modern import/export syntax and arrow functions
+- ✅ **Expanded Language Coverage**: Now supports 5 languages with AST parsing
+
+### v0.1.7
+- ✅ **Shell Script Indexing**: Fixed default patterns to include .sh, .bash, .zsh files
+- ✅ **Better Script Support**: Improved handling of executable scripts
+
+### Previous Releases
+- ✅ **AST-Based Chunking**: Structure-aware parsing for better code understanding (v0.1.5)
+- ✅ **Hybrid Search**: Combined vector + keyword search for 30% better precision (v0.1.4)
 - ✅ **Context-Aware System**: Automatic project detection and scoping
 - ✅ **Global Installation**: Works across all projects with proper setup
-- ✅ **Integrated Specialized Indexers**: Enhanced code and config parsing
-- ✅ **Added MPS Support**: Apple Silicon GPU acceleration
-- ✅ **Optional Auto-Indexing**: File watching integrated into MCP server
-- ✅ **Unified Installation**: Single script handles all configuration
-- ✅ **Comprehensive Documentation**: Multiple guides for different use cases
+- ✅ **MPS Support**: Apple Silicon GPU acceleration for faster embeddings
+- ✅ **Project-Aware Logging**: Automatic log separation and rich debugging tools
+- ✅ **Smart Reindexing**: Clean index updates to prevent stale data
 
 Happy coding with context-aware semantic search! 🎉

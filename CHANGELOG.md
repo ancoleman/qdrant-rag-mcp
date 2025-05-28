@@ -29,6 +29,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Code indexer now extracts and stores dependency information
 - Search results can include dependent files when `include_dependencies=True`
 - Improved code understanding by showing related files in search results
+- Fixed import statement to use relative imports with fallback
+
+### Known Issues
+- When `include_dependencies=true`, dependency files may dominate search results if they contain 
+  the exact search terms (e.g., searching for "module_name imports" will rank files that import 
+  that module higher than the module's implementation)
+- This is technically correct behavior but may not match user expectations
+- Will be addressed in v0.2.0 with smart reranking and query understanding features
 
 ## [0.1.8] - 2025-05-27
 

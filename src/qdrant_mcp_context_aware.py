@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     from . import __version__
 except ImportError:
-    __version__ = "0.2.0"  # Fallback version
+    __version__ = "0.2.1"  # Fallback version
 
 # Load environment variables from the MCP server directory
 from dotenv import load_dotenv
@@ -41,6 +41,10 @@ mcp = FastMCP("qdrant-rag-context")
 from utils.logging import get_project_logger, get_error_logger, log_operation
 # Import hybrid search
 from utils.hybrid_search import get_hybrid_searcher
+# Import enhanced ranker
+from utils.enhanced_ranker import get_enhanced_ranker
+# Import configuration
+from config import get_config
 
 # Configure basic console logging for startup messages
 logging.basicConfig(
@@ -690,6 +694,12 @@ def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
         embedding_model = get_embedding_model()
         qdrant_client = get_qdrant_client()
         
+        # Get file modification time
+        try:
+            mod_time = abs_path.stat().st_mtime
+        except:
+            mod_time = time.time()  # Use current time as fallback
+        
         # Determine collection
         if force_global:
             collection_name = "global_code"
@@ -729,7 +739,8 @@ def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
                 "language": chunk.metadata.get("language", ""),
                 "content": chunk.content,
                 "chunk_type": chunk.metadata.get("chunk_type", "general"),
-                "project": collection_name.rsplit('_', 1)[0]
+                "project": collection_name.rsplit('_', 1)[0],
+                "modified_at": mod_time
             }
             
             # Add hierarchical metadata if available
@@ -1390,8 +1401,49 @@ def search(query: str, n_results: int = 5, cross_project: bool = False, search_m
             except Exception as e:
                 logger.warning(f"Failed to include dependencies: {e}")
         
-        # Sort by score
-        all_results.sort(key=lambda x: x["score"], reverse=True)
+        # Apply enhanced ranking
+        if all_results and search_mode == "hybrid":
+            # Build dependency graph for ranking
+            dependency_graph = {}
+            if include_dependencies:
+                try:
+                    from utils.dependency_resolver import DependencyResolver
+                    for collection in search_collections:
+                        if "_code" in collection:
+                            resolver = DependencyResolver(qdrant_client, collection)
+                            resolver.load_dependencies_from_collection()
+                            # Add to graph
+                            for file_path, deps in resolver.dependency_graph.items():
+                                dependency_graph[file_path] = deps
+                except:
+                    pass
+            
+            # Get query context (e.g., current file if available)
+            query_context = {}
+            current_project = get_current_project()
+            if current_project and "root_path" in current_project:
+                # Could add current file context here if available
+                pass
+            
+            # Apply enhanced ranking
+            config = get_config()
+            ranking_config = config.get_section("search").get("enhanced_ranking", {})
+            enhanced_ranker = get_enhanced_ranker(ranking_config)
+            all_results = enhanced_ranker.rank_results(
+                results=all_results,
+                query_context=query_context,
+                dependency_graph=dependency_graph
+            )
+            
+            # Use enhanced score as primary score
+            for result in all_results:
+                if "enhanced_score" in result:
+                    result["score"] = result["enhanced_score"]
+        else:
+            # For non-hybrid modes, just sort by existing score
+            all_results.sort(key=lambda x: x["score"], reverse=True)
+        
+        # Limit to requested number of results
         all_results = all_results[:n_results]
         
         # Expand context if requested
@@ -1588,8 +1640,49 @@ def search_code(query: str, language: Optional[str] = None, n_results: int = 5, 
             except Exception as e:
                 logger.warning(f"Failed to include dependencies: {e}")
         
-        # Sort and limit
-        all_results.sort(key=lambda x: x["score"], reverse=True)
+        # Apply enhanced ranking for hybrid search
+        if all_results and search_mode == "hybrid":
+            # Build dependency graph for ranking
+            dependency_graph = {}
+            if include_dependencies:
+                try:
+                    from utils.dependency_resolver import DependencyResolver
+                    for collection in search_collections:
+                        if "_code" in collection:
+                            resolver = DependencyResolver(qdrant_client, collection)
+                            resolver.load_dependencies_from_collection()
+                            # Add to graph
+                            for file_path, deps in resolver.dependency_graph.items():
+                                dependency_graph[file_path] = deps
+                except:
+                    pass
+            
+            # Get query context
+            query_context = {}
+            current_project = get_current_project()
+            if current_project and "root_path" in current_project:
+                # Could add current file context here if available
+                pass
+            
+            # Apply enhanced ranking
+            config = get_config()
+            ranking_config = config.get_section("search").get("enhanced_ranking", {})
+            enhanced_ranker = get_enhanced_ranker(ranking_config)
+            all_results = enhanced_ranker.rank_results(
+                results=all_results,
+                query_context=query_context,
+                dependency_graph=dependency_graph
+            )
+            
+            # Use enhanced score as primary score
+            for result in all_results:
+                if "enhanced_score" in result:
+                    result["score"] = result["enhanced_score"]
+        else:
+            # For non-hybrid modes, just sort by existing score
+            all_results.sort(key=lambda x: x["score"], reverse=True)
+        
+        # Limit to requested number of results
         all_results = all_results[:n_results]
         
         # Expand context if requested

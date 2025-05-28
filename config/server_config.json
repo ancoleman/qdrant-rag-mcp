@@ -30,7 +30,14 @@
   "search": {
     "max_results": 5,
     "score_threshold": 0.7,
-    "rerank": true
+    "rerank": true,
+    "enhanced_ranking": {
+      "base_score_weight": 0.4,
+      "file_proximity_weight": 0.2,
+      "dependency_distance_weight": 0.2,
+      "code_structure_weight": 0.1,
+      "recency_weight": 0.1
+    }
   },
   "collections": {
     "code": "code_collection",

@@ -12,6 +12,7 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 - ✅ **Basic Hybrid Search (v0.1.4)** - BM25 + Vector search with RRF fusion (+30% precision)
 - ✅ **AST-Based Hierarchical Chunking (v0.1.5)** - Structure-aware Python chunking (-61.7% chunks)
 - ✅ **Extended AST Support (v0.1.6)** - Shell scripts and Go language support
+- ✅ **JavaScript/TypeScript AST Support (v0.1.8)** - Full JS/TS parsing with React component support
 
 ### In Progress
 - 🚧 None currently
@@ -23,13 +24,13 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 
 ## 📊 Current State vs. Target State
 
-### Current State (Updated with v0.1.6)
+### Current State (Updated with v0.1.8)
 - **Token Usage**: ~9,000 tokens per query (40% reduction for structured code)
 - **Context Efficiency**: 4.5% of context window per query
 - **Search Precision**: +30% over baseline (hybrid search implemented)
 - **Queries Before Full**: ~22
 - **Search Modes**: Hybrid (default), Vector-only, Keyword-only
-- **AST Support**: Python, Shell scripts, Go (complete functions/structures preserved)
+- **AST Support**: Python, Shell scripts, Go, JavaScript, TypeScript (complete functions/structures preserved)
 
 ### Target State (with Advanced RAG)
 - **Token Usage**: ~3,600 tokens per query (-76%)

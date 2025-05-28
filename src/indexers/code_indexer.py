@@ -83,7 +83,7 @@ class CodeIndexer:
             raise FileNotFoundError(f"File not found: {file_path}")
         
         # Check if we should use AST chunking
-        ast_supported = ['.py', '.sh', '.bash', '.go']
+        ast_supported = ['.py', '.sh', '.bash', '.go', '.js', '.jsx', '.ts', '.tsx']
         if self.use_ast_chunking and file_path.suffix in ast_supported:
             return self._index_with_ast(file_path)
         else:

@@ -803,6 +803,411 @@ class GoChunker:
         return python_chunker._fallback_chunk(content, file_path)
 
 
+class JavaScriptChunker:
+    """Structure-aware chunker for JavaScript/TypeScript code"""
+    
+    def __init__(self, max_chunk_size: int = 2000, min_chunk_size: int = 100):
+        self.max_chunk_size = max_chunk_size
+        self.min_chunk_size = min_chunk_size
+        self.chunk_index = 0
+        
+    def chunk_file(self, file_path: str) -> List[ASTChunk]:
+        """Parse JavaScript/TypeScript file and create structural chunks"""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                
+            lines = content.splitlines(keepends=True)
+            chunks = []
+            
+            # Extract imports
+            import_chunk = self._extract_imports(lines, file_path)
+            if import_chunk:
+                chunks.append(import_chunk)
+            
+            # Extract classes, functions, and methods
+            code_chunks = self._extract_js_structures(lines, file_path)
+            chunks.extend(code_chunks)
+            
+            # If no chunks created, treat as module
+            if not chunks:
+                chunks.append(self._create_module_chunk(content, file_path))
+            
+            logger.info(f"Created {len(chunks)} JS/TS chunks from {file_path}", extra={
+                "operation": "js_chunk_file",
+                "file_path": file_path,
+                "chunk_count": len(chunks)
+            })
+            
+            return chunks
+            
+        except Exception as e:
+            logger.error(f"Failed to parse JS/TS file {file_path}: {e}", extra={
+                "operation": "js_chunk_file_error",
+                "file_path": file_path,
+                "error": str(e)
+            })
+            return self._fallback_chunk(content, file_path)
+    
+    def _extract_imports(self, lines: List[str], file_path: str) -> Optional[ASTChunk]:
+        """Extract imports and requires"""
+        import re
+        import_lines = []
+        last_import_line = 0
+        
+        # Patterns for different import styles
+        import_patterns = [
+            re.compile(r'^import\s+.*?from\s+[\'"].*?[\'"]', re.MULTILINE),
+            re.compile(r'^import\s+[\'"].*?[\'"]', re.MULTILINE),
+            re.compile(r'^import\s+\{.*?\}\s+from\s+[\'"].*?[\'"]', re.MULTILINE | re.DOTALL),
+            re.compile(r'^import\s+\*\s+as\s+\w+\s+from\s+[\'"].*?[\'"]', re.MULTILINE),
+            re.compile(r'^const\s+.*?\s*=\s*require\s*\([\'"].*?[\'\"]\)', re.MULTILINE),
+            re.compile(r'^export\s+.*?from\s+[\'"].*?[\'"]', re.MULTILINE)
+        ]
+        
+        for i, line in enumerate(lines):
+            # Check if line contains import/require
+            for pattern in import_patterns:
+                if pattern.match(line.strip()):
+                    import_lines.append(i)
+                    last_import_line = i
+                    break
+            
+            # Handle multi-line imports
+            if i in import_lines and not line.strip().endswith(';') and not line.strip().endswith('}'):
+                # Continue to next line
+                j = i + 1
+                while j < len(lines) and not lines[j].strip().endswith(';') and not lines[j].strip().endswith('}'):
+                    import_lines.append(j)
+                    last_import_line = j
+                    j += 1
+                if j < len(lines):
+                    import_lines.append(j)
+                    last_import_line = j
+        
+        if not import_lines:
+            return None
+        
+        # Get content of import lines
+        first_import = min(import_lines)
+        content = ''.join(lines[first_import:last_import_line + 1])
+        
+        chunk = ASTChunk(
+            content=content.strip(),
+            file_path=file_path,
+            chunk_index=self.chunk_index,
+            line_start=first_import + 1,
+            line_end=last_import_line + 1,
+            chunk_type='imports',
+            name='imports',
+            hierarchy=['module', 'imports'],
+            metadata={
+                'language': 'javascript',
+                'import_count': len(set(import_lines))
+            }
+        )
+        self.chunk_index += 1
+        return chunk
+    
+    def _extract_js_structures(self, lines: List[str], file_path: str) -> List[ASTChunk]:
+        """Extract JavaScript/TypeScript classes, functions, and methods"""
+        import re
+        chunks = []
+        
+        # Patterns for JS/TS structures
+        class_pattern = re.compile(r'^(?:export\s+)?(?:abstract\s+)?class\s+(\w+)')
+        function_pattern = re.compile(r'^(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+(\w+)\s*\(')
+        arrow_function_pattern = re.compile(r'^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\(.*?\)\s*=>')
+        method_pattern = re.compile(r'^\s*(?:async\s+)?(\w+)\s*\(.*?\)\s*\{')
+        interface_pattern = re.compile(r'^(?:export\s+)?interface\s+(\w+)')
+        type_pattern = re.compile(r'^(?:export\s+)?type\s+(\w+)\s*=')
+        
+        i = 0
+        while i < len(lines):
+            line = lines[i].strip()
+            
+            # Check for class
+            class_match = class_pattern.match(line)
+            if class_match:
+                class_name = class_match.group(1)
+                chunk = self._extract_class(lines, i, file_path, class_name)
+                if chunk:
+                    chunks.append(chunk)
+                    i = chunk.line_end
+                    continue
+            
+            # Check for interface (TypeScript)
+            interface_match = interface_pattern.match(line)
+            if interface_match:
+                interface_name = interface_match.group(1)
+                chunk = self._extract_interface(lines, i, file_path, interface_name)
+                if chunk:
+                    chunks.append(chunk)
+                    i = chunk.line_end
+                    continue
+            
+            # Check for type alias (TypeScript)
+            type_match = type_pattern.match(line)
+            if type_match:
+                type_name = type_match.group(1)
+                chunk = self._extract_type_alias(lines, i, file_path, type_name)
+                if chunk:
+                    chunks.append(chunk)
+                    i = chunk.line_end
+                    continue
+            
+            # Check for function
+            func_match = function_pattern.match(line)
+            if func_match:
+                func_name = func_match.group(1)
+                chunk = self._extract_function(lines, i, file_path, func_name)
+                if chunk:
+                    chunks.append(chunk)
+                    i = chunk.line_end
+                    continue
+            
+            # Check for arrow function
+            arrow_match = arrow_function_pattern.match(line)
+            if arrow_match:
+                func_name = arrow_match.group(1)
+                chunk = self._extract_arrow_function(lines, i, file_path, func_name)
+                if chunk:
+                    chunks.append(chunk)
+                    i = chunk.line_end
+                    continue
+            
+            i += 1
+        
+        return chunks
+    
+    def _extract_class(self, lines: List[str], start_idx: int, 
+                      file_path: str, class_name: str) -> Optional[ASTChunk]:
+        """Extract a JavaScript/TypeScript class"""
+        # Find class body
+        brace_count = 0
+        end_idx = start_idx
+        
+        for i in range(start_idx, len(lines)):
+            line = lines[i]
+            if '{' in line:
+                brace_count += line.count('{')
+            if '}' in line:
+                brace_count -= line.count('}')
+                if brace_count == 0 and i > start_idx:
+                    end_idx = i
+                    break
+        
+        content = ''.join(lines[start_idx:end_idx + 1])
+        
+        # Check if it's exported
+        is_exported = 'export' in lines[start_idx]
+        
+        chunk = ASTChunk(
+            content=content.strip(),
+            file_path=file_path,
+            chunk_index=self.chunk_index,
+            line_start=start_idx + 1,
+            line_end=end_idx + 1,
+            chunk_type='class',
+            name=class_name,
+            hierarchy=['module', class_name],
+            metadata={
+                'language': 'javascript',
+                'is_exported': is_exported,
+                'is_abstract': 'abstract' in lines[start_idx]
+            }
+        )
+        self.chunk_index += 1
+        return chunk
+    
+    def _extract_interface(self, lines: List[str], start_idx: int,
+                          file_path: str, interface_name: str) -> Optional[ASTChunk]:
+        """Extract a TypeScript interface"""
+        # Find interface body
+        brace_count = 0
+        end_idx = start_idx
+        
+        for i in range(start_idx, len(lines)):
+            line = lines[i]
+            if '{' in line:
+                brace_count += line.count('{')
+            if '}' in line:
+                brace_count -= line.count('}')
+                if brace_count == 0:
+                    end_idx = i
+                    break
+        
+        content = ''.join(lines[start_idx:end_idx + 1])
+        
+        chunk = ASTChunk(
+            content=content.strip(),
+            file_path=file_path,
+            chunk_index=self.chunk_index,
+            line_start=start_idx + 1,
+            line_end=end_idx + 1,
+            chunk_type='interface',
+            name=interface_name,
+            hierarchy=['module', interface_name],
+            metadata={
+                'language': 'typescript',
+                'is_exported': 'export' in lines[start_idx]
+            }
+        )
+        self.chunk_index += 1
+        return chunk
+    
+    def _extract_type_alias(self, lines: List[str], start_idx: int,
+                           file_path: str, type_name: str) -> Optional[ASTChunk]:
+        """Extract a TypeScript type alias"""
+        # Find the end of the type definition
+        end_idx = start_idx
+        
+        # Simple single-line type
+        if ';' in lines[start_idx]:
+            end_idx = start_idx
+        else:
+            # Multi-line type
+            for i in range(start_idx + 1, len(lines)):
+                if ';' in lines[i] or (i + 1 < len(lines) and not lines[i + 1].startswith(' ')):
+                    end_idx = i
+                    break
+        
+        content = ''.join(lines[start_idx:end_idx + 1])
+        
+        chunk = ASTChunk(
+            content=content.strip(),
+            file_path=file_path,
+            chunk_index=self.chunk_index,
+            line_start=start_idx + 1,
+            line_end=end_idx + 1,
+            chunk_type='type',
+            name=type_name,
+            hierarchy=['module', type_name],
+            metadata={
+                'language': 'typescript',
+                'is_exported': 'export' in lines[start_idx]
+            }
+        )
+        self.chunk_index += 1
+        return chunk
+    
+    def _extract_function(self, lines: List[str], start_idx: int,
+                         file_path: str, func_name: str) -> Optional[ASTChunk]:
+        """Extract a regular function"""
+        # Find function body
+        brace_count = 0
+        end_idx = start_idx
+        
+        for i in range(start_idx, len(lines)):
+            line = lines[i]
+            if '{' in line:
+                brace_count += line.count('{')
+            if '}' in line:
+                brace_count -= line.count('}')
+                if brace_count == 0 and i > start_idx:
+                    end_idx = i
+                    break
+        
+        content = ''.join(lines[start_idx:end_idx + 1])
+        
+        chunk = ASTChunk(
+            content=content.strip(),
+            file_path=file_path,
+            chunk_index=self.chunk_index,
+            line_start=start_idx + 1,
+            line_end=end_idx + 1,
+            chunk_type='function',
+            name=func_name,
+            hierarchy=['module', func_name],
+            metadata={
+                'language': 'javascript',
+                'is_async': 'async' in lines[start_idx],
+                'is_exported': 'export' in lines[start_idx]
+            }
+        )
+        self.chunk_index += 1
+        return chunk
+    
+    def _extract_arrow_function(self, lines: List[str], start_idx: int,
+                               file_path: str, func_name: str) -> Optional[ASTChunk]:
+        """Extract an arrow function"""
+        import re
+        
+        # Check if it's a single-line arrow function
+        line = lines[start_idx]
+        if '=>' in line and (';' in line or (start_idx + 1 < len(lines) and not lines[start_idx + 1].startswith(' '))):
+            # Single line arrow function
+            content = line
+            end_idx = start_idx
+        else:
+            # Multi-line arrow function - find the closing brace
+            brace_count = 0
+            paren_count = 0
+            end_idx = start_idx
+            
+            for i in range(start_idx, len(lines)):
+                line = lines[i]
+                # Track parentheses (for parameters)
+                paren_count += line.count('(') - line.count(')')
+                
+                # Once we're past the arrow, track braces
+                if '=>' in ''.join(lines[start_idx:i+1]):
+                    if '{' in line:
+                        brace_count += line.count('{')
+                    if '}' in line:
+                        brace_count -= line.count('}')
+                        if brace_count == 0 and paren_count == 0:
+                            end_idx = i
+                            break
+            
+            content = ''.join(lines[start_idx:end_idx + 1])
+        
+        chunk = ASTChunk(
+            content=content.strip(),
+            file_path=file_path,
+            chunk_index=self.chunk_index,
+            line_start=start_idx + 1,
+            line_end=end_idx + 1,
+            chunk_type='arrow_function',
+            name=func_name,
+            hierarchy=['module', func_name],
+            metadata={
+                'language': 'javascript',
+                'is_async': 'async' in lines[start_idx],
+                'is_exported': 'export' in lines[start_idx]
+            }
+        )
+        self.chunk_index += 1
+        return chunk
+    
+    def _create_module_chunk(self, content: str, file_path: str) -> ASTChunk:
+        """Create a chunk for the entire JS/TS file"""
+        lines = content.splitlines()
+        
+        chunk = ASTChunk(
+            content=content[:self.max_chunk_size].strip(),
+            file_path=file_path,
+            chunk_index=self.chunk_index,
+            line_start=1,
+            line_end=len(lines),
+            chunk_type='module',
+            name=Path(file_path).stem,
+            hierarchy=['module'],
+            metadata={
+                'language': 'javascript',
+                'truncated': len(content) > self.max_chunk_size
+            }
+        )
+        self.chunk_index += 1
+        return chunk
+    
+    def _fallback_chunk(self, content: str, file_path: str) -> List[ASTChunk]:
+        """Fallback to simple chunking"""
+        python_chunker = PythonASTChunker(self.max_chunk_size, self.min_chunk_size)
+        python_chunker.chunk_index = self.chunk_index
+        return python_chunker._fallback_chunk(content, file_path)
+
+
 def create_ast_chunker(language: str = 'python', **kwargs) -> Optional[object]:
     """Factory function to create appropriate AST chunker"""
     language = language.lower()
@@ -813,7 +1218,11 @@ def create_ast_chunker(language: str = 'python', **kwargs) -> Optional[object]:
             '.py': 'python',
             '.sh': 'shell',
             '.bash': 'shell',
-            '.go': 'go'
+            '.go': 'go',
+            '.js': 'javascript',
+            '.jsx': 'javascript',
+            '.ts': 'typescript',
+            '.tsx': 'typescript'
         }
         language = extension_map.get(language, language)
     
@@ -824,6 +1233,8 @@ def create_ast_chunker(language: str = 'python', **kwargs) -> Optional[object]:
         return ShellScriptChunker(**kwargs)
     elif language in ['go', 'golang']:
         return GoChunker(**kwargs)
+    elif language in ['javascript', 'js', 'jsx', 'typescript', 'ts', 'tsx']:
+        return JavaScriptChunker(**kwargs)
     else:
         logger.warning(f"AST chunking not yet supported for {language}")
         return None

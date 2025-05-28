@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.8] - 2025-05-27
+
+### Added
+- **AST Support for JavaScript and TypeScript** (.js, .jsx, .ts, .tsx)
+- JavaScript/TypeScript chunking with support for:
+  - ES6 imports and exports (including `export default`)
+  - Regular functions and async functions
+  - Arrow functions and const function expressions
+  - Classes with methods
+  - TypeScript interfaces and type aliases
+  - React components (functional and class-based)
+- Automatic language detection for JS/TS file extensions
+- Comprehensive test coverage for JavaScript/TypeScript parsing
+
+### Changed
+- Improved function pattern matching to handle `export default function`
+- AST chunking now supports 5 languages: Python, Shell, Go, JavaScript, TypeScript
+
+### Technical Details
+- JavaScriptChunker handles modern JS/TS syntax patterns
+- Preserves JSX/TSX content in React components
+- Extracts meaningful chunks for better code search and understanding
+- Maintains hierarchical relationships between modules, classes, and methods
+
 ## [0.1.7] - 2025-05-27
 
 ### Fixed

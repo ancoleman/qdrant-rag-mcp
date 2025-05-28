@@ -12,33 +12,35 @@ Our current implementation provides a solid foundation with context-aware projec
 
 **Research Promise**: 40-70% token reduction, 95% code completeness accuracy
 
-**Current Status**: ❌ **Not Implemented**
+**Current Status**: ✅ **Implemented (v0.1.5-v0.1.8)**
 
 **What We Have**:
-- Basic `RecursiveCharacterTextSplitter` with language-specific separators
-- Simple regex-based metadata extraction
-- Fixed chunk sizes regardless of code structure
+- Full AST-based chunking for Python, Shell, Go, JavaScript, and TypeScript
+- Structure-aware parsing that preserves complete functions/classes
+- Hierarchical metadata storage (module → class → method)
+- Import/export context preservation
+- Automatic language detection from file extensions
+- Fallback to text-based chunking on parse errors
 
-**Gap Analysis**:
+**Implementation Details**:
 ```python
-# Current approach (src/indexers/code_indexer.py)
-self.default_splitter = RecursiveCharacterTextSplitter(
-    chunk_size=chunk_size,
-    chunk_overlap=chunk_overlap,
-    separators=["\n\n", "\n", " ", ""]
-)
+# New AST-based approach (src/utils/ast_chunker.py)
+- PythonASTChunker: Uses Python's built-in ast module
+- ShellScriptChunker: Regex-based function extraction
+- GoChunker: Parses packages, structs, interfaces, methods
+- JavaScriptChunker: Handles ES6+, JSX, TypeScript, React components
 
-# What we're missing:
-# - No AST parsing to identify natural code boundaries
-# - No preservation of complete functions/classes
-# - No hierarchical representation (file → class → method)
-# - No import context preservation
+# Achieved benefits:
+- 61.7% reduction in chunk count for Python files
+- Complete code structures preserved (no split functions)
+- Rich metadata including signatures, decorators, types
+- Hierarchical navigation support
 ```
 
-**Implementation Effort**: Medium-High
-- Need to integrate AST parsing libraries (ast for Python, babel for JS, etc.)
-- Redesign chunking strategy around code structures
-- Update vector storage schema for hierarchical data
+**Remaining Opportunities**:
+- Extend to more languages (Java, C++, Rust, etc.)
+- Cross-file dependency tracking
+- Semantic similarity between code structures
 
 ### 2. Semantic Compression Engine
 
@@ -73,32 +75,35 @@ if len(text) > max_length:
 
 **Research Promise**: 45% improvement in retrieval precision
 
-**Current Status**: ❌ **Not Implemented**
+**Current Status**: ✅ **Partially Implemented (v0.1.4)**
 
 **What We Have**:
-- Pure semantic vector search only
-- Single-signal retrieval
+- Basic hybrid search combining BM25 and vector search
+- Reciprocal Rank Fusion (RRF) for score combination
+- Configurable search modes (hybrid, vector-only, keyword-only)
+- Automatic BM25 index updates during document indexing
 
-**Gap Analysis**:
+**Implementation Details**:
 ```python
-# Current - semantic only
-results = qdrant_client.search(
-    collection_name=collection,
-    query_vector=query_embedding,
-    limit=n_results
+# Current hybrid search implementation
+hybrid_searcher = HybridSearcher(
+    qdrant_client=qdrant_client,
+    bm25_manager=bm25_manager,
+    embeddings=embeddings
 )
 
-# Missing:
-# - BM25 keyword search integration
-# - Reciprocal Rank Fusion
-# - Dependency-aware retrieval
-# - Multi-stage retrieval pipeline
+# Achieved:
+# - BM25 keyword search integrated
+# - Reciprocal Rank Fusion implemented
+# - Configurable search modes
+# - Score transparency (vector_score, bm25_score)
 ```
 
-**Implementation Effort**: Medium
-- Add BM25 indexing alongside vectors
-- Implement fusion algorithms
-- Extend search API
+**Remaining Opportunities**:
+- Dependency-aware retrieval (using AST import data)
+- Multi-stage retrieval pipeline
+- Advanced fusion algorithms (learned weights)
+- Code-specific ranking signals
 
 ### 4. Progressive Context Management
 

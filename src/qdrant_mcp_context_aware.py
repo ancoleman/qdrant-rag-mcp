@@ -510,7 +510,16 @@ def get_documentation_indexer():
     global _documentation_indexer
     if _documentation_indexer is None:
         from indexers import DocumentationIndexer
-        _documentation_indexer = DocumentationIndexer()
+        config = get_config()
+        
+        # Get documentation-specific chunk settings
+        chunk_size = config.get("indexing.documentation_chunk_size", 2000)
+        chunk_overlap = config.get("indexing.documentation_chunk_overlap", 400)
+        
+        _documentation_indexer = DocumentationIndexer(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap
+        )
     return _documentation_indexer
 
 def clear_project_collections() -> Dict[str, Any]:
@@ -2261,21 +2270,36 @@ def search_docs(query: str, doc_type: Optional[str] = None, n_results: int = 5, 
                     "heading_level": r.get("heading_level", 0)
                 })
             
-            # Apply ranking with documentation-specific weights
+            # Apply ranking with documentation-specific weights from config
+            config = get_config()
+            doc_ranking_config = config.get_section("search").get("documentation_ranking", {
+                "base_score_weight": 0.4,
+                "file_proximity_weight": 0.2,
+                "dependency_distance_weight": 0.0,
+                "code_structure_weight": 0.0,
+                "recency_weight": 0.4
+            })
+            
+            # Convert config format to ranker format
             doc_weights = {
-                "base_score": 0.3,
-                "file_proximity": 0.2,  # Less important for docs
-                "dependency_distance": 0.0,  # Not applicable
-                "code_structure": 0.0,  # Not applicable
-                "recency": 0.2,
-                "heading_match": 0.3  # New signal for docs
+                "base_score": doc_ranking_config.get("base_score_weight", 0.4),
+                "file_proximity": doc_ranking_config.get("file_proximity_weight", 0.2),
+                "dependency_distance": doc_ranking_config.get("dependency_distance_weight", 0.0),
+                "code_structure": doc_ranking_config.get("code_structure_weight", 0.0),
+                "recency": doc_ranking_config.get("recency_weight", 0.4)
             }
+            
+            # Store current weights and update for documentation search
+            original_weights = dict(ranker.weights)
+            ranker.update_weights(doc_weights)
             
             ranked_results = ranker.rank_results(
                 results=ranker_results,
-                query=query,
-                weights=doc_weights
+                query_context=current_project
             )
+            
+            # Restore original weights
+            ranker.update_weights(original_weights)
             
             # Update scores and add ranking signals
             for i, ranked in enumerate(ranked_results):

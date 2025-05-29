@@ -25,6 +25,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Enhanced `index_directory`**: Now includes markdown files by default
   - Automatically routes `.md` files to Documentation Indexer
   - Maintains backward compatibility with existing indexing
+- **Configuration Support**: Full integration with `server_config.json`
+  - Configurable documentation chunk sizes and overlap
+  - Customizable ranking weights for documentation search
+  - Documentation-specific settings section
+
+### Fixed
+- **Fixed hybrid search for documentation**: Enhanced ranker now works correctly with documentation search
+  - Removed invalid `query` parameter that was causing errors
+  - Documentation search now supports all search modes (vector, keyword, hybrid)
+  - Custom ranking weights are properly applied for documentation
 
 ### Technical Details
 - Created `DocumentationIndexer` class with markdown-aware parsing
@@ -33,6 +43,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Metadata tracks heading hierarchy for contextual understanding
 - Large sections split at paragraph boundaries with overlap
 - Summary extraction for quick document previews
+- Integrated with `server_config.json` for configurable chunk sizes and ranking weights
+- Documentation-specific ranking weights optimize for recency and relevance
 
 ### Migration Guide
 Documentation files are now indexed automatically when using `index_directory`. 

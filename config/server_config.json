@@ -25,6 +25,8 @@
     "chunk_overlap": 200,
     "code_chunk_size": 1500,
     "code_chunk_overlap": 300,
+    "documentation_chunk_size": 2000,
+    "documentation_chunk_overlap": 400,
     "batch_size": 100
   },
   "search": {
@@ -37,12 +39,19 @@
       "dependency_distance_weight": 0.2,
       "code_structure_weight": 0.1,
       "recency_weight": 0.1
+    },
+    "documentation_ranking": {
+      "base_score_weight": 0.4,
+      "file_proximity_weight": 0.2,
+      "dependency_distance_weight": 0.0,
+      "code_structure_weight": 0.0,
+      "recency_weight": 0.4
     }
   },
   "collections": {
     "code": "code_collection",
     "config": "config_collection",
-    "docs": "docs_collection"
+    "documentation": "documentation_collection"
   },
   "logging": {
     "enabled": true,
@@ -80,6 +89,29 @@
         "intfloat/e5-large-v2",
         "BAAI/bge-large-en-v1.5"
       ]
+    }
+  },
+  "documentation": {
+    "supported_extensions": [
+      ".md",
+      ".markdown", 
+      ".rst",
+      ".txt",
+      ".mdx"
+    ],
+    "features": {
+      "extract_headings": true,
+      "extract_code_blocks": true,
+      "extract_links": true,
+      "extract_frontmatter": true,
+      "preserve_hierarchy": true
+    },
+    "chunking": {
+      "by_sections": true,
+      "min_section_size": 100,
+      "max_section_size": 3000,
+      "split_large_sections": true,
+      "preserve_context": true
     }
   }
 }

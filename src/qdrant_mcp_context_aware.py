@@ -10,7 +10,8 @@ import hashlib
 import threading
 import time
 import argparse
-from typing import Dict, List, Optional, Any, Set
+import fnmatch
+from typing import Dict, List, Optional, Any, Set, Tuple
 from pathlib import Path
 import logging
 from datetime import datetime
@@ -911,6 +912,73 @@ def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
             "file_path": file_path
         }
 
+def load_ragignore_patterns(directory: Path) -> Tuple[Set[str], Set[str]]:
+    """
+    Load ignore patterns from .ragignore file in the directory or its parents.
+    
+    Returns:
+        Tuple of (exclude_dirs, exclude_patterns)
+    """
+    exclude_dirs = set()
+    exclude_patterns = set()
+    
+    # Default patterns (fallback if no .ragignore found)
+    default_exclude_dirs = {
+        'node_modules', '__pycache__', '.git', '.venv', 'venv', 
+        'env', '.env', 'dist', 'build', 'target', '.pytest_cache',
+        '.mypy_cache', '.coverage', 'htmlcov', '.tox', 'data',
+        'logs', 'tmp', 'temp', '.idea', '.vscode', '.vs',
+        'qdrant_storage', 'models', '.cache'
+    }
+    
+    default_exclude_patterns = {
+        '*.pyc', '*.pyo', '*.pyd', '.DS_Store', '*.so', '*.dylib',
+        '*.dll', '*.class', '*.log', '*.lock', '*.swp', '*.swo',
+        '*.bak', '*.tmp', '*.temp', '*.old', '*.orig', '*.rej',
+        '.env*', '*.sqlite', '*.db', '*.pid'
+    }
+    
+    # Look for .ragignore file in directory and parent directories
+    ragignore_path = None
+    for parent in [directory] + list(directory.parents):
+        potential_path = parent / '.ragignore'
+        if potential_path.exists():
+            ragignore_path = potential_path
+            break
+    
+    if not ragignore_path:
+        # No .ragignore found, use defaults
+        return default_exclude_dirs, default_exclude_patterns
+    
+    # Parse .ragignore file
+    try:
+        with open(ragignore_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                # Skip empty lines and comments
+                if not line or line.startswith('#'):
+                    continue
+                
+                # Handle directory patterns (ending with /)
+                if line.endswith('/'):
+                    exclude_dirs.add(line.rstrip('/'))
+                else:
+                    # File patterns
+                    exclude_patterns.add(line)
+        
+        console_logger.info(f"Loaded .ragignore from {ragignore_path}")
+        console_logger.debug(f"Exclude dirs: {len(exclude_dirs)}, patterns: {len(exclude_patterns)}")
+        
+    except Exception as e:
+        console_logger.warning(f"Error reading .ragignore: {e}, using defaults")
+        return default_exclude_dirs, default_exclude_patterns
+    
+    # If .ragignore was empty or had no valid patterns, use defaults
+    if not exclude_dirs and not exclude_patterns:
+        return default_exclude_dirs, default_exclude_patterns
+    
+    return exclude_dirs, exclude_patterns
+
 @mcp.tool()
 def index_directory(directory: str = None, patterns: List[str] = None, recursive: bool = True) -> Dict[str, Any]:
     """
@@ -928,22 +996,6 @@ def index_directory(directory: str = None, patterns: List[str] = None, recursive
                        "*.json", "*.yaml", "*.yml", "*.xml", "*.toml", "*.ini",
                        ".gitignore", ".dockerignore", ".prettierrc*", ".eslintrc*", 
                        ".editorconfig", ".npmrc", ".yarnrc", ".ragignore"]
-        
-        # Define exclusion patterns
-        exclude_dirs = {
-            'node_modules', '__pycache__', '.git', '.venv', 'venv', 
-            'env', '.env', 'dist', 'build', 'target', '.pytest_cache',
-            '.mypy_cache', '.coverage', 'htmlcov', '.tox', 'data',
-            'logs', 'tmp', 'temp', '.idea', '.vscode', '.vs',
-            'qdrant_storage', 'models', '.cache'
-        }
-        
-        exclude_patterns = {
-            '*.pyc', '*.pyo', '*.pyd', '.DS_Store', '*.so', '*.dylib',
-            '*.dll', '*.class', '*.log', '*.lock', '*.swp', '*.swo',
-            '*.bak', '*.tmp', '*.temp', '*.old', '*.orig', '*.rej',
-            '.env*', '*.sqlite', '*.db', '*.pid'
-        }
         
         # Validate directory parameter
         if not directory:
@@ -979,6 +1031,9 @@ def index_directory(directory: str = None, patterns: List[str] = None, recursive
         
         # Get current project info based on the directory being indexed
         current_project = get_current_project(client_directory=str(dir_path))
+        
+        # Load exclusion patterns from .ragignore file
+        exclude_dirs, exclude_patterns = load_ragignore_patterns(dir_path)
         
         # Create a progress callback
         start_time = time.time()
@@ -1036,18 +1091,15 @@ def index_directory(directory: str = None, patterns: List[str] = None, recursive
                         
                         # Check if filename matches exclusion patterns
                         file_name = file_path.name
-                        if any(file_name.endswith(ext) for ext in ['.pyc', '.pyo', '.pyd', '.so', '.dylib', 
-                                                                   '.dll', '.class', '.log', '.swp', '.swo',
-                                                                   '.bak', '.tmp', '.temp', '.old', '.orig', 
-                                                                   '.rej', '.sqlite', '.db', '.pid']):
-                            continue
+                        should_skip = False
                         
-                        if file_name.startswith('.env') or file_name == '.DS_Store':
-                            continue
+                        # Check against exclude patterns (supports wildcards)
+                        for pattern in exclude_patterns:
+                            if fnmatch.fnmatch(file_name, pattern):
+                                should_skip = True
+                                break
                         
-                        # Skip lock files (but not .lock extension for other purposes)
-                        if file_name in ['package-lock.json', 'yarn.lock', 'poetry.lock', 'Pipfile.lock', 
-                                        'composer.lock', 'Gemfile.lock', 'Cargo.lock', 'uv.lock']:
+                        if should_skip:
                             continue
                         
                         files_to_process.append(file_path)

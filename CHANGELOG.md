@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Caused wrong project to be indexed when using relative paths or "." directory
   - Example: Running `index_directory(".")` from `/panflow` indexed `/qdrant-rag` instead
 
+### Fixed  
+- **Fixed Missing `.ragignore` Support**: The `.ragignore` file now actually works
+  - Previously, `.ragignore` file existed but was not being read or used
+  - Exclusion patterns were hardcoded instead of reading from file
+  - Now properly loads and applies patterns from `.ragignore`
+
 ### Added
 - **Natural Language Working Directory Setup**: Users can now set working directory using natural language
   - No configuration required - works immediately
@@ -35,6 +41,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Claude Code Configuration Guide**: Comprehensive documentation for working directory setup
   - Created docs/claude-code-config-example.md
   - Shows multiple configuration options including natural language approach
+- **`.ragignore` File Support**: Now properly reads and uses `.ragignore` file for exclusion patterns
+  - Searches for `.ragignore` in project directory and parent directories
+  - Supports glob patterns (e.g., `*.pyc`, `.env*`, `node_modules/`)
+  - Falls back to sensible defaults if no `.ragignore` found
+  - Replaces hardcoded exclusion patterns with configurable ones
 
 ### Changed
 - **index_directory() Signature**: Changed from `directory="."` to `directory=None` (now required)
@@ -59,6 +70,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated `.env` and `.env.example` with new configuration option
 - Added `--client-cwd` command-line argument support
 - Enhanced `health_check()` and `get_context()` to use client working directory
+- Implemented `load_ragignore_patterns()` function to parse `.ragignore` files
+- Updated `index_directory()` to use dynamic patterns instead of hardcoded ones
+- Added `fnmatch` support for proper glob pattern matching
 - Maintains backward compatibility while encouraging safer usage patterns
 
 ### Migration Guide

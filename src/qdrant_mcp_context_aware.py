@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     from . import __version__
 except ImportError:
-    __version__ = "0.2.1"  # Fallback version
+    __version__ = "0.2.2"  # Fallback version
 
 # Load environment variables from the MCP server directory
 from dotenv import load_dotenv
@@ -181,12 +181,44 @@ if WATCHDOG_AVAILABLE:
                     
             get_logger().info(f"✅ Auto-indexed {success}/{len(files)} files")
 
-def get_current_project() -> Optional[Dict[str, str]]:
-    """Detect current project based on working directory"""
+def get_mcp_client_context() -> Optional[str]:
+    """Get the client's working directory from MCP context if available."""
+    # Check if MCP provides client context
+    # This is a placeholder - actual implementation depends on MCP protocol support
+    # For now, return None to use fallback methods
+    return None
+
+def get_current_project(client_directory: Optional[str] = None) -> Optional[Dict[str, str]]:
+    """Detect current project based on working directory.
+    
+    Args:
+        client_directory: Optional explicit directory to use instead of auto-detection
+    """
     global _current_project
     
-    # Check if we've already detected the project
-    cwd = Path.cwd()
+    # Determine which directory to use
+    if client_directory:
+        # Explicit directory provided (e.g., from index_directory)
+        cwd = Path(client_directory).resolve()
+    else:
+        # Try to get client's actual working directory
+        # Option 1: Check for MCP client context
+        client_cwd = get_mcp_client_context()
+        
+        # Option 2: Check environment variable
+        if not client_cwd:
+            client_cwd = os.environ.get('MCP_CLIENT_CWD')
+        
+        # Option 3: Fall back to server's cwd (with warning)
+        if client_cwd:
+            cwd = Path(client_cwd).resolve()
+            console_logger.debug(f"Using client working directory: {cwd}")
+        else:
+            cwd = Path.cwd()
+            console_logger.warning(f"Using MCP server's working directory ({cwd}) - may not match client's actual location. "
+                         "Set MCP_CLIENT_CWD environment variable or use absolute paths.")
+    
+    # Check if we've already detected this project
     if _current_project and Path(_current_project["root"]) == cwd:
         return _current_project
     
@@ -200,6 +232,7 @@ def get_current_project() -> Optional[Dict[str, str]]:
                     "root": str(parent),
                     "collection_prefix": f"project_{project_name}"
                 }
+                console_logger.info(f"Detected project: {project_name} at {parent}")
                 return _current_project
     
     # No project found - use directory name as fallback
@@ -208,6 +241,7 @@ def get_current_project() -> Optional[Dict[str, str]]:
         "root": str(cwd),
         "collection_prefix": f"dir_{cwd.name.replace(' ', '_').replace('-', '_')}"
     }
+    console_logger.info(f"No project markers found, using directory: {cwd.name}")
     return _current_project
 
 def get_logger():
@@ -878,12 +912,12 @@ def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
         }
 
 @mcp.tool()
-def index_directory(directory: str = ".", patterns: List[str] = None, recursive: bool = True) -> Dict[str, Any]:
+def index_directory(directory: str = None, patterns: List[str] = None, recursive: bool = True) -> Dict[str, Any]:
     """
-    Index files in a directory (defaults to current directory)
+    Index files in a directory.
     
     Args:
-        directory: Directory to index (default: current directory)
+        directory: Directory to index (REQUIRED - must be absolute path or will be resolved from client's context)
         patterns: File patterns to include
         recursive: Whether to search recursively
     """
@@ -911,17 +945,40 @@ def index_directory(directory: str = ".", patterns: List[str] = None, recursive:
             '.env*', '*.sqlite', '*.db', '*.pid'
         }
         
+        # Validate directory parameter
+        if not directory:
+            return {
+                "error": "Directory parameter is required",
+                "error_code": "MISSING_DIRECTORY",
+                "details": "Please specify a directory to index. Use absolute paths for best results."
+            }
+        
         # Resolve directory
         if directory == ".":
-            dir_path = Path.cwd()
+            # Special handling for current directory
+            # Try to use client's working directory if available
+            client_cwd = os.environ.get('MCP_CLIENT_CWD')
+            if client_cwd:
+                dir_path = Path(client_cwd).resolve()
+                console_logger.info(f"Using client working directory from MCP_CLIENT_CWD: {dir_path}")
+            else:
+                # Warn about potential mismatch
+                dir_path = Path.cwd()
+                console_logger.warning(f"Using MCP server's working directory ({dir_path}) for '.'. "
+                             "This may not match your actual location. Use absolute paths or set MCP_CLIENT_CWD.")
+                # Include warning in response
+                console_logger.warning("⚠️  Using MCP server's directory. For accurate indexing, use absolute paths.")
         else:
+            # Use provided directory
             dir_path = Path(directory).resolve()
+            if not dir_path.is_absolute():
+                console_logger.info(f"Resolved relative path {directory} to {dir_path}")
         
         if not dir_path.exists():
             return {"error": f"Directory not found: {directory}"}
         
-        # Get current project info
-        current_project = get_current_project()
+        # Get current project info based on the directory being indexed
+        current_project = get_current_project(client_directory=str(dir_path))
         
         # Create a progress callback
         start_time = time.time()

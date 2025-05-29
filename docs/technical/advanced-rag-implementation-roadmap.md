@@ -16,18 +16,19 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 - ✅ **Dependency-Aware Search (v0.1.9)** - Import/export tracking with related file inclusion
 - ✅ **Enhanced Context Expansion (v0.2.0)** - Automatic surrounding chunk retrieval (-60% search operations)
 - ✅ **Enhanced Ranking Signals (v0.2.1)** - Multi-signal ranking with 5 factors (+45% search precision)
+- ✅ **Critical Working Directory Fix (v0.2.2)** - Fixed MCP server directory context bug
 
 ### In Progress
 - 🚧 None currently
 
 ### Upcoming
-- 📋 Advanced Hybrid Search - v0.2.2 (Adaptive search intelligence)
+- 📋 Advanced Hybrid Search - v0.2.3 (Adaptive search intelligence)
 - 📋 Progressive Context Management (-50% initial tokens)
 - 📋 Query Enhancement (+35% recall)
 
 ## 📊 Current State vs. Target State
 
-### Current State (Updated with v0.2.1)
+### Current State (Updated with v0.2.2)
 - **Token Usage**: ~6,000 tokens per query (60% reduction with context expansion)
 - **Context Efficiency**: 3.0% of context window per query
 - **Search Precision**: +45% over baseline (enhanced ranking + hybrid search)
@@ -113,7 +114,19 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 - **Benefits**: 45% improvement in search precision
 - **Impact**: Search results now ranked by 5 signals with visible contributions
 
-##### v0.2.2: Adaptive Search Intelligence (5-6 days)
+##### v0.2.2: Critical Working Directory Fix ✅ **COMPLETED**
+- **Status**: ✅ Completed (2025-05-29)
+- **Focus**: Fix critical bug where MCP server used wrong working directory
+- **Deliverables**:
+  - ✅ Added MCP_CLIENT_CWD environment variable support
+  - ✅ Modified get_current_project() to accept client_directory parameter
+  - ✅ Updated index_directory() to require explicit directory parameter
+  - ✅ Enhanced logging and error messages for directory resolution
+  - ✅ Updated .env files with new configuration option
+- **Benefits**: Correct project detection and indexing
+- **Impact**: Fixed critical bug where indexing from one directory would index the wrong project
+
+##### v0.2.3: Adaptive Search Intelligence (5-6 days)
 - **Status**: 📋 Planned
 - **Focus**: Smart query understanding and dynamic optimization
 - **Deliverables**:

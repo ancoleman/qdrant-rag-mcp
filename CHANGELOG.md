@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2025-05-29
+
+### Critical Fix
+- **Fixed Critical Working Directory Bug**: MCP server now correctly handles client working directory
+  - Server was using its own working directory instead of client's actual location
+  - Caused wrong project to be indexed when using relative paths or "." directory
+  - Example: Running `index_directory(".")` from `/panflow` indexed `/qdrant-rag` instead
+
+### Added
+- **MCP_CLIENT_CWD Environment Variable**: New environment variable to pass client's working directory
+  - Allows MCP server to know the actual directory where user is working
+  - Set this in your environment or .env file for accurate project detection
+- **Client Directory Parameter**: `get_current_project()` now accepts optional `client_directory` parameter
+  - Used internally by `index_directory` to ensure correct project context
+- **Improved Directory Validation**: Better error messages and validation for directory parameters
+  - Now requires explicit directory parameter (no default to ".")
+  - Clear warnings when server's working directory is used as fallback
+
+### Changed
+- **index_directory() Signature**: Changed from `directory="."` to `directory=None` (now required)
+  - Prevents accidental indexing of wrong directory
+  - Forces users to be explicit about which directory to index
+- **Enhanced Logging**: Added detailed logging for working directory resolution
+  - Shows when client directory is detected from environment
+  - Warns when falling back to server's working directory
+- **Better Error Messages**: More descriptive errors with error codes
+  - `MISSING_DIRECTORY`: When directory parameter is not provided
+  - Includes helpful suggestions for resolution
+
+### Technical Details
+- Implemented three-tier directory resolution:
+  1. MCP protocol context (placeholder for future MCP support)
+  2. Environment variable `MCP_CLIENT_CWD`
+  3. Fallback to server's `Path.cwd()` with warning
+- Updated `.env` and `.env.example` with new configuration option
+- Maintains backward compatibility while encouraging safer usage patterns
+
+### Migration Guide
+For users upgrading from v0.2.1:
+1. Update your `index_directory` calls to include explicit paths
+2. Set `MCP_CLIENT_CWD` environment variable if using relative paths
+3. Use absolute paths for most reliable operation
+
 ## [0.2.1] - 2025-05-28
 
 ### Added

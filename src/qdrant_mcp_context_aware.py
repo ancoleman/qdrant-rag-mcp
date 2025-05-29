@@ -2306,7 +2306,7 @@ def search_docs(query: str, doc_type: Optional[str] = None, n_results: int = 5, 
                 if i < len(all_results):
                     matching_result = next((r for r in all_results if r["file_path"] == ranked["file_path"] and r["chunk_index"] == ranked["chunk_index"]), None)
                     if matching_result:
-                        matching_result["score"] = ranked["final_score"]
+                        matching_result["score"] = ranked.get("enhanced_score", ranked.get("score", 0))
                         matching_result["ranking_signals"] = ranked.get("ranking_signals", {})
         
         # Sort by score

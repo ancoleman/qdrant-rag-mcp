@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     from . import __version__
 except ImportError:
-    __version__ = "0.2.3"  # Fallback version
+    __version__ = "0.2.4"  # Fallback version
 
 # Load environment variables from the MCP server directory
 from dotenv import load_dotenv
@@ -44,6 +44,8 @@ from utils.logging import get_project_logger, get_error_logger, log_operation
 from utils.hybrid_search import get_hybrid_searcher
 # Import enhanced ranker
 from utils.enhanced_ranker import get_enhanced_ranker
+# Import file hash utilities
+from utils.file_hash import calculate_file_hash, get_file_info
 # Import configuration
 from config import get_config
 
@@ -700,6 +702,344 @@ def get_file_chunks(file_path: str, start_chunk: int = 0, end_chunk: Optional[in
     except Exception as e:
         return {"error": str(e), "file_path": file_path}
 
+def delete_file_chunks(file_path: str, collection_name: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Delete all chunks for a specific file from a collection
+    
+    Args:
+        file_path: Path to the file whose chunks should be deleted
+        collection_name: Optional collection name. If not provided, will determine from file type
+    
+    Returns:
+        Dict with deletion results or error
+    """
+    logger = get_logger()
+    
+    try:
+        # Input validation
+        if not file_path or not isinstance(file_path, str):
+            return {
+                "error": "Invalid file path",
+                "error_code": "INVALID_INPUT",
+                "details": "File path must be a non-empty string"
+            }
+        
+        # Resolve to absolute path
+        abs_path = Path(file_path).resolve()
+        
+        # Get services
+        qdrant_client = get_qdrant_client()
+        
+        # Determine collection if not provided
+        if collection_name is None:
+            collection_name = get_collection_name(str(abs_path), "code")
+        
+        # Check if collection exists
+        try:
+            collections = [c.name for c in qdrant_client.get_collections().collections]
+            if collection_name not in collections:
+                return {
+                    "error": f"Collection '{collection_name}' does not exist",
+                    "file_path": str(abs_path),
+                    "deleted_points": 0
+                }
+        except Exception:
+            return {
+                "error": f"Could not access collection '{collection_name}'",
+                "file_path": str(abs_path),
+                "deleted_points": 0
+            }
+        
+        # Create filter for the specific file
+        from qdrant_client.http.models import Filter, FieldCondition, MatchValue
+        filter_condition = Filter(
+            must=[FieldCondition(key="file_path", match=MatchValue(value=str(abs_path)))]
+        )
+        
+        # Count existing points before deletion
+        count_response = qdrant_client.count(
+            collection_name=collection_name,
+            count_filter=filter_condition,
+            exact=True
+        )
+        points_before = count_response.count
+        
+        # Delete points matching the filter
+        delete_response = qdrant_client.delete(
+            collection_name=collection_name,
+            points_selector=filter_condition
+        )
+        
+        logger.info(f"Deleted {points_before} chunks for file {file_path}", extra={
+            "operation": "delete_file_chunks",
+            "file_path": str(abs_path),
+            "collection": collection_name,
+            "deleted_points": points_before,
+            "status": "success"
+        })
+        
+        return {
+            "file_path": str(abs_path),
+            "collection": collection_name,
+            "deleted_points": points_before,
+            "operation_id": delete_response.operation_id if hasattr(delete_response, 'operation_id') else None
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to delete file chunks for {file_path}: {str(e)}", extra={
+            "operation": "delete_file_chunks",
+            "file_path": file_path,
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "status": "error"
+        })
+        return {"error": str(e), "file_path": file_path}
+
+@mcp.tool()
+def detect_changes(directory: str = ".") -> Dict[str, Any]:
+    """
+    Compare current filesystem state with indexed state in Qdrant.
+    
+    Args:
+        directory: Directory to scan for changes (default: current directory)
+    
+    Returns:
+        Dict with lists of added/modified/unchanged/deleted files
+    """
+    logger = get_logger()
+    
+    try:
+        import hashlib
+        import os
+        from pathlib import Path
+        from typing import Set
+        
+        # Input validation
+        if not directory or not isinstance(directory, str):
+            return {
+                "error": "Invalid directory path",
+                "error_code": "INVALID_INPUT",
+                "details": "Directory must be a non-empty string"
+            }
+        
+        # Resolve to absolute path
+        abs_directory = Path(directory).resolve()
+        if not abs_directory.exists():
+            return {
+                "error": f"Directory does not exist: {abs_directory}",
+                "error_code": "DIRECTORY_NOT_FOUND"
+            }
+        
+        if not abs_directory.is_dir():
+            return {
+                "error": f"Path is not a directory: {abs_directory}",
+                "error_code": "NOT_A_DIRECTORY"
+            }
+        
+        logger.info(f"Detecting changes in directory: {abs_directory}", extra={
+            "operation": "detect_changes",
+            "directory": str(abs_directory)
+        })
+        
+        # Get services
+        qdrant_client = get_qdrant_client()
+        
+        # Get current project context to determine which collections to check
+        current_project = get_current_project()
+        if current_project:
+            collection_prefix = current_project['collection_prefix']
+        else:
+            collection_prefix = "global_"
+        
+        # Get all collections for this project
+        all_collections = [c.name for c in qdrant_client.get_collections().collections]
+        project_collections = [c for c in all_collections if c.startswith(collection_prefix)]
+        
+        # Track indexed files with their hashes
+        indexed_files = {}  # file_path -> hash
+        
+        # Query each collection for indexed files
+        from qdrant_client.http.models import Filter, FieldCondition, MatchValue
+        
+        for collection in project_collections:
+            try:
+                # Scroll through ALL points to get file metadata
+                # Need to paginate through all results, not just first batch
+                offset = None
+                while True:
+                    scroll_result = qdrant_client.scroll(
+                        collection_name=collection,
+                        limit=1000,  # Smaller batch size for better memory usage
+                        offset=offset,
+                        with_payload=True,
+                        with_vectors=False
+                    )
+                    
+                    points, next_offset = scroll_result
+                    
+                    if not points:
+                        break
+                    
+                    for point in points:
+                        payload = point.payload
+                        if 'file_path' in payload:
+                            file_path = payload['file_path']
+                            file_hash = payload.get('file_hash', '')
+                            
+                            # Only consider files within the target directory
+                            try:
+                                file_abs_path = Path(file_path).resolve()
+                                if file_abs_path.is_relative_to(abs_directory):
+                                    # Use absolute path as key to avoid duplicates
+                                    abs_path_str = str(file_abs_path)
+                                    
+                                    # Only track files with the lowest chunk_index to avoid duplicates
+                                    chunk_index = payload.get('chunk_index', 0)
+                                    if chunk_index == 0:
+                                        indexed_files[abs_path_str] = file_hash
+                            except (ValueError, OSError):
+                                continue  # Skip invalid paths
+                    
+                    # Move to next page
+                    offset = next_offset
+                    if offset is None:
+                        break
+                            
+            except Exception as e:
+                logger.warning(f"Failed to scan collection {collection}: {str(e)}")
+                continue
+        
+        # Define safe file hash function
+        def get_file_hash_safe(file_path: Path) -> str:
+            """Get file hash safely, returning empty string on error"""
+            try:
+                return calculate_file_hash(str(file_path))
+            except Exception:
+                return ""
+        
+        # Scan current filesystem
+        current_files = {}  # file_path -> hash
+        
+        # Define patterns to include (similar to indexing logic)
+        include_patterns = [
+            "*.py", "*.js", "*.ts", "*.jsx", "*.tsx", "*.java", "*.cpp", "*.c", "*.h",
+            "*.go", "*.rs", "*.php", "*.rb", "*.swift", "*.kt", "*.scala", "*.sh",
+            "*.json", "*.yaml", "*.yml", "*.toml", "*.ini", "*.cfg", "*.conf",
+            "*.xml", "*.env", "*.properties", "*.config",
+            "*.md", "*.markdown", "*.rst", "*.txt", "*.mdx"
+        ]
+        
+        # Load exclude patterns from .ragignore if available
+        exclude_dirs, exclude_patterns = load_ragignore_patterns(abs_directory)
+        
+        def should_include_file(file_path: Path) -> bool:
+            """Check if file should be included based on patterns"""
+            # Check if file matches include patterns
+            file_matches = any(file_path.match(pattern) for pattern in include_patterns)
+            if not file_matches:
+                return False
+            
+            # Check if file is in excluded directory
+            path_str = str(file_path)
+            for exclude_dir in exclude_dirs:
+                if f"/{exclude_dir}/" in path_str or path_str.startswith(f"{exclude_dir}/"):
+                    return False
+            
+            # Check if filename matches exclusion patterns
+            file_name = file_path.name
+            for pattern in exclude_patterns:
+                if fnmatch.fnmatch(file_name, pattern):
+                    return False
+            
+            return True
+        
+        # Walk through directory
+        for root, dirs, files in os.walk(abs_directory):
+            # Filter out excluded directories
+            dirs[:] = [d for d in dirs if d not in exclude_dirs]
+            
+            for file in files:
+                file_path = Path(root) / file
+                
+                if should_include_file(file_path):
+                    file_hash = get_file_hash_safe(file_path)
+                    if file_hash:  # Only include files we can hash
+                        # Use absolute path to match indexed files
+                        abs_path_str = str(file_path.resolve())
+                        current_files[abs_path_str] = file_hash
+        
+        # Compare states
+        indexed_file_set = set(indexed_files.keys())
+        current_file_set = set(current_files.keys())
+        
+        # Categorize files
+        added_files = []
+        modified_files = []
+        unchanged_files = []
+        deleted_files = []
+        
+        # Files in current but not indexed = added
+        for file_path in current_file_set - indexed_file_set:
+            added_files.append(file_path)
+        
+        # Files in indexed but not current = deleted  
+        for file_path in indexed_file_set - current_file_set:
+            deleted_files.append(file_path)
+        
+        # Files in both = check if modified
+        for file_path in current_file_set & indexed_file_set:
+            current_hash = current_files[file_path]
+            indexed_hash = indexed_files[file_path]
+            
+            if current_hash == indexed_hash:
+                unchanged_files.append(file_path)
+            else:
+                modified_files.append(file_path)
+        
+        result = {
+            "directory": str(abs_directory),
+            "added": sorted(added_files),
+            "modified": sorted(modified_files),
+            "unchanged": sorted(unchanged_files),
+            "deleted": sorted(deleted_files),
+            "summary": {
+                "total_indexed": len(indexed_files),
+                "total_current": len(current_files),
+                "added_count": len(added_files),
+                "modified_count": len(modified_files),
+                "unchanged_count": len(unchanged_files),
+                "deleted_count": len(deleted_files)
+            }
+        }
+        
+        # Add debug logging
+        if len(added_files) > 50:  # Suspicious number of "new" files
+            logger.warning(f"Large number of files marked as added: {len(added_files)}. "
+                         f"This might indicate an issue with change detection. "
+                         f"Total indexed: {len(indexed_files)}, Total current: {len(current_files)}")
+        
+        logger.info(f"Change detection complete", extra={
+            "operation": "detect_changes",
+            "directory": str(abs_directory),
+            "added": len(added_files),
+            "modified": len(modified_files),
+            "unchanged": len(unchanged_files),
+            "deleted": len(deleted_files),
+            "status": "success"
+        })
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Failed to detect changes in {directory}: {str(e)}", extra={
+            "operation": "detect_changes",
+            "directory": directory,
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "status": "error"
+        })
+        return {"error": str(e), "directory": directory}
+
 @mcp.tool()
 def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
     """
@@ -747,11 +1087,13 @@ def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
         embedding_model = get_embedding_model()
         qdrant_client = get_qdrant_client()
         
-        # Get file modification time
+        # Get file modification time and hash
         try:
             mod_time = abs_path.stat().st_mtime
+            file_hash = calculate_file_hash(str(abs_path))
         except:
             mod_time = time.time()  # Use current time as fallback
+            file_hash = None  # No hash if file reading fails
         
         # Determine collection
         if force_global:
@@ -793,7 +1135,8 @@ def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
                 "content": chunk.content,
                 "chunk_type": chunk.metadata.get("chunk_type", "general"),
                 "project": collection_name.rsplit('_', 1)[0],
-                "modified_at": mod_time
+                "modified_at": mod_time,
+                "file_hash": file_hash
             }
             
             # Add hierarchical metadata if available
@@ -982,6 +1325,12 @@ def index_documentation(file_path: str, force_global: bool = False) -> Dict[str,
                 "details": f"File type not supported for documentation indexing: {abs_path.suffix}"
             }
         
+        # Get file hash
+        try:
+            file_hash = calculate_file_hash(str(abs_path))
+        except:
+            file_hash = None  # No hash if file reading fails
+        
         # Determine collection
         if force_global:
             collection_name = "global_documentation"
@@ -1033,6 +1382,7 @@ def index_documentation(file_path: str, force_global: bool = False) -> Dict[str,
                 "internal_links": chunk['metadata'].get('internal_links', []),
                 "external_links": chunk['metadata'].get('external_links', []),
                 "modified_at": chunk['metadata'].get('modified_at', ''),
+                "file_hash": file_hash,
                 "collection": collection_name
             }
             
@@ -1389,7 +1739,8 @@ def reindex_directory(
     directory: str = ".", 
     patterns: List[str] = None, 
     recursive: bool = True,
-    force: bool = False
+    force: bool = False,
+    incremental: bool = True
 ) -> Dict[str, Any]:
     """
     Reindex a directory by first clearing existing project data.
@@ -1402,6 +1753,7 @@ def reindex_directory(
         patterns: Optional file patterns to include
         recursive: Whether to search subdirectories
         force: Skip confirmation (for automation)
+        incremental: If True, use smart reindex to only process changed files (default: True)
     
     Returns:
         Reindex results including what was cleared and indexed
@@ -1413,7 +1765,8 @@ def reindex_directory(
         "operation": "reindex_directory",
         "directory": directory,
         "recursive": recursive,
-        "force": force
+        "force": force,
+        "incremental": incremental
     })
     
     try:
@@ -1425,39 +1778,167 @@ def reindex_directory(
                 "directory": directory
             }
         
-        # Clear existing collections
-        clear_result = clear_project_collections()
-        
-        # Check if clear had errors
-        if clear_result.get("errors"):
-            return {
-                "error": "Failed to clear some collections",
-                "clear_errors": clear_result["errors"],
-                "directory": directory
+        # If force=True or incremental=False, use the original behavior (clear all collections)
+        if force or not incremental:
+            logger.info("Using full reindex mode (clearing all collections)")
+            
+            # Clear existing collections
+            clear_result = clear_project_collections()
+            
+            # Check if clear had errors
+            if clear_result.get("errors"):
+                return {
+                    "error": "Failed to clear some collections",
+                    "clear_errors": clear_result["errors"],
+                    "directory": directory
+                }
+            
+            # Now index the directory
+            index_result = index_directory(directory, patterns, recursive)
+            
+            # Combine results
+            duration_ms = (time.time() - start_time) * 1000
+            result = {
+                "directory": directory,
+                "mode": "full_reindex",
+                "cleared_collections": clear_result.get("cleared_collections", []),
+                "indexed_files": index_result.get("indexed_files", []),
+                "total_indexed": index_result.get("total", 0),
+                "collections": index_result.get("collections", []),
+                "project_context": current_project["name"] if current_project else "no project",
+                "errors": index_result.get("errors"),
+                "message": f"Full reindex: {index_result.get('total', 0)} files after clearing {len(clear_result.get('cleared_collections', []))} collections"
             }
         
-        # Now index the directory
-        index_result = index_directory(directory, patterns, recursive)
-        
-        # Combine results
-        duration_ms = (time.time() - start_time) * 1000
-        result = {
-            "directory": directory,
-            "cleared_collections": clear_result.get("cleared_collections", []),
-            "indexed_files": index_result.get("indexed_files", []),
-            "total_indexed": index_result.get("total", 0),
-            "collections": index_result.get("collections", []),
-            "project_context": current_project["name"] if current_project else "no project",
-            "errors": index_result.get("errors"),
-            "message": f"Reindexed {index_result.get('total', 0)} files after clearing {len(clear_result.get('cleared_collections', []))} collections"
-        }
+        else:
+            # Incremental reindex mode - use detect_changes to only process changed files
+            logger.info("Using incremental reindex mode (smart change detection)")
+            
+            # Detect changes first
+            changes_result = detect_changes(directory)
+            if "error" in changes_result:
+                return {
+                    "error": f"Failed to detect changes: {changes_result['error']}",
+                    "directory": directory
+                }
+            
+            # Get lists of files to process
+            added_files = changes_result.get("added", [])
+            modified_files = changes_result.get("modified", [])
+            deleted_files = changes_result.get("deleted", [])
+            unchanged_files = changes_result.get("unchanged", [])
+            
+            # Process deletions first - remove chunks for deleted files
+            deleted_count = 0
+            deletion_errors = []
+            for file_path in deleted_files:
+                try:
+                    # Determine collection name based on file type
+                    path_obj = Path(file_path)
+                    ext = path_obj.suffix.lower()
+                    if ext in ['.json', '.yaml', '.yml', '.xml', '.toml', '.ini']:
+                        collection_type = "config"
+                    elif ext in ['.md', '.markdown', '.rst', '.txt']:
+                        collection_type = "documentation"
+                    else:
+                        collection_type = "code"
+                    
+                    collection_name = get_collection_name(file_path, collection_type)
+                    delete_result = delete_file_chunks(file_path, collection_name)
+                    
+                    if "error" not in delete_result:
+                        deleted_count += delete_result.get("deleted_points", 0)
+                        logger.info(f"Removed chunks for deleted file: {file_path}")
+                    else:
+                        deletion_errors.append({
+                            "file": file_path,
+                            "error": delete_result["error"]
+                        })
+                except Exception as e:
+                    deletion_errors.append({
+                        "file": file_path,
+                        "error": str(e)
+                    })
+            
+            # Process added and modified files
+            files_to_index = added_files + modified_files
+            indexed_files = []
+            indexing_errors = []
+            collections_used = set()
+            
+            if files_to_index:
+                logger.info(f"Indexing {len(files_to_index)} changed files ({len(added_files)} added, {len(modified_files)} modified)")
+                
+                for file_path in files_to_index:
+                    try:
+                        # If file was modified, delete existing chunks first
+                        if file_path in modified_files:
+                            path_obj = Path(file_path)
+                            ext = path_obj.suffix.lower()
+                            if ext in ['.json', '.yaml', '.yml', '.xml', '.toml', '.ini']:
+                                collection_type = "config"
+                            elif ext in ['.md', '.markdown', '.rst', '.txt']:
+                                collection_type = "documentation"
+                            else:
+                                collection_type = "code"
+                            
+                            collection_name = get_collection_name(file_path, collection_type)
+                            delete_file_chunks(file_path, collection_name)
+                        
+                        # Index the file
+                        path_obj = Path(file_path)
+                        ext = path_obj.suffix.lower()
+                        if ext in ['.json', '.yaml', '.yml', '.xml', '.toml', '.ini']:
+                            result = index_config(file_path)
+                        elif ext in ['.md', '.markdown', '.rst', '.txt']:
+                            result = index_documentation(file_path)
+                        else:
+                            result = index_code(file_path)
+                        
+                        if "error" not in result:
+                            indexed_files.append(file_path)
+                            if "collection" in result:
+                                collections_used.add(result["collection"])
+                        else:
+                            indexing_errors.append({
+                                "file": file_path,
+                                "error": result["error"]
+                            })
+                    
+                    except Exception as e:
+                        indexing_errors.append({
+                            "file": file_path,
+                            "error": str(e)
+                        })
+            
+            # Combine results
+            duration_ms = (time.time() - start_time) * 1000
+            total_errors = deletion_errors + indexing_errors
+            
+            result = {
+                "directory": directory,
+                "mode": "incremental_reindex",
+                "changes_detected": {
+                    "added": len(added_files),
+                    "modified": len(modified_files),
+                    "deleted": len(deleted_files),
+                    "unchanged": len(unchanged_files)
+                },
+                "indexed_files": indexed_files,
+                "total_indexed": len(indexed_files),
+                "deleted_chunks": deleted_count,
+                "collections": list(collections_used),
+                "project_context": current_project["name"] if current_project else "no project",
+                "errors": total_errors if total_errors else None,
+                "message": f"Incremental reindex: {len(indexed_files)} files indexed, {deleted_count} chunks removed from {len(deleted_files)} deleted files, {len(unchanged_files)} files unchanged"
+            }
         
         logger.info(f"Completed reindex_directory for {directory}", extra={
             "operation": "reindex_directory",
             "directory": directory,
             "duration_ms": duration_ms,
-            "files_indexed": index_result.get('total', 0),
-            "collections_cleared": len(clear_result.get('cleared_collections', [])),
+            "mode": result.get("mode", "unknown"),
+            "files_indexed": result.get("total_indexed", 0),
             "status": "success"
         })
         
@@ -2428,6 +2909,14 @@ def index_config(file_path: str, force_global: bool = False) -> Dict[str, Any]:
         if not abs_path.exists():
             return {"error": f"File not found: {file_path}"}
         
+        # Get file modification time and hash
+        try:
+            mod_time = abs_path.stat().st_mtime
+            file_hash = calculate_file_hash(str(abs_path))
+        except:
+            mod_time = time.time()  # Use current time as fallback
+            file_hash = None  # No hash if file reading fails
+        
         # Get services
         config_indexer = get_config_indexer()
         embedding_model = get_embedding_model()
@@ -2473,7 +2962,9 @@ def index_config(file_path: str, force_global: bool = False) -> Dict[str, Any]:
                     "path": chunk.metadata.get("path", ""),
                     "content": chunk.content,
                     "value": chunk.metadata.get("value", ""),
-                    "project": collection_name.rsplit('_', 1)[0]
+                    "project": collection_name.rsplit('_', 1)[0],
+                    "modified_at": mod_time,
+                    "file_hash": file_hash
                 }
             )
             points.append(point)

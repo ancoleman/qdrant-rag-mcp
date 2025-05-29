@@ -22,8 +22,8 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 - 🚧 None currently
 
 ### Upcoming
-- 📋 Documentation Indexer - v0.2.3 (Markdown and documentation support)
-- 📋 Advanced Hybrid Search - v0.2.4 (Adaptive search intelligence)
+- 📋 Smart Reindex - v0.2.4 (Hybrid incremental reindexing)
+- 📋 Advanced Hybrid Search - v0.2.5 (Adaptive search intelligence)
 - 📋 Progressive Context Management (-50% initial tokens)
 - 📋 Query Enhancement (+35% recall)
 
@@ -128,21 +128,47 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 - **Benefits**: Correct project detection and proper file exclusion
 - **Impact**: Fixed two critical bugs - wrong directory indexing and missing .ragignore support
 
-##### v0.2.3: Documentation Indexer (3-4 days)
-- **Status**: 📋 Planned
+##### v0.2.3: Documentation Indexer ✅ **COMPLETED**
+- **Status**: ✅ Completed (2025-05-29)
 - **Focus**: Specialized indexer for markdown and documentation files
 - **Deliverables**:
-  - New DocumentationIndexer class for markdown files
-  - Section-based chunking (by headings)
-  - Metadata extraction (titles, headings, code blocks, links)
-  - Separate document_collection in Qdrant
-  - Add *.md patterns to default indexing
-  - search_docs() function for documentation-specific search
+  - ✅ New DocumentationIndexer class for markdown files
+  - ✅ Section-based chunking (by headings)
+  - ✅ Metadata extraction (titles, headings, code blocks, links)
+  - ✅ Separate documentation_collection in Qdrant
+  - ✅ Add *.md patterns to default indexing
+  - ✅ search_docs() function for documentation-specific search
+  - ✅ Full integration with server_config.json
+  - ✅ Fixed hybrid search for documentation
+  - ✅ Fixed reindex to include documentation collections
 - **Benefits**: Proper documentation indexing and search
 - **Impact**: Users can search documentation alongside code
 - **Risk**: Low - builds on existing indexer pattern
 
-##### v0.2.4: Adaptive Search Intelligence (5-6 days)
+##### v0.2.4: Smart Reindex (4-5 days)
+- **Status**: 📋 Planned
+- **Focus**: Hybrid incremental reindexing without clearing collections
+- **Deliverables**:
+  - File hash tracking in metadata (MD5/SHA256)
+  - Timestamp-based change detection
+  - Incremental update logic (add/update/remove)
+  - `reindex_directory` with `incremental=True` option
+  - Stale chunk cleanup for deleted/moved files
+  - Progress tracking and reporting
+  - Fallback to full reindex when needed
+  - Git-aware optimization for git repositories
+- **Benefits**: 
+  - 90%+ faster reindexing for minor changes
+  - No downtime or data loss during reindex
+  - Preserves unchanged embeddings
+- **Implementation Strategy**: Hybrid approach
+  - Track file content hashes in chunk metadata
+  - Compare current vs indexed state
+  - Only process changed files
+  - Clean up orphaned chunks
+- **Risk**: Medium - needs careful state management
+
+##### v0.2.5: Adaptive Search Intelligence (5-6 days)
 - **Status**: 📋 Planned
 - **Focus**: Smart query understanding and dynamic optimization
 - **Deliverables**:

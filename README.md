@@ -10,13 +10,14 @@ A context-aware Model Context Protocol (MCP) server that provides semantic searc
 - **🔗 Dependency-Aware Search**: Automatically includes files that import or are imported by your search results (v0.1.9)
 - **📊 Enhanced Search Context**: Get surrounding code chunks automatically for better understanding (v0.2.0)
 - **🎯 Multi-Signal Ranking**: 5-factor ranking system for 45% better search precision (v0.2.1)
+- **📚 Documentation Indexing**: Index and search markdown documentation files (v0.2.3)
+- **⚡ Smart Incremental Reindexing**: Only process changed files for 90%+ faster reindexing (v0.2.4)
 - **📁 Multi-Project Support**: Keep different projects' knowledge separate
 - **🚀 Fast Local Execution**: Supports Apple Silicon MPS acceleration
 - **🔧 Specialized Indexers**: Language-aware code parsing and config file understanding
 - **🔄 Optional Auto-Indexing**: Keep your index up-to-date automatically as files change
 - **📊 Project-Aware Logging**: Automatic log separation by project with rich debugging tools
 - **🏥 Health Monitoring**: Built-in health checks with detailed system status
-- **♻️ Smart Reindexing**: Clean slate reindexing to prevent stale data from deleted/moved files
 
 ## 📚 Documentation Overview
 

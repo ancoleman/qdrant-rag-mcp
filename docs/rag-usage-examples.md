@@ -15,7 +15,8 @@ This guide provides real-world examples of how to effectively use the Qdrant RAG
 10. [Understanding Scripts](#9-understanding-scripts)
 11. [Using Hybrid Search Effectively](#10-using-hybrid-search-effectively-v014)
 12. [Finding Test Examples](#11-finding-test-examples)
-13. [Pro Tips](#pro-tips)
+13. [Checking for File Changes](#12-checking-for-file-changes-v024)
+14. [Pro Tips](#pro-tips)
 
 ## 0. Setting Correct Working Directory (v0.2.2+)
 
@@ -328,6 +329,37 @@ Full test suite available in the script.
 ```
 
 **What's happening**: The search finds testing documentation and examples.
+
+## 12. Checking for File Changes (v0.2.4+)
+
+**Scenario**: You want to see what files have changed since the last indexing without running a full reindex.
+
+```
+You: "Check what files have changed in this project"
+
+Claude: I'll check for changes since the last index...
+[Uses: qdrant-rag:detect_changes]
+
+Here's what changed:
+- Added: 2 files
+  - src/new_feature.py
+  - tests/test_new_feature.py
+- Modified: 3 files
+  - src/main.py (updated 2 hours ago)
+  - config/settings.json (updated 1 hour ago)
+  - README.md (updated 30 minutes ago)
+- Deleted: 1 file
+  - src/deprecated_module.py
+- Unchanged: 156 files
+
+Would you like me to reindex these changes?
+```
+
+**Use Cases for detect_changes**:
+- **Pre-reindex check**: See what would be updated before running reindex
+- **CI/CD integration**: Automate index updates based on changes
+- **Monitoring**: Track codebase evolution over time
+- **Debugging**: Verify the indexer is tracking files correctly
 
 ## Pro Tips
 

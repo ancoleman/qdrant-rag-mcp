@@ -1,6 +1,6 @@
 [project]
 name = "qdrant-rag-mcp"
-version = "0.2.3"
+version = "0.2.4"
 description = "Qdrant RAG MCP Server"
 requires-python = ">=3.12"
 dependencies = [

@@ -539,7 +539,7 @@ def clear_project_collections() -> Dict[str, Any]:
     existing_collections = [c.name for c in client.get_collections().collections]
     
     # Find project collections
-    for collection_type in ['code', 'config']:
+    for collection_type in ['code', 'config', 'documentation']:
         collection_name = f"{current_project['collection_prefix']}_{collection_type}"
         
         if collection_name in existing_collections:

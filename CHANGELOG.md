@@ -16,14 +16,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Example: Running `index_directory(".")` from `/panflow` indexed `/qdrant-rag` instead
 
 ### Added
+- **Natural Language Working Directory Setup**: Users can now set working directory using natural language
+  - No configuration required - works immediately
+  - Example: "Get pwd, export MCP_CLIENT_CWD to that value, then run health check"
+  - Provides the easiest way to ensure correct project context
 - **MCP_CLIENT_CWD Environment Variable**: New environment variable to pass client's working directory
   - Allows MCP server to know the actual directory where user is working
   - Set this in your environment or .env file for accurate project detection
+  - Can be set dynamically via natural language commands
 - **Client Directory Parameter**: `get_current_project()` now accepts optional `client_directory` parameter
   - Used internally by `index_directory` to ensure correct project context
+- **Command Line Argument**: Added `--client-cwd` argument for setting client working directory
+  - Allows configuration via Claude Code's args array
+  - Overrides MCP_CLIENT_CWD environment variable when provided
 - **Improved Directory Validation**: Better error messages and validation for directory parameters
   - Now requires explicit directory parameter (no default to ".")
   - Clear warnings when server's working directory is used as fallback
+- **Claude Code Configuration Guide**: Comprehensive documentation for working directory setup
+  - Created docs/claude-code-config-example.md
+  - Shows multiple configuration options including natural language approach
 
 ### Changed
 - **index_directory() Signature**: Changed from `directory="."` to `directory=None` (now required)
@@ -35,6 +46,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Better Error Messages**: More descriptive errors with error codes
   - `MISSING_DIRECTORY`: When directory parameter is not provided
   - Includes helpful suggestions for resolution
+- **health_check() Enhancement**: Now uses MCP_CLIENT_CWD for accurate project detection
+  - Shows client_cwd field when environment variable is set
+- **get_context() Enhancement**: Now uses MCP_CLIENT_CWD for accurate project context
+  - Ensures project statistics reflect the correct working directory
 
 ### Technical Details
 - Implemented three-tier directory resolution:
@@ -42,13 +57,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   2. Environment variable `MCP_CLIENT_CWD`
   3. Fallback to server's `Path.cwd()` with warning
 - Updated `.env` and `.env.example` with new configuration option
+- Added `--client-cwd` command-line argument support
+- Enhanced `health_check()` and `get_context()` to use client working directory
 - Maintains backward compatibility while encouraging safer usage patterns
 
 ### Migration Guide
 For users upgrading from v0.2.1:
-1. Update your `index_directory` calls to include explicit paths
-2. Set `MCP_CLIENT_CWD` environment variable if using relative paths
-3. Use absolute paths for most reliable operation
+
+1. **Easiest Option - Natural Language** (no configuration needed):
+   ```
+   "Get pwd, export MCP_CLIENT_CWD to that value, then run health check"
+   ```
+
+2. **Configuration Option** - Update Claude Code config:
+   ```json
+   "env": {"MCP_CLIENT_CWD": "${workspaceFolder}"}
+   ```
+
+3. **Code Changes**:
+   - Update `index_directory` calls to include explicit paths
+   - Use absolute paths for most reliable operation
 
 ## [0.2.1] - 2025-05-28
 

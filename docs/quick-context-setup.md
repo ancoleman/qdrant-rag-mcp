@@ -2,8 +2,24 @@
 
 ## 🎯 Fastest Way to Get Full Context
 
-### Option 1: One-Line Setup (Recommended)
-Start your Claude Code session with this single command:
+### Option 1: Natural Language Setup (No Configuration Required!)
+Start your Claude Code session with this approach - no configuration needed:
+```
+"Get the current working directory with pwd, export MCP_CLIENT_CWD to that value, then run a health check to verify the correct project context"
+```
+
+Or for indexing:
+```
+"First run pwd and export MCP_CLIENT_CWD=$(pwd), then reindex this directory and give me an overview of the project structure"
+```
+
+This natural language approach:
+- Works immediately without any configuration changes
+- Ensures the MCP server knows your actual working directory
+- Can be used in any project without setup
+
+### Option 2: One-Line Reindex
+If you're already in the correct directory:
 ```
 "Reindex this directory, then search for the main files and give me an overview of the project structure"
 ```
@@ -14,7 +30,7 @@ This will:
 3. Search and summarize key components
 4. Give you a project overview
 
-### Option 2: Auto-Index on Start
+### Option 3: Auto-Index on Start
 Add to your shell config (`~/.bashrc` or `~/.zshrc`):
 ```bash
 # Auto-index every Claude session
@@ -22,7 +38,7 @@ export QDRANT_RAG_AUTO_INDEX=true
 alias claude-dev='QDRANT_RAG_AUTO_INDEX=true claude'
 ```
 
-### Option 3: Use the Session Starter
+### Option 4: Use the Session Starter
 ```bash
 # From any project directory
 ~/path/to/qdrant-rag/scripts/start-session.sh
@@ -32,22 +48,27 @@ alias claude-dev='QDRANT_RAG_AUTO_INDEX=true claude'
 
 After starting Claude Code, use these commands for instant context:
 
-1. **Full Reindex + Overview**:
+1. **Set Working Directory + Health Check** (Recommended first command):
    ```
-   "Reindex the current directory and tell me about the project structure, main files, and recent changes"
+   "Run pwd to get current directory, export MCP_CLIENT_CWD=$(pwd), then run a health check to confirm project context"
    ```
 
-2. **Quick Health Check**:
+2. **Full Reindex + Overview**:
+   ```
+   "Export MCP_CLIENT_CWD=$(pwd), then reindex the current directory and tell me about the project structure, main files, and recent changes"
+   ```
+
+3. **Quick Context Verification**:
    ```
    "Run a health check and show me the current project context"
    ```
 
-3. **Find Key Files**:
+4. **Find Key Files**:
    ```
    "Search for README, main, index, app, and config files to understand the project"
    ```
 
-4. **Understand Dependencies**:
+5. **Understand Dependencies**:
    ```
    "Search for package.json, requirements.txt, pyproject.toml, or go.mod and summarize the dependencies"
    ```

@@ -3,18 +3,54 @@
 This guide provides real-world examples of how to effectively use the Qdrant RAG server when working with Claude Code to enhance your development workflow.
 
 ## Table of Contents
-1. [Finding Implementation Details](#1-finding-implementation-details)
-2. [Understanding Configuration](#2-understanding-configuration)
-3. [Debugging Issues](#3-debugging-issues)
-4. [Finding Examples](#4-finding-examples)
-5. [Architecture Questions](#5-architecture-questions)
-6. [Finding Related Code](#6-finding-related-code)
-7. [Configuration Updates](#7-configuration-updates)
-8. [Cross-Project Search](#8-cross-project-search-global)
-9. [Understanding Scripts](#9-understanding-scripts)
-10. [Using Hybrid Search Effectively](#10-using-hybrid-search-effectively-v014)
-11. [Finding Test Examples](#11-finding-test-examples)
-12. [Pro Tips](#pro-tips)
+1. [Setting Correct Working Directory](#0-setting-correct-working-directory-v022)
+2. [Finding Implementation Details](#1-finding-implementation-details)
+3. [Understanding Configuration](#2-understanding-configuration)
+4. [Debugging Issues](#3-debugging-issues)
+5. [Finding Examples](#4-finding-examples)
+6. [Architecture Questions](#5-architecture-questions)
+7. [Finding Related Code](#6-finding-related-code)
+8. [Configuration Updates](#7-configuration-updates)
+9. [Cross-Project Search](#8-cross-project-search-global)
+10. [Understanding Scripts](#9-understanding-scripts)
+11. [Using Hybrid Search Effectively](#10-using-hybrid-search-effectively-v014)
+12. [Finding Test Examples](#11-finding-test-examples)
+13. [Pro Tips](#pro-tips)
+
+## 0. Setting Correct Working Directory (v0.2.2+)
+
+**Scenario**: You're working in `/project-a` but health check shows the wrong project context.
+
+### Natural Language Approach (No Configuration Required!)
+
+```
+You: "Get the current working directory with pwd, export MCP_CLIENT_CWD to that value, then run a health check"
+
+Claude: I'll set the correct working directory for the MCP server and verify the project context.
+[Runs: pwd]
+[Output: /Users/you/projects/project-a]
+[Runs: export MCP_CLIENT_CWD=/Users/you/projects/project-a]
+[Uses: qdrant-rag:health_check]
+
+✓ Health check shows:
+- Project: project_a
+- Path: /Users/you/projects/project-a
+- The MCP server now correctly knows your working directory!
+```
+
+### For Indexing with Correct Context
+
+```
+You: "First run pwd and export MCP_CLIENT_CWD=$(pwd), then reindex this directory"
+
+Claude: I'll ensure the MCP server knows the correct directory before indexing.
+[Runs: export MCP_CLIENT_CWD=$(pwd)]
+[Uses: qdrant-rag:reindex_directory with correct project context]
+```
+
+**Why this works**: The MCP server runs in its own process and doesn't automatically know where you're working. By setting `MCP_CLIENT_CWD`, you tell it your actual location.
+
+**Pro tip**: Start every Claude Code session with the working directory setup to ensure correct project detection throughout your session.
 
 ## 1. Finding Implementation Details
 

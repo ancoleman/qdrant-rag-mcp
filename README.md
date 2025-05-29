@@ -80,6 +80,57 @@ echo 'export QDRANT_RAG_AUTO_INDEX=true' >> ~/.bashrc
 echo 'export QDRANT_RAG_AUTO_INDEX=true' >> ~/.zshrc
 ```
 
+## 🔧 Working Directory Configuration (Important!)
+
+The MCP server needs to know your actual working directory to correctly detect projects. You have three options:
+
+### Option 1: Natural Language (No Configuration Required!)
+
+Simply tell Claude Code to set the working directory at the start of your session:
+
+```
+"Get current directory with pwd, export MCP_CLIENT_CWD to that value, then run health check"
+```
+
+This works immediately without any configuration changes!
+
+### Option 2: Environment Variable Configuration
+
+In your Claude Code configuration (`~/.claude-code/config.json`):
+
+```json
+{
+  "mcpServers": {
+    "qdrant-rag": {
+      "command": "python",
+      "args": ["/path/to/qdrant-rag/src/qdrant_mcp_context_aware.py"],
+      "env": {
+        "MCP_CLIENT_CWD": "${workspaceFolder}"
+      }
+    }
+  }
+}
+```
+
+### Option 3: Command Line Argument
+
+```json
+{
+  "mcpServers": {
+    "qdrant-rag": {
+      "command": "python",
+      "args": [
+        "/path/to/qdrant-rag/src/qdrant_mcp_context_aware.py",
+        "--client-cwd",
+        "${workspaceFolder}"
+      ]
+    }
+  }
+}
+```
+
+**Note**: Without proper working directory setup, the server may detect the wrong project. The natural language approach (Option 1) is the quickest way to get started. See [Claude Code Configuration Guide](docs/claude-code-config-example.md) for more details.
+
 ## 📖 Documentation
 
 ### Core Guides

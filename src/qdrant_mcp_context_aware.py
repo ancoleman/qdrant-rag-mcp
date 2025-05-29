@@ -2072,13 +2072,18 @@ def health_check() -> Dict[str, Any]:
     
     # Check current project context
     try:
-        project = get_current_project()
+        # Use client's working directory if available
+        client_cwd = os.environ.get('MCP_CLIENT_CWD')
+        project = get_current_project(client_directory=client_cwd)
         if project:
             health_status["project"] = {
                 "name": project["name"],
                 "path": project["root"],
                 "collection_prefix": project["collection_prefix"]
             }
+            # Add note if using client CWD
+            if client_cwd:
+                health_status["project"]["client_cwd"] = client_cwd
     except Exception as e:
         health_status["project"] = {
             "error": str(e)
@@ -2104,7 +2109,13 @@ if __name__ == "__main__":
     parser.add_argument("--watch-dir", default=".", help="Directory to watch (default: current)")
     parser.add_argument("--debounce", type=float, default=3.0, help="Debounce seconds for file watching")
     parser.add_argument("--initial-index", action="store_true", help="Perform initial index on startup")
+    parser.add_argument("--client-cwd", help="Client's working directory (overrides MCP_CLIENT_CWD env var)")
     args = parser.parse_args()
+    
+    # Set client working directory if provided via command line
+    if args.client_cwd:
+        os.environ['MCP_CLIENT_CWD'] = args.client_cwd
+        console_logger.info(f"Client working directory set to: {args.client_cwd}")
     
     # Start file watcher if requested
     observer = None

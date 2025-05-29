@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] - 2025-05-29
+
+### Added
+- **Documentation Indexer**: New specialized indexer for markdown and documentation files
+  - Section-based chunking that preserves document structure
+  - Heading hierarchy extraction for better navigation
+  - Rich metadata including code blocks, links, and frontmatter
+  - Support for `.md`, `.markdown`, `.rst`, `.txt`, and `.mdx` files
+  - Intelligent splitting of large sections with context preservation
+- **New MCP Tools for Documentation**:
+  - `index_documentation`: Index markdown and documentation files
+  - `search_docs`: Search specifically in documentation with rich results
+- **Documentation Collection**: Separate Qdrant collection for documentation
+  - Isolated from code and config collections for better organization
+  - Optimized for document-specific search patterns
+- **Enhanced `index_directory`**: Now includes markdown files by default
+  - Automatically routes `.md` files to Documentation Indexer
+  - Maintains backward compatibility with existing indexing
+
+### Technical Details
+- Created `DocumentationIndexer` class with markdown-aware parsing
+- Regex-based extraction of headings, code blocks, links, and frontmatter
+- Section chunking creates natural document boundaries
+- Metadata tracks heading hierarchy for contextual understanding
+- Large sections split at paragraph boundaries with overlap
+- Summary extraction for quick document previews
+
+### Migration Guide
+Documentation files are now indexed automatically when using `index_directory`. 
+For existing projects, reindex to include documentation:
+```
+"Reindex this directory to include documentation"
+```
+
 ## [0.2.2] - 2025-05-29
 
 ### Critical Fix

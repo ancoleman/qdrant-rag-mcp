@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     from . import __version__
 except ImportError:
-    __version__ = "0.2.2"  # Fallback version
+    __version__ = "0.2.3"  # Fallback version
 
 # Load environment variables from the MCP server directory
 from dotenv import load_dotenv
@@ -89,6 +89,7 @@ _qdrant_client = None
 _embedding_model = None
 _code_indexer = None
 _config_indexer = None
+_documentation_indexer = None
 _current_project = None  # Cache current project detection
 
 # Configuration
@@ -504,6 +505,14 @@ def get_config_indexer():
         _config_indexer = ConfigIndexer()
     return _config_indexer
 
+def get_documentation_indexer():
+    """Get or create documentation indexer"""
+    global _documentation_indexer
+    if _documentation_indexer is None:
+        from indexers import DocumentationIndexer
+        _documentation_indexer = DocumentationIndexer()
+    return _documentation_indexer
+
 def clear_project_collections() -> Dict[str, Any]:
     """
     Clear all collections for the current project.
@@ -912,6 +921,219 @@ def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
             "file_path": file_path
         }
 
+@mcp.tool()
+def index_documentation(file_path: str, force_global: bool = False) -> Dict[str, Any]:
+    """
+    Index a documentation file (markdown, rst, etc.)
+    
+    Args:
+        file_path: Path to the documentation file to index
+        force_global: If True, index to global collection instead of project
+    """
+    logger = get_logger()
+    start_time = time.time()
+    
+    try:
+        # Input validation
+        if not file_path or not isinstance(file_path, str):
+            return {
+                "error": "Invalid file path",
+                "error_code": "INVALID_INPUT",
+                "details": "File path must be a non-empty string"
+            }
+        
+        # Security check - prevent path traversal
+        if "../" in file_path or file_path.startswith("/etc/") or file_path.startswith("/sys/"):
+            return {
+                "error": "Access denied",
+                "error_code": "SECURITY_VIOLATION",
+                "details": "Path traversal or system file access attempted"
+            }
+        
+        from qdrant_client.http.models import PointStruct
+        
+        abs_path = Path(file_path).resolve()
+        
+        # Check if file exists
+        if not abs_path.exists():
+            return {
+                "error": "File not found",
+                "error_code": "FILE_NOT_FOUND",
+                "details": f"File {file_path} does not exist"
+            }
+        
+        # Get documentation indexer
+        doc_indexer = get_documentation_indexer()
+        
+        # Check if file is supported
+        if not doc_indexer.is_supported(str(abs_path)):
+            return {
+                "error": "Unsupported file type",
+                "error_code": "UNSUPPORTED_FILE_TYPE",
+                "details": f"File type not supported for documentation indexing: {abs_path.suffix}"
+            }
+        
+        # Determine collection
+        if force_global:
+            collection_name = "global_documentation"
+        else:
+            collection_name = get_collection_name(str(abs_path), "documentation")
+        
+        # Ensure collection exists
+        ensure_collection(collection_name)
+        
+        # Index the file
+        chunks = doc_indexer.index_file(str(abs_path))
+        
+        if not chunks:
+            return {
+                "error": "No content extracted",
+                "error_code": "NO_CONTENT",
+                "details": "No documentation chunks could be extracted from the file"
+            }
+        
+        # Get embedding model and Qdrant client
+        model = get_embedding_model()
+        qdrant_client = get_qdrant_client()
+        
+        # Prepare points for Qdrant
+        points = []
+        for chunk in chunks:
+            # Create unique ID for chunk
+            chunk_id = hashlib.md5(
+                f"{str(abs_path)}_{chunk['metadata']['chunk_index']}".encode()
+            ).hexdigest()
+            
+            # Generate embedding
+            embedding = model.encode(chunk['content']).tolist()
+            
+            # Prepare payload
+            payload = {
+                "file_path": str(abs_path),
+                "file_name": abs_path.name,
+                "content": chunk['content'],
+                "doc_type": chunk['metadata'].get('doc_type', 'markdown'),
+                "chunk_index": chunk['metadata']['chunk_index'],
+                "chunk_type": chunk['metadata'].get('chunk_type', 'section'),
+                "title": chunk['metadata'].get('title', ''),
+                "heading": chunk['metadata'].get('heading', ''),
+                "heading_hierarchy": chunk['metadata'].get('heading_hierarchy', []),
+                "heading_level": chunk['metadata'].get('heading_level', 0),
+                "has_code_blocks": chunk['metadata'].get('has_code_blocks', False),
+                "code_languages": chunk['metadata'].get('code_languages', []),
+                "internal_links": chunk['metadata'].get('internal_links', []),
+                "external_links": chunk['metadata'].get('external_links', []),
+                "modified_at": chunk['metadata'].get('modified_at', ''),
+                "collection": collection_name
+            }
+            
+            # Add frontmatter if present
+            if 'frontmatter' in chunk['metadata'] and chunk['metadata']['frontmatter']:
+                payload['frontmatter'] = chunk['metadata']['frontmatter']
+            
+            point = PointStruct(
+                id=chunk_id,
+                vector=embedding,
+                payload=payload
+            )
+            points.append(point)
+        
+        # Store in Qdrant
+        if points:
+            qdrant_client.upsert(
+                collection_name=collection_name,
+                points=points
+            )
+            
+            # Update BM25 index for hybrid search
+            hybrid_searcher = get_hybrid_searcher()
+            documents = []
+            for chunk in chunks:
+                doc = {
+                    "id": f"{str(abs_path)}_{chunk['metadata']['chunk_index']}",
+                    "content": chunk['content'],
+                    "file_path": str(abs_path),
+                    "chunk_index": chunk['metadata']['chunk_index'],
+                    "doc_type": chunk['metadata'].get('doc_type', 'markdown'),
+                    "heading": chunk['metadata'].get('heading', ''),
+                    "chunk_type": chunk['metadata'].get('chunk_type', 'section')
+                }
+                documents.append(doc)
+            
+            # Update BM25 index
+            hybrid_searcher = get_hybrid_searcher()
+            hybrid_searcher.bm25_manager.update_index(collection_name, documents)
+        
+        duration_ms = (time.time() - start_time) * 1000
+        
+        logger.info(f"Successfully indexed documentation {file_path}", extra={
+            "operation": "index_documentation",
+            "file_path": str(abs_path),
+            "chunks": len(chunks),
+            "collection": collection_name,
+            "duration_ms": duration_ms,
+            "status": "success"
+        })
+        
+        return {
+            "indexed": len(chunks),
+            "file_path": str(abs_path),
+            "file_name": abs_path.name,
+            "doc_type": chunks[0]['metadata'].get('doc_type', 'markdown') if chunks else 'markdown',
+            "title": chunks[0]['metadata'].get('title', '') if chunks else '',
+            "collection": collection_name,
+            "has_code_blocks": any(c['metadata'].get('has_code_blocks', False) for c in chunks),
+            "code_languages": list(set(lang for c in chunks for lang in c['metadata'].get('code_languages', []))),
+            "message": f"Successfully indexed {len(chunks)} documentation chunks"
+        }
+        
+    except QdrantConnectionError as e:
+        duration_ms = (time.time() - start_time) * 1000
+        logger.error(f"Qdrant connection failed for {file_path}", extra={
+            "operation": "index_documentation", 
+            "file_path": file_path,
+            "duration_ms": duration_ms,
+            "error": str(e),
+            "error_type": "QdrantConnectionError",
+            "status": "error"
+        })
+        return {
+            "error": "Database connection failed",
+            "error_code": "CONNECTION_ERROR",
+            "details": e.details,
+            "file_path": file_path
+        }
+    except Exception as e:
+        duration_ms = (time.time() - start_time) * 1000
+        error_msg = str(e)
+        
+        # Provide user-friendly error messages
+        if "not found" in error_msg.lower():
+            user_error = "File not found"
+            error_code = "FILE_NOT_FOUND"
+        elif "permission" in error_msg.lower():
+            user_error = "Permission denied"
+            error_code = "PERMISSION_DENIED"
+        else:
+            user_error = "Failed to index documentation"
+            error_code = "INDEX_ERROR"
+        
+        logger.error(f"Failed index_documentation for {file_path}: {error_msg}", extra={
+            "operation": "index_documentation",
+            "file_path": file_path,
+            "duration_ms": duration_ms,
+            "error": error_msg,
+            "error_type": type(e).__name__,
+            "status": "error"
+        })
+        
+        return {
+            "error": user_error,
+            "error_code": error_code,
+            "details": error_msg,
+            "file_path": file_path
+        }
+
 def load_ragignore_patterns(directory: Path) -> Tuple[Set[str], Set[str]]:
     """
     Load ignore patterns from .ragignore file in the directory or its parents.
@@ -994,6 +1216,7 @@ def index_directory(directory: str = None, patterns: List[str] = None, recursive
             patterns = ["*.py", "*.js", "*.ts", "*.jsx", "*.tsx", "*.java", "*.go", "*.rs", 
                        "*.sh", "*.bash", "*.zsh", "*.fish",  # Shell scripts
                        "*.json", "*.yaml", "*.yml", "*.xml", "*.toml", "*.ini",
+                       "*.md", "*.markdown", "*.rst", "*.txt",  # Documentation files
                        ".gitignore", ".dockerignore", ".prettierrc*", ".eslintrc*", 
                        ".editorconfig", ".npmrc", ".yarnrc", ".ragignore"]
         
@@ -1121,6 +1344,8 @@ def index_directory(directory: str = None, patterns: List[str] = None, recursive
                     ext = file_path.suffix.lower()
                     if ext in ['.json', '.yaml', '.yml', '.xml', '.toml', '.ini']:
                         result = index_config(str(file_path))
+                    elif ext in ['.md', '.markdown', '.rst', '.txt']:
+                        result = index_documentation(str(file_path))
                     else:
                         result = index_code(str(file_path))
                     
@@ -1863,6 +2088,277 @@ def search_code(query: str, language: Optional[str] = None, n_results: int = 5, 
         
     except Exception as e:
         return {"error": str(e), "query": query}
+
+@mcp.tool()
+def search_docs(query: str, doc_type: Optional[str] = None, n_results: int = 5, cross_project: bool = False, search_mode: str = "hybrid", include_context: bool = True, context_chunks: int = 1) -> Dict[str, Any]:
+    """
+    Search specifically in documentation files
+    
+    Args:
+        query: Search query
+        doc_type: Filter by documentation type (e.g., 'markdown', 'rst')
+        n_results: Number of results
+        cross_project: If True, search across all projects
+        search_mode: Search mode - "vector", "keyword", or "hybrid" (default: "hybrid")
+        include_context: If True, include surrounding chunks for more context
+        context_chunks: Number of chunks before/after to include (default: 1, max: 3)
+    """
+    logger = get_logger()
+    start_time = time.time()
+    
+    # Input validation
+    if not query or not isinstance(query, str):
+        return {
+            "error": "Invalid query",
+            "error_code": "INVALID_INPUT",
+            "details": "Query must be a non-empty string"
+        }
+    
+    # Sanitize query
+    query = query.strip()
+    if len(query) > 1000:
+        query = query[:1000]
+    
+    n_results = max(1, min(50, n_results))
+    search_mode = search_mode.lower()
+    if search_mode not in ["vector", "keyword", "hybrid"]:
+        search_mode = "hybrid"
+    
+    try:
+        qdrant_client = get_qdrant_client()
+        model = get_embedding_model()
+        
+        # Get current project info
+        current_project = get_current_project()
+        
+        # Determine collections to search
+        search_collections = []
+        if cross_project:
+            # Search all documentation collections
+            all_collections = [c.name for c in qdrant_client.get_collections().collections]
+            search_collections = [c for c in all_collections if c.endswith("_documentation")]
+        else:
+            # Search only current project documentation
+            if current_project:
+                project_collection = f"{current_project['collection_prefix']}_documentation"
+                # Check if collection exists
+                existing = [c.name for c in qdrant_client.get_collections().collections]
+                if project_collection in existing:
+                    search_collections = [project_collection]
+        
+        if not search_collections:
+            return {
+                "results": [],
+                "query": query,
+                "message": "No documentation collections found to search"
+            }
+        
+        # Generate query embedding for vector search
+        query_embedding = model.encode(query).tolist()
+        
+        all_results = []
+        
+        if search_mode in ["vector", "hybrid"]:
+            # Vector search
+            for collection in search_collections:
+                try:
+                    # Build search filter
+                    search_filter = None
+                    if doc_type:
+                        search_filter = {
+                            "must": [
+                                {"key": "doc_type", "match": {"value": doc_type.lower()}}
+                            ]
+                        }
+                    
+                    results = qdrant_client.search(
+                        collection_name=collection,
+                        query_vector=query_embedding,
+                        query_filter=search_filter,
+                        limit=n_results if not search_mode == "hybrid" else n_results * 2
+                    )
+                    
+                    for result in results:
+                        payload = result.payload
+                        all_results.append({
+                            "score": result.score,
+                            "vector_score": result.score,
+                            "file_path": payload.get("file_path", ""),
+                            "file_name": payload.get("file_name", ""),
+                            "doc_type": payload.get("doc_type", "markdown"),
+                            "title": payload.get("title", ""),
+                            "heading": payload.get("heading", ""),
+                            "heading_hierarchy": payload.get("heading_hierarchy", []),
+                            "heading_level": payload.get("heading_level", 0),
+                            "content": _truncate_content(payload.get("content", "")),
+                            "chunk_index": payload.get("chunk_index", 0),
+                            "chunk_type": payload.get("chunk_type", "section"),
+                            "has_code_blocks": payload.get("has_code_blocks", False),
+                            "code_languages": payload.get("code_languages", []),
+                            "collection": collection,
+                            "project": payload.get("project", "unknown")
+                        })
+                except Exception as e:
+                    logger.warning(f"Error searching collection {collection}: {e}")
+        
+        if search_mode in ["keyword", "hybrid"]:
+            # BM25 keyword search
+            hybrid_searcher = get_hybrid_searcher()
+            
+            for collection in search_collections:
+                try:
+                    bm25_results = hybrid_searcher.bm25_manager.search(
+                        collection_name=collection,
+                        query=query,
+                        k=n_results if not search_mode == "hybrid" else n_results * 2
+                    )
+                    
+                    for doc in bm25_results:
+                        # Check if already in results (for hybrid mode)
+                        existing = next((r for r in all_results if r["file_path"] == doc["file_path"] and r["chunk_index"] == doc["chunk_index"]), None)
+                        
+                        if existing and search_mode == "hybrid":
+                            # Update with BM25 score
+                            existing["bm25_score"] = doc.get("score", 0.5)
+                            existing["combined_score"] = (existing["vector_score"] + doc.get("score", 0.5)) / 2
+                        elif not existing:
+                            # Add new result
+                            all_results.append({
+                                "score": doc.get("score", 0.5),
+                                "bm25_score": doc.get("score", 0.5),
+                                "file_path": doc.get("file_path", ""),
+                                "file_name": Path(doc.get("file_path", "")).name,
+                                "doc_type": doc.get("doc_type", "markdown"),
+                                "title": doc.get("title", ""),
+                                "heading": doc.get("heading", ""),
+                                "heading_hierarchy": doc.get("heading_hierarchy", []),
+                                "heading_level": doc.get("heading_level", 0),
+                                "content": _truncate_content(doc.get("content", "")),
+                                "chunk_index": doc.get("chunk_index", 0),
+                                "chunk_type": doc.get("chunk_type", "section"),
+                                "has_code_blocks": doc.get("has_code_blocks", False),
+                                "code_languages": doc.get("code_languages", []),
+                                "collection": collection,
+                                "project": doc.get("project", "unknown")
+                            })
+                except Exception as e:
+                    logger.warning(f"BM25 search error for collection {collection}: {e}")
+        
+        # Apply enhanced ranking for hybrid search
+        if all_results and search_mode == "hybrid":
+            ranker = get_enhanced_ranker()
+            # Convert to format expected by ranker
+            ranker_results = []
+            for r in all_results:
+                ranker_results.append({
+                    "score": r.get("combined_score", r["score"]),
+                    "vector_score": r.get("vector_score", r["score"]),
+                    "bm25_score": r.get("bm25_score", 0),
+                    "file_path": r["file_path"],
+                    "chunk_index": r["chunk_index"],
+                    "content": r["content"],
+                    "heading": r.get("heading", ""),
+                    "heading_level": r.get("heading_level", 0)
+                })
+            
+            # Apply ranking with documentation-specific weights
+            doc_weights = {
+                "base_score": 0.3,
+                "file_proximity": 0.2,  # Less important for docs
+                "dependency_distance": 0.0,  # Not applicable
+                "code_structure": 0.0,  # Not applicable
+                "recency": 0.2,
+                "heading_match": 0.3  # New signal for docs
+            }
+            
+            ranked_results = ranker.rank_results(
+                results=ranker_results,
+                query=query,
+                weights=doc_weights
+            )
+            
+            # Update scores and add ranking signals
+            for i, ranked in enumerate(ranked_results):
+                if i < len(all_results):
+                    matching_result = next((r for r in all_results if r["file_path"] == ranked["file_path"] and r["chunk_index"] == ranked["chunk_index"]), None)
+                    if matching_result:
+                        matching_result["score"] = ranked["final_score"]
+                        matching_result["ranking_signals"] = ranked.get("ranking_signals", {})
+        
+        # Sort by score
+        all_results.sort(key=lambda x: x["score"], reverse=True)
+        
+        # Limit results
+        all_results = all_results[:n_results]
+        
+        # Expand context if requested
+        if include_context and all_results:
+            # Convert to format expected by context expander
+            formatted_results = []
+            for result in all_results:
+                formatted_result = {
+                    "score": result["score"],
+                    "file_path": result["file_path"],
+                    "chunk_index": result["chunk_index"],
+                    "collection": result["collection"],
+                    "content": result["content"],
+                    **result
+                }
+                formatted_results.append(formatted_result)
+            
+            # Expand context
+            expanded_results = _expand_search_context(formatted_results, qdrant_client, search_collections, context_chunks)
+            
+            # Update results with expanded content
+            for i, expanded in enumerate(expanded_results):
+                if i < len(all_results):
+                    if expanded.get("expanded_content"):
+                        all_results[i]["content"] = _truncate_content(expanded["expanded_content"], 2000)
+                        all_results[i]["has_context"] = True
+                        all_results[i]["context_chunks_before"] = expanded.get("context_chunks_before", 0)
+                        all_results[i]["context_chunks_after"] = expanded.get("context_chunks_after", 0)
+        
+        duration_ms = (time.time() - start_time) * 1000
+        
+        logger.info(f"Documentation search completed", extra={
+            "operation": "search_docs",
+            "query": query,
+            "results": len(all_results),
+            "collections_searched": len(search_collections),
+            "search_mode": search_mode,
+            "duration_ms": duration_ms,
+            "status": "success"
+        })
+        
+        return {
+            "results": all_results,
+            "query": query,
+            "doc_type_filter": doc_type,
+            "total": len(all_results),
+            "search_mode": search_mode,
+            "project_context": current_project["name"] if current_project else "no project",
+            "search_scope": "all projects" if cross_project else "current project"
+        }
+        
+    except Exception as e:
+        duration_ms = (time.time() - start_time) * 1000
+        logger.error(f"Documentation search failed", extra={
+            "operation": "search_docs",
+            "query": query,
+            "duration_ms": duration_ms,
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "status": "error"
+        })
+        return {
+            "results": [],
+            "query": query,
+            "error": str(e),
+            "error_code": "SEARCH_ERROR",
+            "total": 0,
+            "search_mode": search_mode,
+            "message": f"Documentation search failed: {str(e)}"
+        }
 
 @mcp.tool()
 def switch_project(project_path: str) -> Dict[str, Any]:

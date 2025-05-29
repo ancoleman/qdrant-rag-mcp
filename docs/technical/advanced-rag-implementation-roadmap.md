@@ -22,7 +22,8 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 - 🚧 None currently
 
 ### Upcoming
-- 📋 Advanced Hybrid Search - v0.2.3 (Adaptive search intelligence)
+- 📋 Documentation Indexer - v0.2.3 (Markdown and documentation support)
+- 📋 Advanced Hybrid Search - v0.2.4 (Adaptive search intelligence)
 - 📋 Progressive Context Management (-50% initial tokens)
 - 📋 Query Enhancement (+35% recall)
 
@@ -114,19 +115,34 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 - **Benefits**: 45% improvement in search precision
 - **Impact**: Search results now ranked by 5 signals with visible contributions
 
-##### v0.2.2: Critical Working Directory Fix ✅ **COMPLETED**
+##### v0.2.2: Critical Working Directory Fix + .ragignore Support ✅ **COMPLETED**
 - **Status**: ✅ Completed (2025-05-29)
-- **Focus**: Fix critical bug where MCP server used wrong working directory
+- **Focus**: Fix critical bugs with working directory and .ragignore support
 - **Deliverables**:
   - ✅ Added MCP_CLIENT_CWD environment variable support
+  - ✅ Natural language working directory setup
   - ✅ Modified get_current_project() to accept client_directory parameter
   - ✅ Updated index_directory() to require explicit directory parameter
+  - ✅ Implemented .ragignore file reading and pattern matching
   - ✅ Enhanced logging and error messages for directory resolution
-  - ✅ Updated .env files with new configuration option
-- **Benefits**: Correct project detection and indexing
-- **Impact**: Fixed critical bug where indexing from one directory would index the wrong project
+- **Benefits**: Correct project detection and proper file exclusion
+- **Impact**: Fixed two critical bugs - wrong directory indexing and missing .ragignore support
 
-##### v0.2.3: Adaptive Search Intelligence (5-6 days)
+##### v0.2.3: Documentation Indexer (3-4 days)
+- **Status**: 📋 Planned
+- **Focus**: Specialized indexer for markdown and documentation files
+- **Deliverables**:
+  - New DocumentationIndexer class for markdown files
+  - Section-based chunking (by headings)
+  - Metadata extraction (titles, headings, code blocks, links)
+  - Separate document_collection in Qdrant
+  - Add *.md patterns to default indexing
+  - search_docs() function for documentation-specific search
+- **Benefits**: Proper documentation indexing and search
+- **Impact**: Users can search documentation alongside code
+- **Risk**: Low - builds on existing indexer pattern
+
+##### v0.2.4: Adaptive Search Intelligence (5-6 days)
 - **Status**: 📋 Planned
 - **Focus**: Smart query understanding and dynamic optimization
 - **Deliverables**:

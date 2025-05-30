@@ -147,6 +147,7 @@ In your Claude Code configuration (`~/.claude-code/config.json`):
 
 ### Technical Documentation
 - **[Enhanced RAG Guide](docs/technical/enhanced-qdrant-rag-guide.md)** - Technical implementation details
+- **[Development Workflow Guide](docs/development-workflow-guide.md)** 🛠️ - Efficient development patterns using RAG search
 - **[AST Chunking Implementation](docs/technical/ast-chunking-implementation.md)** - How AST-based chunking works (v0.1.5+)
 - **[Hybrid Search Implementation](docs/technical/hybrid-search-implementation.md)** - How hybrid search works (v0.1.4+)
 - **[Enhanced Ranking Guide](docs/enhanced-ranking-guide.md)** 🎯 - Configure multi-signal ranking for better results (v0.2.1+)

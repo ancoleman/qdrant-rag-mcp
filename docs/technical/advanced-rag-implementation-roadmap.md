@@ -17,19 +17,21 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 - ✅ **Enhanced Context Expansion (v0.2.0)** - Automatic surrounding chunk retrieval (-60% search operations)
 - ✅ **Enhanced Ranking Signals (v0.2.1)** - Multi-signal ranking with 5 factors (+45% search precision)
 - ✅ **Critical Working Directory Fix (v0.2.2)** - Fixed MCP server directory context bug
+- ✅ **Documentation Indexer (v0.2.3)** - Specialized markdown/docs indexer with section-based chunking
+- ✅ **Smart Incremental Reindex (v0.2.4)** - File hash tracking and change detection (90%+ faster)
+- ✅ **Bug Fixes & Dev Guide (v0.2.5)** - Fixed get_file_chunks collection routing, added development workflow guide
 
 ### In Progress
 - 🚧 None currently
 
 ### Upcoming
-- 📋 Smart Reindex - v0.2.4 (Hybrid incremental reindexing)
-- 📋 Advanced Hybrid Search - v0.2.5 (Adaptive search intelligence)
-- 📋 Progressive Context Management (-50% initial tokens)
-- 📋 Query Enhancement (+35% recall)
+- 📋 Advanced Hybrid Search - v0.2.6 (Adaptive search intelligence)
+- 📋 Progressive Context Management - v0.2.7 (-50% initial tokens)
+- 📋 Query Enhancement - v0.2.8 (+35% recall)
 
 ## 📊 Current State vs. Target State
 
-### Current State (Updated with v0.2.2)
+### Current State (Updated with v0.2.5)
 - **Token Usage**: ~6,000 tokens per query (60% reduction with context expansion)
 - **Context Efficiency**: 3.0% of context window per query
 - **Search Precision**: +45% over baseline (enhanced ranking + hybrid search)
@@ -145,30 +147,34 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 - **Impact**: Users can search documentation alongside code
 - **Risk**: Low - builds on existing indexer pattern
 
-##### v0.2.4: Smart Reindex (4-5 days)
-- **Status**: 📋 Planned
+##### v0.2.4: Smart Reindex ✅ **COMPLETED**
+- **Status**: ✅ Completed (2025-05-29)
 - **Focus**: Hybrid incremental reindexing without clearing collections
-- **Deliverables**:
-  - File hash tracking in metadata (MD5/SHA256)
-  - Timestamp-based change detection
+- **Delivered**:
+  - File hash tracking in metadata (SHA256)
+  - Content-based change detection
   - Incremental update logic (add/update/remove)
-  - `reindex_directory` with `incremental=True` option
+  - `reindex_directory` with `incremental=True` option (default)
   - Stale chunk cleanup for deleted/moved files
   - Progress tracking and reporting
-  - Fallback to full reindex when needed
-  - Git-aware optimization for git repositories
+  - `detect_changes` tool for pre-reindex checks
 - **Benefits**: 
   - 90%+ faster reindexing for minor changes
   - No downtime or data loss during reindex
   - Preserves unchanged embeddings
-- **Implementation Strategy**: Hybrid approach
-  - Track file content hashes in chunk metadata
-  - Compare current vs indexed state
-  - Only process changed files
-  - Clean up orphaned chunks
-- **Risk**: Medium - needs careful state management
+- **Impact**: Users can now reindex large projects in seconds instead of minutes
 
-##### v0.2.5: Adaptive Search Intelligence (5-6 days)
+##### v0.2.5: Bug Fixes & Developer Experience ✅ **COMPLETED**
+- **Status**: ✅ Completed (2025-05-29)
+- **Focus**: Bug fixes and developer workflow improvements
+- **Delivered**:
+  - Fixed `get_file_chunks` to support all collection types
+  - Added Development Workflow Guide
+  - Cleaned up unused imports and variables
+  - Improved code quality
+- **Impact**: Better developer experience and more reliable chunk retrieval
+
+##### v0.2.6: Adaptive Search Intelligence (5-6 days)
 - **Status**: 📋 Planned
 - **Focus**: Smart query understanding and dynamic optimization
 - **Deliverables**:

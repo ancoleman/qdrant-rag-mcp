@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.5] - 2025-05-29
+
+### Fixed
+- **`get_file_chunks` Collection Detection**: Fixed bug where tool only searched in code collection
+  - Now correctly detects file type (code, config, documentation) based on file extension
+  - Automatically routes to the appropriate collection for retrieval
+  - Returns file_type in response for better visibility
+
+### Added
+- **Development Workflow Guide**: New comprehensive guide for efficient development
+  - Targeted search strategies for navigating the codebase
+  - Implementation-specific search queries for roadmap tasks
+  - Common development patterns and best practices
+  - Testing and debugging workflows
+
+### Changed
+- **Code Quality**: Removed unused imports and variables flagged by Pylance
+  - Cleaned up unused hashlib, Set, Filter imports
+  - Fixed unused loop variables in enumeration
+  - Improved overall code cleanliness
+
+### Documentation
+- Added [Development Workflow Guide](docs/development-workflow-guide.md) to help developers efficiently use RAG search
+- Updated README with reference to the new development guide
+
 ## [0.2.4] - 2025-05-29
 
 ### Added

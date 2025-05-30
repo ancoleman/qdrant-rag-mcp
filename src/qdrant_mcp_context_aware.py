@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     from . import __version__
 except ImportError:
-    __version__ = "0.2.4"  # Fallback version
+    __version__ = "0.2.5"  # Fallback version
 
 # Load environment variables from the MCP server directory
 from dotenv import load_dotenv
@@ -617,8 +617,19 @@ def get_file_chunks(file_path: str, start_chunk: int = 0, end_chunk: Optional[in
         # Get services
         qdrant_client = get_qdrant_client()
         
-        # Determine collection
-        collection_name = get_collection_name(str(abs_path), "code")
+        # Determine file type and collection based on file extension
+        suffix = abs_path.suffix.lower()
+        
+        # Determine file type
+        if suffix in ['.json', '.yaml', '.yml', '.xml', '.toml', '.ini', '.env']:
+            file_type = "config"
+        elif suffix in ['.md', '.markdown', '.rst', '.txt', '.mdx']:
+            file_type = "documentation"
+        else:
+            file_type = "code"
+        
+        # Get collection name based on file type
+        collection_name = get_collection_name(str(abs_path), file_type)
         
         # Build filter for the file
         filter_conditions = {
@@ -693,6 +704,7 @@ def get_file_chunks(file_path: str, start_chunk: int = 0, end_chunk: Optional[in
         
         return {
             "file_path": str(abs_path),
+            "file_type": file_type,
             "total_chunks": len(formatted_chunks),
             "chunks": formatted_chunks,
             "full_content": full_content,
@@ -809,10 +821,8 @@ def detect_changes(directory: str = ".") -> Dict[str, Any]:
     logger = get_logger()
     
     try:
-        import hashlib
         import os
         from pathlib import Path
-        from typing import Set
         
         # Input validation
         if not directory or not isinstance(directory, str):
@@ -859,7 +869,6 @@ def detect_changes(directory: str = ".") -> Dict[str, Any]:
         indexed_files = {}  # file_path -> hash
         
         # Query each collection for indexed files
-        from qdrant_client.http.models import Filter, FieldCondition, MatchValue
         
         for collection in project_collections:
             try:
@@ -1168,7 +1177,7 @@ def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
             # Update BM25 index
             hybrid_searcher = get_hybrid_searcher()
             documents = []
-            for i, chunk in enumerate(chunks):
+            for chunk in chunks:
                 doc = {
                     "id": f"{str(abs_path)}_{chunk.chunk_index}",
                     "content": chunk.content,
@@ -1619,7 +1628,6 @@ def index_directory(directory: str = None, patterns: List[str] = None, recursive
         
         # Create a progress callback
         start_time = time.time()
-        processed_count = 0
         
         def report_progress(current: int, total: int, current_file: str = ""):
             """Report progress to logger"""
@@ -2979,7 +2987,7 @@ def index_config(file_path: str, force_global: bool = False) -> Dict[str, Any]:
             # Update BM25 index
             hybrid_searcher = get_hybrid_searcher()
             documents = []
-            for i, chunk in enumerate(chunks):
+            for chunk in chunks:
                 doc = {
                     "id": f"{str(abs_path)}_{chunk.chunk_index}",
                     "content": chunk.content,

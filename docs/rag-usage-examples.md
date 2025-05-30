@@ -16,7 +16,8 @@ This guide provides real-world examples of how to effectively use the Qdrant RAG
 11. [Using Hybrid Search Effectively](#10-using-hybrid-search-effectively-v014)
 12. [Finding Test Examples](#11-finding-test-examples)
 13. [Checking for File Changes](#12-checking-for-file-changes-v024)
-14. [Pro Tips](#pro-tips)
+14. [Indexing Custom File Types](#13-indexing-custom-file-types)
+15. [Pro Tips](#pro-tips)
 
 ## 0. Setting Correct Working Directory (v0.2.2+)
 
@@ -360,6 +361,43 @@ Would you like me to reindex these changes?
 - **CI/CD integration**: Automate index updates based on changes
 - **Monitoring**: Track codebase evolution over time
 - **Debugging**: Verify the indexer is tracking files correctly
+
+## 13. Indexing Custom File Types
+
+**Scenario**: You need to index file types not included in the default patterns (like .sql, .graphql, .proto files).
+
+```
+You: "Index this directory including SQL and GraphQL files"
+
+Claude: I'll index the directory with custom patterns for SQL and GraphQL files...
+[Uses: qdrant-rag:index_directory with patterns ["*.sql", "*.graphql"]]
+
+Successfully indexed:
+- 156 Python files (.py)
+- 23 SQL files (.sql) 
+- 8 GraphQL schema files (.graphql)
+- 45 JSON config files (.json)
+Total: 232 files indexed
+```
+
+**Common Custom Pattern Examples**:
+```
+# Database files
+"Index with patterns *.sql *.ddl *.dml"
+
+# API definitions
+"Index patterns *.proto *.graphql *.openapi.yaml"
+
+# Infrastructure as Code
+"Index patterns *.tf *.tfvars for Terraform"
+
+# Specific project types
+"Index only Rust: *.rs *.toml Cargo.lock"
+"Index only Go: *.go go.mod go.sum"
+"Index Flutter: *.dart pubspec.yaml"
+```
+
+**Note**: When you specify custom patterns, they're added to the default patterns, not replacing them. To index ONLY specific types, be explicit about it.
 
 ## Pro Tips
 

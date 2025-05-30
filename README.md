@@ -234,6 +234,18 @@ claude
 - **Structure-Aware Chunking**: Functions, classes, and config sections
 - **Rich Metadata**: Line numbers, imports, dependencies, schema extraction
 
+### Custom File Patterns
+- **Default Patterns**: Automatically indexes common code, config, and doc files
+- **Custom Patterns**: Specify exactly which file types to index
+- **Usage Examples**:
+  ```bash
+  # In Claude Code
+  "Index directory with patterns *.sql *.graphql"
+  "Index only Rust files: *.rs *.toml Cargo.lock"
+  "Reindex with patterns *.proto *.pb.go for protobuf"
+  ```
+- **Supported Patterns**: Any glob pattern (*.ext, specific-file.ext, etc.)
+
 ### AST-Based Chunking (v0.1.5+)
 - **Structure-Aware Parsing**: Uses Abstract Syntax Trees to understand code structure
 - **Complete Code Units**: Never splits functions or classes in the middle

@@ -15,7 +15,7 @@ import uvicorn
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from qdrant_mcp_server import QdrantRAGServer, Request
+from qdrant_mcp_context_aware import QdrantRAGServer, Request
 
 app = FastAPI(title="Qdrant RAG Server HTTP API", version="1.0.0")
 

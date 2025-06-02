@@ -83,7 +83,7 @@ class EnhancedRanker:
         enhanced_results = []
         for i, result in enumerate(results):
             # Get base score (already normalized 0-1 from RRF)
-            base_score = result.get("score", 0.0)
+            base_score = float(result.get("score", 0.0))
             
             # Calculate enhanced score
             enhanced_score = (
@@ -106,8 +106,8 @@ class EnhancedRanker:
             }
             enhanced_results.append(enhanced_result)
         
-        # Sort by enhanced score
-        enhanced_results.sort(key=lambda x: x["enhanced_score"], reverse=True)
+        # Sort by enhanced score (ensure it's a float)
+        enhanced_results.sort(key=lambda x: float(x["enhanced_score"]), reverse=True)
         
         duration_ms = (time.time() - start_time) * 1000
         logger.debug(f"Enhanced ranking completed in {duration_ms:.1f}ms for {len(results)} results")
@@ -293,7 +293,19 @@ class EnhancedRanker:
         for result in results:
             # Try to get modification time from metadata
             mod_time = result.get("modified_at", None)
-            if mod_time is None:
+            if mod_time is not None:
+                try:
+                    # Try to convert to float (Unix timestamp)
+                    mod_time = float(mod_time)
+                except (ValueError, TypeError):
+                    # If it's a string timestamp, try to parse it
+                    try:
+                        from datetime import datetime
+                        dt = datetime.fromisoformat(mod_time.replace('Z', '+00:00'))
+                        mod_time = dt.timestamp()
+                    except:
+                        mod_time = 0
+            else:
                 # Try to get from file system
                 file_path = result.get("file_path", "")
                 if file_path and os.path.exists(file_path):

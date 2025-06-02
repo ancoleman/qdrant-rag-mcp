@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.6] - 2025-06-02
+
+### Fixed
+- **Enhanced Ranking Type Error**: Fixed critical search failure due to type comparison error
+  - Enhanced ranker now properly converts scores to float before comparison
+  - Prevents "'>' not supported between instances of 'str' and 'int'" error
+  - Ensures stable sorting of search results with enhanced scoring
+  - Fixed modified_at timestamp handling in recency scoring
+
 ## [0.2.5] - 2025-05-29
 
 ### Fixed

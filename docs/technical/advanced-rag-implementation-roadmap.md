@@ -20,18 +20,20 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 - ✅ **Documentation Indexer (v0.2.3)** - Specialized markdown/docs indexer with section-based chunking
 - ✅ **Smart Incremental Reindex (v0.2.4)** - File hash tracking and change detection (90%+ faster)
 - ✅ **Bug Fixes & Dev Guide (v0.2.5)** - Fixed get_file_chunks collection routing, added development workflow guide
+- ✅ **Enhanced Ranking Type Fix (v0.2.6)** - Fixed critical search failure from type comparison error in enhanced ranking
 
 ### In Progress
 - 🚧 None currently
 
 ### Upcoming
-- 📋 Advanced Hybrid Search - v0.2.6 (Adaptive search intelligence)
-- 📋 Progressive Context Management - v0.2.7 (-50% initial tokens)
-- 📋 Query Enhancement - v0.2.8 (+35% recall)
+- 📋 GitHub Issue Resolution - v0.3.0 (Local prototype with MCP integration)
+- 📋 Advanced Hybrid Search - v0.3.1 (Adaptive search intelligence)
+- 📋 Progressive Context Management - v0.3.2 (-50% initial tokens)
+- 📋 Query Enhancement - v0.3.3 (+35% recall)
 
 ## 📊 Current State vs. Target State
 
-### Current State (Updated with v0.2.5)
+### Current State (Updated with v0.2.6)
 - **Token Usage**: ~6,000 tokens per query (60% reduction with context expansion)
 - **Context Efficiency**: 3.0% of context window per query
 - **Search Precision**: +45% over baseline (enhanced ranking + hybrid search)
@@ -168,13 +170,39 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 - **Status**: ✅ Completed (2025-05-29)
 - **Focus**: Bug fixes and developer workflow improvements
 - **Delivered**:
-  - Fixed `get_file_chunks` to support all collection types
-  - Added Development Workflow Guide
-  - Cleaned up unused imports and variables
-  - Improved code quality
+  - Fixed `get_file_chunks` to support all collection types (code, config, documentation)
+  - Added comprehensive Development Workflow Guide
+  - Cleaned up unused imports and variables flagged by Pylance
+  - Improved overall code quality
 - **Impact**: Better developer experience and more reliable chunk retrieval
 
-##### v0.2.6: Adaptive Search Intelligence (5-6 days)
+##### v0.2.6: Enhanced Ranking Type Fix ✅ **COMPLETED**
+- **Status**: ✅ Completed (2025-06-02)
+- **Focus**: Critical bug fix for search stability
+- **Delivered**:
+  - Fixed type comparison error in enhanced ranking sort function
+  - Enhanced ranker now properly converts scores to float before comparison
+  - Fixed modified_at timestamp handling in recency scoring
+  - Prevents "'>' not supported between instances of 'str' and 'int'" error
+- **Impact**: Ensures stable sorting of search results with enhanced scoring enabled
+
+##### v0.3.0: GitHub Issue Resolution (2-3 weeks)
+- **Status**: 📋 Planned
+- **Focus**: Local prototype for GitHub issue analysis and resolution
+- **Deliverables**:
+  - GitHub API integration via PyGithub library
+  - MCP tools for fetching issues, creating PRs, managing repositories
+  - Issue analysis pipeline combining RAG search with code understanding
+  - Pull request generation with automated code fixes
+  - Local testing environment with manual oversight
+  - Security safeguards and validation mechanisms
+- **Benefits**: Automated issue resolution prototype, foundation for production automation
+- **Risk**: Medium - requires careful integration of existing RAG with GitHub APIs
+- **Implementation Options**: 
+  - Option A: Separate TypeScript GitHub server + existing Python RAG server
+  - Option B: Extended Python server with GitHub functionality (recommended)
+
+##### v0.3.1: Adaptive Search Intelligence (5-6 days)
 - **Status**: 📋 Planned
 - **Focus**: Smart query understanding and dynamic optimization
 - **Deliverables**:
@@ -185,28 +213,49 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 - **Benefits**: Optimal search for different query types
 - **Risk**: Higher - complex implementation
 
-#### 2.2 Progressive Context Management
-- **Implementation**: 1.5 weeks
-- **Impact**: -50% initial tokens
+##### v0.3.2: Progressive Context Management (1.5 weeks)
+- **Status**: 📋 Planned  
+- **Focus**: Multi-level context with semantic caching
 - **Deliverables**:
-  - Multi-level context API
-  - Semantic caching layer
-  - Context expansion mechanism
-  - Query intent classifier
+  - Multi-level context API (file → class → method hierarchy)
+  - Semantic caching layer for query similarities
+  - Context expansion mechanism with progressive detail retrieval
+  - Query intent classifier for context depth selection
+- **Benefits**: 50-70% initial token reduction for high-level queries
+- **Risk**: Medium - requires careful caching strategy
 
-### Phase 3: Optimization (Weeks 7-9)
+##### v0.3.3: Query Enhancement & Reformulation (1 week)
+- **Status**: 📋 Planned
+- **Focus**: Natural language to code-aware query transformation
+- **Deliverables**:
+  - Query reformulation engine with T5-based NL processing
+  - Code vocabulary mapping (API names, patterns, technical terms)
+  - Technical synonym expansion system
+  - Query variant generation and scoring
+  - Query caching for reformulated queries
+- **Benefits**: +35% recall improvement for natural language queries
+- **Risk**: Low-Medium - well-defined problem with clear research patterns
+
+### Phase 3: GitHub Integration (Weeks 7-9)
+**Goal**: Automated issue resolution and repository management
+
+The Phase 3 focus shifts to a major new capability: GitHub issue resolution. This represents a significant expansion beyond pure RAG optimization into practical automation workflows that leverage our existing search infrastructure.
+
+#### v0.3.0: GitHub Issue Resolution Local Prototype
+Detailed implementation plan included above in the version-specific sections.
+
+#### v0.3.1-v0.3.3: Enhanced RAG Foundation
+The remaining v0.3.x releases continue the advanced RAG research implementations:
+- v0.3.1: Adaptive Search Intelligence 
+- v0.3.2: Progressive Context Management
+- v0.3.3: Query Enhancement & Reformulation
+
+These provide the enhanced search capabilities needed to effectively analyze codebases for issue resolution.
+
+### Phase 4: Optimization (Weeks 10-12)
 **Goal**: Maximize efficiency and performance
 
-#### 3.1 Query Enhancement
-- **Implementation**: 1 week
-- **Impact**: +35% recall
-- **Deliverables**:
-  - Query reformulation engine
-  - Code vocabulary mapping
-  - Synonym expansion
-  - Query caching
-
-#### 3.2 MCP Server Optimizations
+#### v0.4.1: MCP Server Optimizations
 - **Implementation**: 1 week
 - **Impact**: -20% latency
 - **Deliverables**:
@@ -215,7 +264,7 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
   - Connection pooling
   - Parallel search execution
 
-#### 3.3 Performance Tuning
+#### v0.4.2: Performance Tuning
 - **Implementation**: 1 week
 - **Impact**: Overall optimization
 - **Deliverables**:
@@ -224,10 +273,10 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
   - Auto-tuning configurations
   - Load testing
 
-### Phase 4: Advanced Features (Weeks 10-12+)
+### Phase 5: Advanced Features (Weeks 13-15+)
 **Goal**: Add cutting-edge capabilities
 
-#### 4.1 Semantic Compression
+#### v0.5.1: Semantic Compression
 - **Implementation**: 2 weeks
 - **Impact**: -70% tokens (when needed)
 - **Deliverables**:
@@ -236,7 +285,7 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
   - Lossless code compression
   - Compression cache
 
-#### 4.2 Adaptive Retrieval
+#### v0.5.2: Adaptive Retrieval
 - **Implementation**: 2 weeks
 - **Impact**: Continuous improvement
 - **Deliverables**:
@@ -257,12 +306,17 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 - **Capabilities**: Can understand cross-file relationships
 - **User Experience**: Much better code navigation
 
-### After Phase 3 (Week 9)
-- **Token Reduction**: 76%
-- **Capabilities**: Can work with entire small projects
-- **User Experience**: Natural code exploration
+### After Phase 3 (v0.3.x) - GitHub Integration Complete
+- **Token Reduction**: 65% + GitHub automation capabilities
+- **Capabilities**: Automated issue analysis and resolution, PR generation
+- **User Experience**: Can analyze and fix GitHub issues automatically
 
-### After Phase 4 (Week 12+)
+### After Phase 4 (v0.4.x) - Optimization Complete
+- **Token Reduction**: 76%
+- **Capabilities**: Can work with entire small projects with optimized performance
+- **User Experience**: Natural code exploration with minimal latency
+
+### After Phase 5 (v0.5.x) - Advanced Features Complete
 - **Token Reduction**: 80-90% (situational)
 - **Capabilities**: Can handle large codebases
 - **User Experience**: Like having the entire codebase in memory

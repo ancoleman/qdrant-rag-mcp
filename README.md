@@ -2,6 +2,8 @@
 
 A context-aware Model Context Protocol (MCP) server that provides semantic search capabilities across your codebase using Qdrant vector database. Now with **intelligent GitHub issue resolution** capabilities (v0.3.0). Designed to work seamlessly with Claude Code.
 
+> **Why MCP RAG?** This server enables AI agents to efficiently work with entire codebases while using 95%+ fewer tokens. [Learn how →](docs/reference/why-mcp-rag-agentic-coding.md)
+
 ## 🌟 Features
 
 ### 🆕 GitHub Integration (v0.3.0)
@@ -152,6 +154,7 @@ In your Claude Code configuration (`~/.claude-code/config.json`):
 - **[Practical Usage Examples](docs/rag-usage-examples.md)** 💡 - Real-world examples with Claude Code
 
 ### Reference Documentation
+- **[Why MCP RAG for Agentic Coding](docs/reference/why-mcp-rag-agentic-coding.md)** 🤖 - Understand how MCP enables efficient AI coding
 - **[Qdrant Quick Reference](docs/reference/qdrant-quick-reference.md)** - Quick commands for Qdrant operations
 - **[MPS Quick Reference](docs/reference/mps-quick-reference.md)** - Apple Silicon optimization guide
 - **[Troubleshooting Guide](docs/reference/troubleshooting.md)** - Common issues and solutions

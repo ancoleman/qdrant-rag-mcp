@@ -565,9 +565,33 @@ class IssueAnalyzer:
 _issue_analyzer = None
 
 
-def get_issue_analyzer(github_client, search_functions: Dict[str, Any]) -> IssueAnalyzer:
-    """Get or create global issue analyzer instance."""
+def reset_issue_analyzer():
+    """Reset the global issue analyzer instance to force reload of configuration."""
+    global _issue_analyzer
+    _issue_analyzer = None
+
+
+def get_issue_analyzer(github_client, search_functions: Dict[str, Any], config: Optional[Dict[str, Any]] = None) -> IssueAnalyzer:
+    """Get or create global issue analyzer instance.
+    
+    Args:
+        github_client: GitHub client instance
+        search_functions: Dictionary of RAG search functions
+        config: Optional configuration to pass to IssueAnalyzer
+    
+    Returns:
+        IssueAnalyzer instance
+    """
     global _issue_analyzer
     if _issue_analyzer is None:
-        _issue_analyzer = IssueAnalyzer(github_client, search_functions)
+        _issue_analyzer = IssueAnalyzer(github_client, search_functions, config)
+    elif config is not None:
+        # Update configuration if provided
+        _issue_analyzer.config = config
+        # Update analysis configuration
+        analysis_config = config.get("issues", {}).get("analysis", {})
+        _issue_analyzer.search_limit = analysis_config.get("search_limit", 10)
+        _issue_analyzer.context_expansion = analysis_config.get("context_expansion", True)
+        _issue_analyzer.include_dependencies = analysis_config.get("include_dependencies", True)
+        _issue_analyzer.similarity_threshold = analysis_config.get("code_similarity_threshold", 0.7)
     return _issue_analyzer

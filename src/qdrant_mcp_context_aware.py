@@ -3203,19 +3203,30 @@ def get_github_instances():
     if _github_client is None:
         _github_client = get_github_client()
     
+    # Always get the latest config and update issue analyzer
+    search_functions = {
+        "search": search,
+        "search_code": search_code,
+        "search_docs": search_docs
+    }
+    # Get GitHub config from global config
+    config = get_config()
+    github_config = config.get("github", {})
+    
     if _issue_analyzer is None:
-        search_functions = {
-            "search": search,
-            "search_code": search_code,
-            "search_docs": search_docs
-        }
-        _issue_analyzer = get_issue_analyzer(_github_client, search_functions)
+        _issue_analyzer = get_issue_analyzer(_github_client, search_functions, github_config)
+    else:
+        # Update configuration on existing instance
+        _issue_analyzer = get_issue_analyzer(_github_client, search_functions, github_config)
     
     if _code_generator is None:
         _code_generator = get_code_generator()
     
     if _github_workflows is None:
-        _github_workflows = get_github_workflows(_github_client, _issue_analyzer, _code_generator)
+        _github_workflows = get_github_workflows(_github_client, _issue_analyzer, _code_generator, github_config)
+    else:
+        # Update configuration on existing instance
+        _github_workflows = get_github_workflows(_github_client, _issue_analyzer, _code_generator, github_config)
     
     return _github_client, _issue_analyzer, _code_generator, _github_workflows
 

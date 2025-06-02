@@ -497,9 +497,27 @@ class GitHubWorkflows:
 _github_workflows = None
 
 
-def get_github_workflows(github_client, issue_analyzer, code_generator) -> GitHubWorkflows:
-    """Get or create global GitHub workflows instance."""
+def get_github_workflows(github_client, issue_analyzer, code_generator, config: Optional[Dict[str, Any]] = None) -> GitHubWorkflows:
+    """Get or create global GitHub workflows instance.
+    
+    Args:
+        github_client: GitHub client instance
+        issue_analyzer: Issue analyzer instance
+        code_generator: Code generator instance
+        config: Optional configuration to pass to workflows
+    
+    Returns:
+        GitHubWorkflows instance
+    """
     global _github_workflows
     if _github_workflows is None:
-        _github_workflows = GitHubWorkflows(github_client, issue_analyzer, code_generator)
+        _github_workflows = GitHubWorkflows(github_client, issue_analyzer, code_generator, config)
+    elif config is not None:
+        # Update configuration if provided
+        _github_workflows.config = config
+        _github_workflows.workflows_config = config.get("workflows", {})
+        _github_workflows.safety_config = config.get("safety", {})
+        _github_workflows.dry_run_by_default = _github_workflows.safety_config.get("dry_run_by_default", True)
+        _github_workflows.require_confirmation = _github_workflows.safety_config.get("require_confirmation", True)
+        _github_workflows.audit_logging = _github_workflows.safety_config.get("audit_logging", True)
     return _github_workflows

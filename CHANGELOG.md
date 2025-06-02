@@ -145,6 +145,11 @@ For users upgrading to v0.3.0:
 - Improved error handling with specific messages for common failure scenarios
 - Enhanced rate limit handling to prevent API quota exhaustion
 - Fixed outdated placeholder comments in `_create_resolution_pr` method (Issue #3)
+- Fixed singleton configuration caching issue in GitHub integration
+  - Updated `get_issue_analyzer()` to accept and apply configuration updates
+  - Updated `get_github_workflows()` to accept and apply configuration updates
+  - Modified `get_github_instances()` to always pass latest configuration
+  - Ensures token optimization settings are always applied without restart
 
 ## [0.2.7] - 2025-06-02
 

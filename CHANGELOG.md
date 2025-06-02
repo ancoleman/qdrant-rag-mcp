@@ -77,9 +77,9 @@ Added comprehensive GitHub issue resolution capabilities that transform the RAG 
 - **Performance**: Efficient GitHub API usage with intelligent caching and batching
 
 #### Documentation
-- **[GitHub Integration Guide](docs/github-integration-guide.md)** - Comprehensive 600+ line guide covering:
+- **[GitHub Integration Guide](docs/github-integration-guide.md)** - Comprehensive 700+ line guide covering:
   - Setup and authentication (Personal Access Token and GitHub App)
-  - Complete API reference for all 9 tools and HTTP endpoints
+  - Complete API reference for all 10 tools and HTTP endpoints
   - Usage examples for both MCP tools and HTTP API testing
   - Testing patterns and development workflows
   - Safety features, troubleshooting, and best practices
@@ -123,6 +123,19 @@ For users upgrading to v0.3.0:
 - **Lazy loading** - GitHub dependencies only loaded when GitHub tools are used
 - **Efficient API usage** - Rate limiting and caching prevent API abuse
 - **Smart defaults** - Dry-run mode prevents accidental operations
+
+### 🔧 Improvements (Post-Release Updates)
+- **Enhanced Error Messages**: More user-friendly and actionable error messages for GitHub operations
+- **Improved Rate Limiting**: Intelligent rate limit handling with separate tracking for core and search APIs
+- **Git Operations Module**: Added GitOperations class for actual file modifications and branch management
+- **Configuration Examples**: Comprehensive .env.example with detailed explanations for all settings
+- **Architecture Documentation**: Added detailed architecture guide explaining the layered design
+- **Dependencies**: Added missing PyGithub and GitPython to requirements.txt
+
+### 🐛 Bug Fixes (Post-Release)
+- Fixed missing GitHub dependencies in requirements.txt
+- Improved error handling with specific messages for common failure scenarios
+- Enhanced rate limit handling to prevent API quota exhaustion
 
 ## [0.2.7] - 2025-06-02
 

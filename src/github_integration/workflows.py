@@ -378,27 +378,84 @@ class GitHubWorkflows:
         }
     
     def _create_resolution_pr(self, suggestion_result: Dict[str, Any], issue_number: int) -> Dict[str, Any]:
-        """Create a pull request for issue resolution (placeholder implementation)."""
-        # This is a placeholder - actual implementation would:
-        # 1. Create a new branch
-        # 2. Apply code changes
-        # 3. Commit changes
-        # 4. Create PR
-        
-        pr_preview = self._generate_pr_preview(suggestion_result, issue_number)
-        
-        # For now, return a placeholder result
-        return {
-            "success": False,
-            "message": "PR creation not yet implemented - this is a preview",
-            "preview": pr_preview,
-            "next_steps": [
-                "Implement branch creation",
-                "Implement file modifications",
-                "Implement commit and push",
-                "Create actual PR via GitHub API"
-            ]
-        }
+        """Create a pull request for issue resolution using GitOperations."""
+        try:
+            pr_preview = self._generate_pr_preview(suggestion_result, issue_number)
+            suggestions = suggestion_result["suggestions"]
+            
+            # Prepare file changes
+            files = []
+            
+            # Add file modifications
+            for mod in suggestions.get("file_modifications", []):
+                files.append({
+                    "path": mod["file_path"],
+                    "content": mod["new_content"]
+                })
+            
+            # Add new files
+            for new_file in suggestions.get("new_files", []):
+                files.append({
+                    "path": new_file["file_path"],
+                    "content": new_file["content"]
+                })
+            
+            if not files:
+                return {
+                    "success": False,
+                    "message": "No file changes to apply",
+                    "preview": pr_preview
+                }
+            
+            # Check if we have the enhanced method
+            if hasattr(self.github_client, 'create_pull_request_with_changes'):
+                # Use the new method with GitOperations
+                pr_result = self.github_client.create_pull_request_with_changes(
+                    title=pr_preview["title"],
+                    body=pr_preview["body"],
+                    branch_name=pr_preview["branch_name"],
+                    files=files,
+                    base="main",
+                    commit_message=f"Fix issue #{issue_number}: {pr_preview['title']}"
+                )
+                
+                if "error" in pr_result:
+                    return {
+                        "success": False,
+                        "message": pr_result.get("message", pr_result["error"]),
+                        "preview": pr_preview,
+                        "fallback": pr_result.get("fallback")
+                    }
+                
+                return {
+                    "success": True,
+                    "pull_request": pr_result,
+                    "preview": pr_preview,
+                    "message": f"Created PR #{pr_result['number']}: {pr_result['url']}"
+                }
+            else:
+                # Fallback to preview mode
+                return {
+                    "success": False,
+                    "message": "GitOperations support not available - showing preview only",
+                    "preview": pr_preview,
+                    "files_to_change": files,
+                    "next_steps": [
+                        "Install GitPython: pip install GitPython",
+                        "Or manually create branch and apply changes",
+                        f"Branch name: {pr_preview['branch_name']}",
+                        f"Files to modify: {len(files)}"
+                    ]
+                }
+                
+        except Exception as e:
+            logger.error(f"Failed to create resolution PR: {e}")
+            return {
+                "success": False,
+                "message": f"PR creation failed: {str(e)}",
+                "preview": pr_preview if 'pr_preview' in locals() else None,
+                "error_type": type(e).__name__
+            }
     
     def _log_audit_event(self, event_type: str, data: Dict[str, Any]):
         """Log audit event for compliance and debugging."""

@@ -124,21 +124,45 @@ class GitHubClient:
         return config
     
     def _handle_rate_limit(self):
-        """Handle GitHub rate limiting."""
+        """Handle GitHub rate limiting with intelligent backoff."""
         if not self._github:
             return
             
         try:
             rate_limit = self._github.get_rate_limit()
-            remaining = rate_limit.core.remaining
+            core_remaining = rate_limit.core.remaining
+            core_limit = rate_limit.core.limit
             reset_time = rate_limit.core.reset
+            
+            # Also check search rate limit for issue analysis
+            search_remaining = rate_limit.search.remaining
+            search_limit = rate_limit.search.limit
+            
+            # Log current rate limit status
+            logger.debug(f"GitHub rate limits - Core: {core_remaining}/{core_limit}, Search: {search_remaining}/{search_limit}")
             
             # Check if we're close to rate limit
             buffer = self.config.get("api", {}).get("rate_limit_buffer", 100)
-            if remaining < buffer:
-                sleep_time = (reset_time - datetime.now()).total_seconds() + 10
+            
+            # Check core API limit
+            if core_remaining < buffer:
+                sleep_time = (reset_time - datetime.now(reset_time.tzinfo)).total_seconds() + 10
                 if sleep_time > 0:
-                    logger.warning(f"Rate limit nearly exceeded. Sleeping for {sleep_time} seconds.")
+                    logger.warning(
+                        f"GitHub core API rate limit nearly exceeded ({core_remaining}/{core_limit} remaining). "
+                        f"Waiting {sleep_time:.0f} seconds until reset at {reset_time.strftime('%H:%M:%S %Z')}."
+                    )
+                    time.sleep(sleep_time)
+            
+            # Check search API limit (used for issue analysis)
+            if search_remaining < 5:  # More aggressive for search API
+                search_reset = rate_limit.search.reset
+                sleep_time = (search_reset - datetime.now(search_reset.tzinfo)).total_seconds() + 10
+                if sleep_time > 0:
+                    logger.warning(
+                        f"GitHub search API rate limit nearly exceeded ({search_remaining}/{search_limit} remaining). "
+                        f"Waiting {sleep_time:.0f} seconds."
+                    )
                     time.sleep(sleep_time)
                     
         except Exception as e:
@@ -351,7 +375,10 @@ class GitHubClient:
             Created issue information
         """
         if not self._current_repo:
-            raise ValueError("No repository set. Call set_repository() first.")
+            raise ValueError(
+                "No GitHub repository context set. Please use 'github_switch_repository' "
+                "to set the repository context first. Example: github_switch_repository(owner='myorg', repo='myproject')"
+            )
         
         try:
             # Create issue
@@ -458,6 +485,128 @@ class GitHubClient:
         except Exception as e:
             logger.error(f"Failed to create pull request: {e}")
             raise
+    
+    def create_pull_request_with_changes(self, title: str, body: str, branch_name: str,
+                                       files: List[Dict[str, str]], base: str = "main",
+                                       commit_message: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Create a pull request with file changes using GitOperations.
+        
+        This method handles the complete workflow:
+        1. Creates a new branch
+        2. Applies file changes
+        3. Commits the changes
+        4. Pushes the branch
+        5. Creates a pull request
+        
+        Args:
+            title: PR title
+            body: PR description
+            branch_name: Name for the new branch
+            files: List of file changes with 'path' and 'content'
+            base: Base branch (default: main)
+            commit_message: Custom commit message (defaults to PR title)
+            
+        Returns:
+            Pull request information with git operation details
+        """
+        if not self._current_repo:
+            raise ValueError(
+                "No GitHub repository context set. Please use 'github_switch_repository' "
+                "to set the repository context first."
+            )
+            
+        # Import GitOperations here to avoid circular imports
+        try:
+            from .git_operations import get_git_operations, GIT_AVAILABLE
+        except ImportError:
+            GIT_AVAILABLE = False
+            
+        if not GIT_AVAILABLE:
+            return {
+                "error": "Git operations not available",
+                "message": "GitPython is required for file modifications. Install with: pip install GitPython",
+                "fallback": "Create branch and commit changes manually, then use create_pull_request()"
+            }
+            
+        git_ops = None
+        try:
+            # Get repository full name
+            repo_name = self._current_repo.full_name
+            
+            # Initialize GitOperations
+            git_ops = get_git_operations(self)
+            
+            # Prepare branch
+            logger.info(f"Creating branch {branch_name} from {base}")
+            repo_path = git_ops.prepare_branch(repo_name, branch_name, base)
+            
+            # Apply changes
+            logger.info(f"Applying {len(files)} file changes")
+            modified_files = git_ops.apply_changes(repo_path, files)
+            
+            if not modified_files:
+                return {
+                    "error": "No files were modified",
+                    "message": "Check file paths and content in the files parameter"
+                }
+            
+            # Commit and push
+            commit_msg = commit_message or f"{title}\n\n{body}"
+            logger.info(f"Committing and pushing changes")
+            commit_result = git_ops.commit_and_push(repo_path, branch_name, commit_msg)
+            
+            if commit_result.get("status") == "no_changes":
+                return {
+                    "error": "No changes to commit",
+                    "message": "Files were not modified or changes were already committed"
+                }
+            
+            # Create pull request
+            logger.info(f"Creating pull request from {branch_name} to {base}")
+            pr = self.create_pull_request(
+                title=title,
+                body=body,
+                head=branch_name,
+                base=base
+            )
+            
+            # Add git operation details
+            pr["git_operations"] = {
+                "branch_created": branch_name,
+                "files_modified": modified_files,
+                "commit_sha": commit_result.get("commit_sha"),
+                "status": "success"
+            }
+            
+            return pr
+            
+        except Exception as e:
+            logger.error(f"Failed to create pull request with changes: {e}")
+            error_msg = str(e)
+            
+            # Provide helpful error messages
+            if "404" in error_msg:
+                raise ValueError(
+                    f"Repository not found or branch '{base}' doesn't exist. "
+                    f"Repository: {self._current_repo.full_name}"
+                )
+            elif "already exists" in error_msg:
+                raise ValueError(
+                    f"Branch '{branch_name}' already exists. Please use a different branch name."
+                )
+            elif "permission" in error_msg.lower():
+                raise GitHubAuthError(
+                    "Insufficient permissions. Ensure your token has 'repo' scope for private repos "
+                    "or 'public_repo' scope for public repos."
+                )
+            else:
+                raise
+                
+        finally:
+            # Cleanup temporary repository
+            if git_ops:
+                git_ops.cleanup(branch_name)
     
     def health_check(self) -> Dict[str, Any]:
         """

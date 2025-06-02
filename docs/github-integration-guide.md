@@ -30,6 +30,107 @@ uv add PyGithub>=2.6.1 GitPython>=3.1.44
 
 The integration gracefully degrades if these dependencies are not installed.
 
+## 🏗️ Architecture
+
+The GitHub integration follows a layered architecture design that separates concerns and provides flexibility:
+
+### Component Overview
+
+```
+┌─────────────────────────────────────────────────────┐
+│                   MCP Tools Layer                    │
+│  (github_* functions in qdrant_mcp_context_aware.py)│
+└─────────────────────┬───────────────────────────────┘
+                      │
+┌─────────────────────▼───────────────────────────────┐
+│               Workflows Layer                        │
+│         (GitHubWorkflows - workflows.py)             │
+│                                                      │
+│  • Orchestrates complex multi-step processes        │
+│  • Implements business logic & safety checks        │
+│  • Manages analysis → fix → PR workflows           │
+│  • Handles dry-run mode and feasibility checks     │
+└─────────────┬──────────────┬──────────────┬────────┘
+              │              │              │
+┌─────────────▼──┐  ┌────────▼────────┐  ┌─▼────────────┐
+│  IssueAnalyzer │  │  CodeGenerator  │  │ GitHubClient │
+│                │  │                 │  │              │
+│ • RAG search   │  │ • Fix templates │  │ • API calls  │
+│ • Pattern      │  │ • Code patches  │  │ • Auth       │
+│   extraction   │  │ • Confidence    │  │ • Rate limit │
+│ • Context      │  │   scoring       │  │ • Git ops    │
+└────────────────┘  └─────────────────┘  └──────────────┘
+```
+
+### Layer Responsibilities
+
+#### 1. **GitHubClient** (Low-level API Operations)
+- **Purpose**: Direct interface to GitHub API
+- **Key Methods**:
+  - `create_issue()` - Create new issues
+  - `create_pull_request()` - Basic PR creation (requires existing branch)
+  - `create_pull_request_with_changes()` - Full PR workflow with Git operations
+  - `add_comment()` - Add comments to issues
+- **Features**:
+  - Authentication management (PAT and GitHub App)
+  - Intelligent rate limiting with separate tracking for core/search APIs
+  - Retry logic with exponential backoff
+  - User-friendly error messages
+
+#### 2. **GitHubWorkflows** (High-level Business Logic)
+- **Purpose**: Orchestrates complex multi-step workflows
+- **Key Workflows**:
+  - `analyze_issue_workflow()` - RAG-powered issue analysis
+  - `suggest_fix_workflow()` - Generate automated fixes
+  - `resolve_issue_workflow()` - Complete resolution process
+- **Features**:
+  - Combines multiple operations into cohesive workflows
+  - Safety checks and validation
+  - Feasibility assessment
+  - Dry-run mode for previewing changes
+  - Audit logging for compliance
+
+#### 3. **GitOperations** (Git Repository Management)
+- **Purpose**: Handle actual file modifications and Git operations
+- **Key Methods**:
+  - `prepare_branch()` - Clone repo and create branch
+  - `apply_changes()` - Modify files in repository
+  - `commit_and_push()` - Commit and push changes
+- **Features**:
+  - Secure authentication for Git operations
+  - Temporary repository management
+  - Automatic cleanup
+
+### Example Workflow
+
+When you run `github_resolve_issue(issue_number=123)`, here's what happens:
+
+```python
+1. MCP Tool receives the command
+   ↓
+2. GitHubWorkflows.resolve_issue_workflow() starts
+   ↓
+3. IssueAnalyzer analyzes the issue using RAG search
+   ↓
+4. CodeGenerator creates fix suggestions
+   ↓
+5. Workflows evaluates feasibility and safety
+   ↓
+6. If approved: GitHubClient.create_pull_request_with_changes()
+   ↓
+7. GitOperations handles branch/commit/push
+   ↓
+8. Pull request is created with automated fixes
+```
+
+### Design Benefits
+
+1. **Separation of Concerns**: Each layer has a specific responsibility
+2. **Flexibility**: Can use components independently or composed
+3. **Safety**: Multiple validation layers before making changes
+4. **Testability**: Each component can be tested in isolation
+5. **Extensibility**: Easy to add new workflows or modify existing ones
+
 ### GitHub Authentication
 
 You need GitHub API access via one of these methods:
@@ -161,7 +262,7 @@ The GitHub integration can be configured via `config/server_config.json`:
 
 ### MCP Tools via Claude Code
 
-The GitHub integration provides 9 MCP tools accessible through Claude Code's natural language interface:
+The GitHub integration provides 10 MCP tools accessible through Claude Code's natural language interface:
 
 ```
 # Authentication and repository management

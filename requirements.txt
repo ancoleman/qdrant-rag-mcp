@@ -16,6 +16,10 @@ requests>=2.32.3,<3.0.0  # Used in scripts
 # MCP framework
 mcp>=1.8.1,<2.0.0  # Model Context Protocol SDK
 
+# GitHub integration (v0.3.0)
+pygithub>=2.6.1,<3.0.0  # GitHub API client
+gitpython>=3.1.44,<4.0.0  # Git operations
+
 # Optional performance improvements for Python 3.12
 orjson>=3.10.18,<4.0.0  # Faster JSON parsing
 numpy>=2.1.0,<3.0.0   # NumPy 2.x for Python 3.12

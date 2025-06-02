@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.7] - 2025-06-02
+
+### Fixed
+- **HTTP Testing Server**: Fixed broken HTTP server by adding all missing endpoints
+  - Added `/index_documentation` endpoint for documentation file indexing
+  - Added `/search_docs` endpoint for documentation-specific search
+  - Added `/reindex_directory` endpoint with smart incremental reindex support
+  - Added `/detect_changes` endpoint for file change detection
+  - Added `/health_check` endpoint for detailed system health monitoring
+  - Added `/get_file_chunks` endpoint for retrieving file chunks
+  - Added `/get_context` endpoint for project context information
+  - Added `/switch_project` endpoint for project switching
+  - Updated all search endpoints to support new parameters (search_mode, include_context, etc.)
+  - Fixed deprecated FastAPI @app.on_event usage by replacing with lifespan context manager
+  - Direct function call approach instead of MCP request wrapper for better performance
+
+### Enhanced
+- **HTTP Server Architecture**: Streamlined endpoint implementations
+  - All endpoints now directly call MCP tool functions instead of wrapping in Request objects
+  - Improved error handling with proper HTTP status codes
+  - Better parameter mapping between HTTP requests and MCP tool parameters
+  - Added proper request/response models for all new endpoints
+
+### Technical Details
+- HTTP server now supports all MCP tools available in the main server (v0.2.3-v0.2.6 features)
+- Maintains backward compatibility with existing endpoints
+- Updated FastAPI to use modern lifespan event handlers
+- Enhanced error responses with detailed error messages
+
 ## [0.2.6] - 2025-06-02
 
 ### Fixed

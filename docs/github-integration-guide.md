@@ -979,6 +979,7 @@ For GitHub integration issues:
 
 ## 🔗 Related Documentation
 
+- [GitHub Workflow Examples](github-workflow-examples.md) - Real-world usage patterns and issue remediation workflows
 - [Complete Setup & Usage Guide](complete-setup-and-usage-guide.md)
 - [Enhanced RAG Guide](technical/enhanced-qdrant-rag-guide.md)
 - [MCP Scope Configuration](mcp-scope-configuration-guide.md)

@@ -216,7 +216,7 @@ class GitHubWorkflows:
                     "completed_at": datetime.now().isoformat()
                 })
             else:
-                # Actual resolution - create PR (placeholder for now)
+                # Actual resolution - create PR
                 pr_result = self._create_resolution_pr(suggestion_result, issue_number)
                 workflow_result.update({
                     "pr_result": pr_result,
@@ -378,7 +378,14 @@ class GitHubWorkflows:
         }
     
     def _create_resolution_pr(self, suggestion_result: Dict[str, Any], issue_number: int) -> Dict[str, Any]:
-        """Create a pull request for issue resolution using GitOperations."""
+        """Create a pull request for issue resolution using GitOperations.
+        
+        This method handles the complete PR creation workflow:
+        1. Prepares file changes from suggestions
+        2. Uses GitOperations to create branch, apply changes, commit, and push
+        3. Creates the pull request on GitHub
+        4. Returns success status with PR details or error information
+        """
         try:
             pr_preview = self._generate_pr_preview(suggestion_result, issue_number)
             suggestions = suggestion_result["suggestions"]

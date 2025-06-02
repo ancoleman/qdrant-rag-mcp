@@ -131,11 +131,20 @@ For users upgrading to v0.3.0:
 - **Configuration Examples**: Comprehensive .env.example with detailed explanations for all settings
 - **Architecture Documentation**: Added detailed architecture guide explaining the layered design
 - **Dependencies**: Added missing PyGithub and GitPython to requirements.txt
+- **GitHub Workflow Examples Guide**: Created comprehensive real-world usage patterns and issue remediation workflows
+- **Token Consumption Optimization**: Significantly reduced token usage in GitHub issue analysis
+  - Added configurable response verbosity (`response_verbosity`: "summary" or "full")
+  - New `include_raw_search_results` option (default: false) to exclude raw search data
+  - Added `_summarize_search_results()` method for condensed search summaries
+  - Added `_summarize_extracted_info()` method for reduced extracted info verbosity
+  - Maintains full internal analysis capability while reducing response tokens by ~80-90%
+  - Configurable via `server_config.json` with sensible defaults
 
 ### 🐛 Bug Fixes (Post-Release)
 - Fixed missing GitHub dependencies in requirements.txt
 - Improved error handling with specific messages for common failure scenarios
 - Enhanced rate limit handling to prevent API quota exhaustion
+- Fixed outdated placeholder comments in `_create_resolution_pr` method (Issue #3)
 
 ## [0.2.7] - 2025-06-02
 

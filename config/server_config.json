@@ -113,5 +113,79 @@
       "split_large_sections": true,
       "preserve_context": true
     }
+  },
+  "github": {
+    "authentication": {
+      "token": "${GITHUB_TOKEN:-}",
+      "app_id": "${GITHUB_APP_ID:-}",
+      "private_key_path": "${GITHUB_PRIVATE_KEY_PATH:-}",
+      "installation_id": "${GITHUB_INSTALLATION_ID:-}"
+    },
+    "api": {
+      "base_url": "${GITHUB_API_URL:-https://api.github.com}",
+      "timeout": 30,
+      "retry_attempts": 3,
+      "retry_delay": 1.0,
+      "rate_limit_buffer": 100
+    },
+    "repository": {
+      "current_owner": "${GITHUB_REPO_OWNER:-}",
+      "current_repo": "${GITHUB_REPO_NAME:-}",
+      "auto_index_on_switch": true,
+      "exclude_patterns": [
+        ".git/**",
+        "node_modules/**",
+        "__pycache__/**",
+        "*.pyc",
+        ".env*",
+        "logs/**"
+      ]
+    },
+    "issues": {
+      "default_state": "open",
+      "max_fetch_count": 50,
+      "analysis": {
+        "search_limit": 10,
+        "context_expansion": true,
+        "include_dependencies": true,
+        "code_similarity_threshold": 0.7
+      }
+    },
+    "pull_requests": {
+      "default_branch": "main",
+      "draft_by_default": true,
+      "auto_assign_author": true,
+      "template": {
+        "title_prefix": "[Auto] ",
+        "body_template": "## Summary\n{summary}\n\n## Changes\n{changes}\n\n## Related Issue\nFixes #{issue_number}\n\n---\n🤖 Generated automatically via RAG analysis"
+      }
+    },
+    "safety": {
+      "dry_run_by_default": true,
+      "require_confirmation": true,
+      "max_files_per_pr": 10,
+      "max_lines_per_file": 1000,
+      "blocked_file_patterns": [
+        "*.key",
+        "*.pem",
+        "*.env",
+        "secrets/**",
+        ".github/workflows/**"
+      ],
+      "audit_logging": true
+    },
+    "workflows": {
+      "auto_resolve": {
+        "enabled": false,
+        "confidence_threshold": 0.85,
+        "require_tests": true,
+        "max_complexity": "medium"
+      },
+      "suggestion_only": {
+        "enabled": true,
+        "include_code_samples": true,
+        "include_file_references": true
+      }
+    }
   }
 }

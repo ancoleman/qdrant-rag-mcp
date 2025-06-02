@@ -1,0 +1,22 @@
+# src/github/__init__.py
+"""
+GitHub Integration Module for Qdrant MCP RAG Server
+
+Provides GitHub API integration for issue analysis and resolution workflows.
+"""
+
+from .client import GitHubClient, get_github_client
+from .issue_analyzer import IssueAnalyzer, get_issue_analyzer
+from .code_generator import CodeGenerator, get_code_generator
+from .workflows import GitHubWorkflows, get_github_workflows
+
+__all__ = [
+    "GitHubClient",
+    "get_github_client",
+    "IssueAnalyzer", 
+    "get_issue_analyzer",
+    "CodeGenerator",
+    "get_code_generator",
+    "GitHubWorkflows",
+    "get_github_workflows"
+]

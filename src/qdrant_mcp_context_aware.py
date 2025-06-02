@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     from . import __version__
 except ImportError:
-    __version__ = "0.2.7"  # Fallback version
+    __version__ = "0.3.0"  # Fallback version
 
 # Load environment variables from the MCP server directory
 from dotenv import load_dotenv
@@ -782,7 +782,7 @@ def delete_file_chunks(file_path: str, collection_name: Optional[str] = None) ->
             points_selector=filter_condition
         )
         
-        logger.info(f"Deleted {points_before} chunks for file {file_path}", extra={
+        console_logger.info(f"Deleted {points_before} chunks for file {file_path}", extra={
             "operation": "delete_file_chunks",
             "file_path": str(abs_path),
             "collection": collection_name,
@@ -798,7 +798,7 @@ def delete_file_chunks(file_path: str, collection_name: Optional[str] = None) ->
         }
         
     except Exception as e:
-        logger.error(f"Failed to delete file chunks for {file_path}: {str(e)}", extra={
+        console_logger.error(f"Failed to delete file chunks for {file_path}: {str(e)}", extra={
             "operation": "delete_file_chunks",
             "file_path": file_path,
             "error": str(e),
@@ -846,7 +846,7 @@ def detect_changes(directory: str = ".") -> Dict[str, Any]:
                 "error_code": "NOT_A_DIRECTORY"
             }
         
-        logger.info(f"Detecting changes in directory: {abs_directory}", extra={
+        console_logger.info(f"Detecting changes in directory: {abs_directory}", extra={
             "operation": "detect_changes",
             "directory": str(abs_directory)
         })
@@ -1027,7 +1027,7 @@ def detect_changes(directory: str = ".") -> Dict[str, Any]:
                          f"This might indicate an issue with change detection. "
                          f"Total indexed: {len(indexed_files)}, Total current: {len(current_files)}")
         
-        logger.info(f"Change detection complete", extra={
+        console_logger.info(f"Change detection complete", extra={
             "operation": "detect_changes",
             "directory": str(abs_directory),
             "added": len(added_files),
@@ -1040,7 +1040,7 @@ def detect_changes(directory: str = ".") -> Dict[str, Any]:
         return result
         
     except Exception as e:
-        logger.error(f"Failed to detect changes in {directory}: {str(e)}", extra={
+        console_logger.error(f"Failed to detect changes in {directory}: {str(e)}", extra={
             "operation": "detect_changes",
             "directory": directory,
             "error": str(e),
@@ -1080,7 +1080,7 @@ def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
         
         from qdrant_client.http.models import PointStruct
         
-        logger.info(f"Starting index_code for {file_path}", extra={
+        console_logger.info(f"Starting index_code for {file_path}", extra={
             "operation": "index_code",
             "file_path": file_path,
             "force_global": force_global
@@ -1224,7 +1224,7 @@ def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
             "project_context": current_project["name"] if current_project else "global"
         }
         
-        logger.info(f"Completed index_code for {display_path}", extra={
+        console_logger.info(f"Completed index_code for {display_path}", extra={
             "operation": "index_code",
             "file_path": display_path,
             "duration_ms": duration_ms,
@@ -1237,7 +1237,7 @@ def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
         
     except QdrantConnectionError as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.error(f"Connection error during index_code for {file_path}: {str(e)}", extra={
+        console_logger.error(f"Connection error during index_code for {file_path}: {str(e)}", extra={
             "operation": "index_code",
             "file_path": file_path,
             "duration_ms": duration_ms,
@@ -1266,7 +1266,7 @@ def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
             user_error = "Failed to index file"
             error_code = "INDEX_ERROR"
         
-        logger.error(f"Failed index_code for {file_path}: {error_msg}", extra={
+        console_logger.error(f"Failed index_code for {file_path}: {error_msg}", extra={
             "operation": "index_code",
             "file_path": file_path,
             "duration_ms": duration_ms,
@@ -1434,7 +1434,7 @@ def index_documentation(file_path: str, force_global: bool = False) -> Dict[str,
         
         duration_ms = (time.time() - start_time) * 1000
         
-        logger.info(f"Successfully indexed documentation {file_path}", extra={
+        console_logger.info(f"Successfully indexed documentation {file_path}", extra={
             "operation": "index_documentation",
             "file_path": str(abs_path),
             "chunks": len(chunks),
@@ -1457,7 +1457,7 @@ def index_documentation(file_path: str, force_global: bool = False) -> Dict[str,
         
     except QdrantConnectionError as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.error(f"Qdrant connection failed for {file_path}", extra={
+        console_logger.error(f"Qdrant connection failed for {file_path}", extra={
             "operation": "index_documentation", 
             "file_path": file_path,
             "duration_ms": duration_ms,
@@ -1486,7 +1486,7 @@ def index_documentation(file_path: str, force_global: bool = False) -> Dict[str,
             user_error = "Failed to index documentation"
             error_code = "INDEX_ERROR"
         
-        logger.error(f"Failed index_documentation for {file_path}: {error_msg}", extra={
+        console_logger.error(f"Failed index_documentation for {file_path}: {error_msg}", extra={
             "operation": "index_documentation",
             "file_path": file_path,
             "duration_ms": duration_ms,
@@ -1646,7 +1646,7 @@ def index_directory(directory: str = None, patterns: List[str] = None, recursive
                 eta_str = ""
             
             logger = get_logger()
-            logger.info(
+            console_logger.info(
                 f"Indexing progress: {current}/{total} files ({percent:.1f}%){eta_str}",
                 extra={
                     "operation": "index_directory_progress",
@@ -1700,7 +1700,7 @@ def index_directory(directory: str = None, patterns: List[str] = None, recursive
         total_files = len(files_to_process)
         if total_files > 0:
             logger = get_logger()
-            logger.info(f"Starting to index {total_files} files from {directory}")
+            console_logger.info(f"Starting to index {total_files} files from {directory}")
             
             # Report initial progress
             report_progress(0, total_files)
@@ -1769,7 +1769,7 @@ def reindex_directory(
     logger = get_logger()
     start_time = time.time()
     
-    logger.info(f"Starting reindex_directory for {directory}", extra={
+    console_logger.info(f"Starting reindex_directory for {directory}", extra={
         "operation": "reindex_directory",
         "directory": directory,
         "recursive": recursive,
@@ -1788,7 +1788,7 @@ def reindex_directory(
         
         # If force=True or incremental=False, use the original behavior (clear all collections)
         if force or not incremental:
-            logger.info("Using full reindex mode (clearing all collections)")
+            console_logger.info("Using full reindex mode (clearing all collections)")
             
             # Clear existing collections
             clear_result = clear_project_collections()
@@ -1820,7 +1820,7 @@ def reindex_directory(
         
         else:
             # Incremental reindex mode - use detect_changes to only process changed files
-            logger.info("Using incremental reindex mode (smart change detection)")
+            console_logger.info("Using incremental reindex mode (smart change detection)")
             
             # Detect changes first
             changes_result = detect_changes(directory)
@@ -1856,7 +1856,7 @@ def reindex_directory(
                     
                     if "error" not in delete_result:
                         deleted_count += delete_result.get("deleted_points", 0)
-                        logger.info(f"Removed chunks for deleted file: {file_path}")
+                        console_logger.info(f"Removed chunks for deleted file: {file_path}")
                     else:
                         deletion_errors.append({
                             "file": file_path,
@@ -1875,7 +1875,7 @@ def reindex_directory(
             collections_used = set()
             
             if files_to_index:
-                logger.info(f"Indexing {len(files_to_index)} changed files ({len(added_files)} added, {len(modified_files)} modified)")
+                console_logger.info(f"Indexing {len(files_to_index)} changed files ({len(added_files)} added, {len(modified_files)} modified)")
                 
                 for file_path in files_to_index:
                     try:
@@ -1941,7 +1941,7 @@ def reindex_directory(
                 "message": f"Incremental reindex: {len(indexed_files)} files indexed, {deleted_count} chunks removed from {len(deleted_files)} deleted files, {len(unchanged_files)} files unchanged"
             }
         
-        logger.info(f"Completed reindex_directory for {directory}", extra={
+        console_logger.info(f"Completed reindex_directory for {directory}", extra={
             "operation": "reindex_directory",
             "directory": directory,
             "duration_ms": duration_ms,
@@ -1954,7 +1954,7 @@ def reindex_directory(
         
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.error(f"Failed reindex_directory for {directory}: {str(e)}", extra={
+        console_logger.error(f"Failed reindex_directory for {directory}: {str(e)}", extra={
             "operation": "reindex_directory",
             "directory": directory,
             "duration_ms": duration_ms,
@@ -2003,7 +2003,7 @@ def search(query: str, n_results: int = 5, cross_project: bool = False, search_m
             "details": "n_results must be between 1 and 100"
         }
     
-    logger.info(f"Starting search: {query[:50]}...", extra={
+    console_logger.info(f"Starting search: {query[:50]}...", extra={
         "operation": "search",
         "query_length": len(query),
         "n_results": n_results,
@@ -2303,7 +2303,7 @@ def search(query: str, n_results: int = 5, cross_project: bool = False, search_m
             "collections_searched": search_collections
         }
         
-        logger.info(f"Completed search: {query[:50]}...", extra={
+        console_logger.info(f"Completed search: {query[:50]}...", extra={
             "operation": "search",
             "query_length": len(query),
             "duration_ms": duration_ms,
@@ -2317,7 +2317,7 @@ def search(query: str, n_results: int = 5, cross_project: bool = False, search_m
         
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.error(f"Failed search: {query[:50]}... - {str(e)}", extra={
+        console_logger.error(f"Failed search: {query[:50]}... - {str(e)}", extra={
             "operation": "search",
             "query_length": len(query),
             "duration_ms": duration_ms,
@@ -2833,7 +2833,7 @@ def search_docs(query: str, doc_type: Optional[str] = None, n_results: int = 5, 
         
         duration_ms = (time.time() - start_time) * 1000
         
-        logger.info(f"Documentation search completed", extra={
+        console_logger.info(f"Documentation search completed", extra={
             "operation": "search_docs",
             "query": query,
             "results": len(all_results),
@@ -2855,7 +2855,7 @@ def search_docs(query: str, doc_type: Optional[str] = None, n_results: int = 5, 
         
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.error(f"Documentation search failed", extra={
+        console_logger.error(f"Documentation search failed", extra={
             "operation": "search_docs",
             "query": query,
             "duration_ms": duration_ms,
@@ -3046,7 +3046,7 @@ def health_check() -> Dict[str, Any]:
     - Current project context
     """
     logger = get_logger()
-    logger.info("Running health check")
+    console_logger.info("Running health check")
     
     health_status = {
         "status": "healthy",
@@ -3161,7 +3161,7 @@ def health_check() -> Dict[str, Any]:
         }
     
     # Log health check result
-    logger.info(
+    console_logger.info(
         f"Health check completed: {health_status['status']}",
         extra={
             "operation": "health_check",
@@ -3172,6 +3172,632 @@ def health_check() -> Dict[str, Any]:
     )
     
     return health_status
+
+
+# GitHub Integration - Import modules with graceful fallback
+try:
+    from github_integration.client import get_github_client
+    from github_integration.issue_analyzer import get_issue_analyzer
+    from github_integration.code_generator import get_code_generator
+    from github_integration.workflows import get_github_workflows
+    GITHUB_AVAILABLE = True
+except ImportError:
+    GITHUB_AVAILABLE = False
+    console_logger.warning("GitHub integration not available. Install with: pip install PyGithub GitPython")
+
+
+# Global GitHub instances (lazy initialization)
+_github_client = None
+_issue_analyzer = None
+_code_generator = None
+_github_workflows = None
+
+
+def get_github_instances():
+    """Get or create GitHub service instances."""
+    global _github_client, _issue_analyzer, _code_generator, _github_workflows
+    
+    if not GITHUB_AVAILABLE:
+        raise ImportError("GitHub integration not available. Install with: pip install PyGithub GitPython")
+    
+    if _github_client is None:
+        _github_client = get_github_client()
+    
+    if _issue_analyzer is None:
+        search_functions = {
+            "search": search,
+            "search_code": search_code,
+            "search_docs": search_docs
+        }
+        _issue_analyzer = get_issue_analyzer(_github_client, search_functions)
+    
+    if _code_generator is None:
+        _code_generator = get_code_generator()
+    
+    if _github_workflows is None:
+        _github_workflows = get_github_workflows(_github_client, _issue_analyzer, _code_generator)
+    
+    return _github_client, _issue_analyzer, _code_generator, _github_workflows
+
+
+# GitHub MCP Tools
+@mcp.tool()
+def github_list_repositories(owner: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List GitHub repositories for a user/organization.
+    
+    Args:
+        owner: Repository owner (defaults to authenticated user)
+        
+    Returns:
+        List of repository information
+    """
+    try:
+        if not GITHUB_AVAILABLE:
+            return {
+                "error": "GitHub integration not available",
+                "message": "Install with: pip install PyGithub GitPython"
+            }
+        
+        github_client, _, _, _ = get_github_instances()
+        repositories = github_client.list_repositories(owner)
+        
+        console_logger.info(f"Listed {len(repositories)} repositories for {owner or 'authenticated user'}")
+        
+        return {
+            "repositories": repositories,
+            "count": len(repositories),
+            "owner": owner or "authenticated_user"
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to list repositories: {str(e)}"
+        console_logger.error(error_msg)
+        return {"error": error_msg}
+
+
+@mcp.tool()
+def github_switch_repository(owner: str, repo: str) -> Dict[str, Any]:
+    """
+    Switch to a different GitHub repository context.
+    
+    Args:
+        owner: Repository owner
+        repo: Repository name
+        
+    Returns:
+        Repository information and switch status
+    """
+    try:
+        if not GITHUB_AVAILABLE:
+            return {
+                "error": "GitHub integration not available",
+                "message": "Install with: pip install PyGithub GitPython"
+            }
+        
+        github_client, _, _, _ = get_github_instances()
+        repository = github_client.set_repository(owner, repo)
+        
+        # Optional: Auto-index repository if configured
+        config = get_config()
+        if config.get("github", {}).get("repository", {}).get("auto_index_on_switch", True):
+            try:
+                # This would trigger repository indexing - placeholder for now
+                console_logger.info(f"Auto-indexing enabled for {owner}/{repo} (feature not yet implemented)")
+            except Exception as e:
+                console_logger.warning(f"Auto-indexing failed for {owner}/{repo}: {e}")
+        
+        console_logger.info(
+            f"Switched to repository {owner}/{repo}",
+            extra={
+                "operation": "github_switch_repository",
+                "owner": owner,
+                "repo": repo,
+                "full_name": repository.full_name
+            }
+        )
+        
+        return {
+            "repository": {
+                "owner": owner,
+                "name": repo,
+                "full_name": repository.full_name,
+                "description": repository.description,
+                "private": repository.private,
+                "language": repository.language,
+                "stars": repository.stargazers_count,
+                "forks": repository.forks_count
+            },
+            "message": f"Successfully switched to {owner}/{repo}"
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to switch repository: {str(e)}"
+        console_logger.error(
+            error_msg,
+            extra={
+                "operation": "github_switch_repository",
+                "error": str(e),
+                "owner": owner,
+                "repo": repo
+            }
+        )
+        return {"error": error_msg}
+
+
+@mcp.tool()
+def github_fetch_issues(state: str = "open", labels: Optional[List[str]] = None, 
+                       limit: Optional[int] = None) -> Dict[str, Any]:
+    """
+    Fetch GitHub issues from current repository.
+    
+    Args:
+        state: Issue state (open, closed, all)
+        labels: Filter by labels
+        limit: Maximum number of issues
+        
+    Returns:
+        List of issue information
+    """
+    try:
+        if not GITHUB_AVAILABLE:
+            return {
+                "error": "GitHub integration not available",
+                "message": "Install with: pip install PyGithub GitPython"
+            }
+        
+        github_client, _, _, _ = get_github_instances()
+        
+        if not github_client.get_current_repository():
+            return {
+                "error": "No repository context set",
+                "message": "Use github_switch_repository first"
+            }
+        
+        issues = github_client.get_issues(state=state, labels=labels, limit=limit)
+        
+        console_logger.info(
+            f"Fetched {len(issues)} issues",
+            extra={
+                "operation": "github_fetch_issues",
+                "state": state,
+                "labels": labels,
+                "count": len(issues)
+            }
+        )
+        
+        return {
+            "issues": issues,
+            "count": len(issues),
+            "state": state,
+            "labels": labels,
+            "repository": github_client.get_current_repository().full_name
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to fetch issues: {str(e)}"
+        console_logger.error(
+            error_msg,
+            extra={
+                "operation": "github_fetch_issues",
+                "error": str(e),
+                "state": state,
+                "labels": labels
+            }
+        )
+        return {"error": error_msg}
+
+
+@mcp.tool()
+def github_get_issue(issue_number: int) -> Dict[str, Any]:
+    """
+    Get detailed information about a specific GitHub issue.
+    
+    Args:
+        issue_number: Issue number
+        
+    Returns:
+        Detailed issue information
+    """
+    try:
+        if not GITHUB_AVAILABLE:
+            return {
+                "error": "GitHub integration not available",
+                "message": "Install with: pip install PyGithub GitPython"
+            }
+        
+        github_client, _, _, _ = get_github_instances()
+        
+        if not github_client.get_current_repository():
+            return {
+                "error": "No repository context set",
+                "message": "Use github_switch_repository first"
+            }
+        
+        issue = github_client.get_issue(issue_number)
+        
+        console_logger.info(
+            f"Retrieved issue #{issue_number}",
+            extra={
+                "operation": "github_get_issue",
+                "issue_number": issue_number,
+                "title": issue["title"]
+            }
+        )
+        
+        return {
+            "issue": issue,
+            "repository": github_client.get_current_repository().full_name
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to get issue #{issue_number}: {str(e)}"
+        console_logger.error(
+            error_msg,
+            extra={
+                "operation": "github_get_issue",
+                "error": str(e),
+                "issue_number": issue_number
+            }
+        )
+        return {"error": error_msg}
+
+
+@mcp.tool()
+def github_create_issue(title: str, body: str = "", labels: Optional[List[str]] = None,
+                       assignees: Optional[List[str]] = None) -> Dict[str, Any]:
+    """
+    Create a new GitHub issue.
+    
+    Args:
+        title: Issue title
+        body: Issue description/body (optional)
+        labels: List of label names to apply (optional)
+        assignees: List of usernames to assign (optional)
+        
+    Returns:
+        Created issue information
+    """
+    try:
+        if not GITHUB_AVAILABLE:
+            return {
+                "error": "GitHub integration not available",
+                "message": "Install with: pip install PyGithub GitPython"
+            }
+        
+        github_client, _, _, _ = get_github_instances()
+        
+        if not github_client.get_current_repository():
+            return {
+                "error": "No repository context set",
+                "message": "Use github_switch_repository first"
+            }
+        
+        issue = github_client.create_issue(title, body, labels, assignees)
+        
+        console_logger.info(
+            f"Created issue #{issue['number']}: {title}",
+            extra={
+                "operation": "github_create_issue",
+                "issue_number": issue["number"],
+                "title": title,
+                "labels": labels or [],
+                "assignees": assignees or []
+            }
+        )
+        
+        return {
+            "issue": issue,
+            "repository": github_client.get_current_repository().full_name,
+            "message": f"Successfully created issue #{issue['number']}"
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to create issue: {str(e)}"
+        console_logger.error(
+            error_msg,
+            extra={
+                "operation": "github_create_issue",
+                "error": str(e),
+                "title": title
+            }
+        )
+        return {"error": error_msg}
+
+
+@mcp.tool()
+def github_add_comment(issue_number: int, body: str) -> Dict[str, Any]:
+    """
+    Add a comment to an existing GitHub issue.
+    
+    Args:
+        issue_number: Issue number to comment on
+        body: Comment body text
+        
+    Returns:
+        Comment information
+    """
+    try:
+        if not GITHUB_AVAILABLE:
+            return {
+                "error": "GitHub integration not available",
+                "message": "Install with: pip install PyGithub GitPython"
+            }
+        
+        github_client, _, _, _ = get_github_instances()
+        
+        if not github_client.get_current_repository():
+            return {
+                "error": "No repository context set",
+                "message": "Use github_switch_repository first"
+            }
+        
+        comment = github_client.add_comment(issue_number, body)
+        
+        console_logger.info(
+            f"Added comment to issue #{issue_number}",
+            extra={
+                "operation": "github_add_comment",
+                "issue_number": issue_number,
+                "comment_id": comment["id"]
+            }
+        )
+        
+        return {
+            "comment": comment,
+            "repository": github_client.get_current_repository().full_name,
+            "message": f"Successfully added comment to issue #{issue_number}"
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to add comment: {str(e)}"
+        console_logger.error(
+            error_msg,
+            extra={
+                "operation": "github_add_comment",
+                "error": str(e),
+                "issue_number": issue_number
+            }
+        )
+        return {"error": error_msg}
+
+
+@mcp.tool()
+def github_analyze_issue(issue_number: int) -> Dict[str, Any]:
+    """
+    Perform comprehensive analysis of a GitHub issue using RAG search.
+    
+    Args:
+        issue_number: Issue number to analyze
+        
+    Returns:
+        Analysis results with search results and recommendations
+    """
+    try:
+        if not GITHUB_AVAILABLE:
+            return {
+                "error": "GitHub integration not available",
+                "message": "Install with: pip install PyGithub GitPython"
+            }
+        
+        github_client, _, _, workflows = get_github_instances()
+        
+        if not github_client.get_current_repository():
+            return {
+                "error": "No repository context set",
+                "message": "Use github_switch_repository first"
+            }
+        
+        # Run analysis workflow
+        result = workflows.analyze_issue_workflow(issue_number)
+        
+        console_logger.info(
+            f"Analyzed issue #{issue_number}",
+            extra={
+                "operation": "github_analyze_issue",
+                "issue_number": issue_number,
+                "workflow_status": result.get("workflow_status"),
+                "confidence": result.get("analysis", {}).get("analysis", {}).get("confidence_score", 0)
+            }
+        )
+        
+        return result
+        
+    except Exception as e:
+        error_msg = f"Failed to analyze issue #{issue_number}: {str(e)}"
+        console_logger.error(
+            error_msg,
+            extra={
+                "operation": "github_analyze_issue",
+                "error": str(e),
+                "issue_number": issue_number
+            }
+        )
+        return {"error": error_msg}
+
+
+@mcp.tool()
+def github_suggest_fix(issue_number: int) -> Dict[str, Any]:
+    """
+    Generate fix suggestions for a GitHub issue using RAG analysis.
+    
+    Args:
+        issue_number: Issue number
+        
+    Returns:
+        Fix suggestions and implementation plan
+    """
+    try:
+        if not GITHUB_AVAILABLE:
+            return {
+                "error": "GitHub integration not available",
+                "message": "Install with: pip install PyGithub GitPython"
+            }
+        
+        github_client, _, _, workflows = get_github_instances()
+        
+        if not github_client.get_current_repository():
+            return {
+                "error": "No repository context set",
+                "message": "Use github_switch_repository first"
+            }
+        
+        # Run fix suggestion workflow
+        result = workflows.suggest_fix_workflow(issue_number)
+        
+        console_logger.info(
+            f"Generated fix suggestions for issue #{issue_number}",
+            extra={
+                "operation": "github_suggest_fix",
+                "issue_number": issue_number,
+                "workflow_status": result.get("workflow_status"),
+                "fix_count": len(result.get("suggestions", {}).get("fixes", [])),
+                "confidence": result.get("suggestions", {}).get("confidence_level", "unknown")
+            }
+        )
+        
+        return result
+        
+    except Exception as e:
+        error_msg = f"Failed to generate fix suggestions for issue #{issue_number}: {str(e)}"
+        console_logger.error(
+            error_msg,
+            extra={
+                "operation": "github_suggest_fix",
+                "error": str(e),
+                "issue_number": issue_number
+            }
+        )
+        return {"error": error_msg}
+
+
+@mcp.tool()
+def github_create_pull_request(title: str, body: str, head: str, base: str = "main",
+                              files: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
+    """
+    Create a GitHub pull request.
+    
+    Args:
+        title: PR title
+        body: PR description
+        head: Head branch
+        base: Base branch (default: main)
+        files: List of files to include (for reference only)
+        
+    Returns:
+        Pull request information
+    """
+    try:
+        if not GITHUB_AVAILABLE:
+            return {
+                "error": "GitHub integration not available",
+                "message": "Install with: pip install PyGithub GitPython"
+            }
+        
+        github_client, _, _, _ = get_github_instances()
+        
+        if not github_client.get_current_repository():
+            return {
+                "error": "No repository context set",
+                "message": "Use github_switch_repository first"
+            }
+        
+        # Create pull request
+        pr = github_client.create_pull_request(
+            title=title,
+            body=body,
+            head=head,
+            base=base,
+            files=files
+        )
+        
+        console_logger.info(
+            f"Created pull request #{pr['number']}",
+            extra={
+                "operation": "github_create_pull_request",
+                "pr_number": pr["number"],
+                "title": title,
+                "head": head,
+                "base": base
+            }
+        )
+        
+        return {
+            "pull_request": pr,
+            "repository": github_client.get_current_repository().full_name,
+            "message": f"Successfully created PR #{pr['number']}"
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to create pull request: {str(e)}"
+        console_logger.error(
+            error_msg,
+            extra={
+                "operation": "github_create_pull_request",
+                "error": str(e),
+                "title": title,
+                "head": head,
+                "base": base
+            }
+        )
+        return {"error": error_msg}
+
+
+@mcp.tool()
+def github_resolve_issue(issue_number: int, dry_run: bool = True) -> Dict[str, Any]:
+    """
+    Attempt to resolve a GitHub issue with automated analysis and PR creation.
+    
+    Args:
+        issue_number: Issue number to resolve
+        dry_run: If True, only show what would be done (default: True for safety)
+        
+    Returns:
+        Resolution workflow results
+    """
+    try:
+        if not GITHUB_AVAILABLE:
+            return {
+                "error": "GitHub integration not available",
+                "message": "Install with: pip install PyGithub GitPython"
+            }
+        
+        github_client, _, _, workflows = get_github_instances()
+        
+        if not github_client.get_current_repository():
+            return {
+                "error": "No repository context set",
+                "message": "Use github_switch_repository first"
+            }
+        
+        # Run complete resolution workflow
+        result = workflows.resolve_issue_workflow(issue_number, dry_run=dry_run)
+        
+        console_logger.info(
+            f"Issue resolution workflow for #{issue_number} (dry_run={dry_run})",
+            extra={
+                "operation": "github_resolve_issue",
+                "issue_number": issue_number,
+                "dry_run": dry_run,
+                "workflow_status": result.get("workflow_status")
+            }
+        )
+        
+        return result
+        
+    except Exception as e:
+        error_msg = f"Failed to resolve issue #{issue_number}: {str(e)}"
+        console_logger.error(
+            error_msg,
+            extra={
+                "operation": "github_resolve_issue",
+                "error": str(e),
+                "issue_number": issue_number,
+                "dry_run": dry_run
+            }
+        )
+        return {"error": error_msg}
+
 
 # Run the server
 if __name__ == "__main__":

@@ -1,9 +1,19 @@
 # Qdrant RAG MCP Server
 
-A context-aware Model Context Protocol (MCP) server that provides semantic search capabilities across your codebase using Qdrant vector database. Designed to work seamlessly with Claude Code.
+A context-aware Model Context Protocol (MCP) server that provides semantic search capabilities across your codebase using Qdrant vector database. Now with **intelligent GitHub issue resolution** capabilities (v0.3.0). Designed to work seamlessly with Claude Code.
 
 ## 🌟 Features
 
+### 🆕 GitHub Integration (v0.3.0)
+- **🤖 Intelligent Issue Resolution**: RAG-powered GitHub issue analysis and automated fix generation
+- **🔄 End-to-End Workflows**: Analyze issues → Generate fixes → Create PRs with dry-run safety
+- **🎯 10 GitHub MCP Tools**: Complete issue lifecycle management via natural language
+- **💬 Issue Comments**: Add comments to existing issues for workflow updates and collaboration
+- **🔐 Flexible Authentication**: Personal Access Token and GitHub App support
+- **📊 RAG-Enhanced Analysis**: Leverage full codebase search for issue understanding
+- **🛡️ Safety-First Design**: Dry-run mode, file protection, rate limiting, and audit logging
+
+### Core RAG Capabilities
 - **🎯 Context-Aware**: Automatically detects and scopes to your current project
 - **🔍 Hybrid Search**: Combines semantic understanding with keyword matching for +30% better precision
 - **🧠 AST-Based Chunking**: Structure-aware code parsing for Python, Shell, Go, JavaScript, and TypeScript (-40% tokens)
@@ -136,6 +146,7 @@ In your Claude Code configuration (`~/.claude-code/config.json`):
 
 ### Core Guides
 - **[Complete Setup & Usage Guide](docs/complete-setup-and-usage-guide.md)** 📚 - Comprehensive setup and usage instructions
+- **[GitHub Integration Guide](docs/github-integration-guide.md)** 🤖 - Setup and use GitHub issue resolution (v0.3.0)
 - **[Context-Aware Guide](docs/context-aware-guide.md)** 🎯 - How the context-aware system works
 - **[MCP Scope Configuration Guide](docs/mcp-scope-configuration-guide.md)** 🔧 - Understanding local vs global configuration
 - **[Practical Usage Examples](docs/rag-usage-examples.md)** 💡 - Real-world examples with Claude Code
@@ -160,6 +171,7 @@ In your Claude Code configuration (`~/.claude-code/config.json`):
 ### I want to...
 
 - **Get started quickly** → [Complete Setup & Usage Guide](docs/complete-setup-and-usage-guide.md)
+- **🆕 Automate GitHub issues** → [GitHub Integration Guide](docs/github-integration-guide.md)
 - **Load context fast in Claude** → [Quick Context Setup](docs/quick-context-setup.md)
 - **Use RAG in ALL my projects** → [MCP Scope Configuration Guide](docs/mcp-scope-configuration-guide.md)
 - **Understand project isolation** → [Context-Aware Guide](docs/context-aware-guide.md)
@@ -187,6 +199,16 @@ claude
 # - Index: "Index all code files in this project"
 # - Search: "Find authentication functions"
 # - Context: "What's my current project context?"
+```
+
+**🆕 GitHub Issue Resolution (v0.3.0)**
+```bash
+# In Claude with GitHub integration:
+# - Setup: "Switch to repository owner/repo-name"
+# - Create: "Create a test issue with title 'Bug in login' and labels 'bug'"
+# - Analyze: "Analyze issue #123 using RAG search"
+# - Fix: "Generate fix suggestions for issue #123"
+# - Resolve: "Resolve issue #123 in dry-run mode"
 ```
 
 **With Auto-Indexing**
@@ -344,12 +366,19 @@ This project includes two distinct servers:
 
 ## 🎯 Use Cases
 
-### With Claude Code
+### RAG-Powered Code Search
 - **Semantic Code Search**: "Find authentication functions similar to UserService"
 - **Configuration Discovery**: "Where is the database connection configured?"
 - **Pattern Analysis**: "Show me error handling patterns in this codebase"
 - **Code Understanding**: "How does the logging system work?"
 - **Cross-Project Insights**: "Show JWT implementations across all my projects"
+
+### 🆕 GitHub Issue Resolution (v0.3.0)
+- **Intelligent Issue Analysis**: "Analyze issue #123 to understand the bug and find related code"
+- **Automated Fix Generation**: "Generate fix suggestions for the authentication issue in #456"
+- **Repository Management**: "Switch to my backend repository and show open issues"
+- **Issue Workflow**: "Create a test issue, analyze it, and generate a fix in dry-run mode"
+- **Pull Request Creation**: "Create a PR to resolve the login bug with automated content"
 
 ## 🏥 Health Monitoring
 
@@ -427,7 +456,19 @@ export QDRANT_LOG_DIR=/custom/path   # Custom log directory
 
 ## 📈 Recent Improvements
 
-### v0.2.1 (Latest) - Enhanced Ranking
+### 🚀 v0.3.0 (Latest) - GitHub Integration
+- ✅ **10 GitHub MCP Tools**: Complete issue lifecycle management via Claude Code
+- ✅ **RAG-Powered Issue Analysis**: Leverage codebase search for intelligent issue understanding
+- ✅ **Automated Fix Generation**: Generate code fixes with confidence scoring and templates
+- ✅ **End-to-End Workflows**: Analyze → Generate → Create PR with dry-run safety
+- ✅ **Issue Comments**: Add comments to existing issues for workflow updates
+- ✅ **Flexible Authentication**: Personal Access Token and GitHub App support
+- ✅ **HTTP API Testing**: 10 new endpoints under `/github/` for testing and integration
+- ✅ **Safety-First Design**: Dry-run mode, rate limiting, audit logging, file protection
+- ✅ **Configuration Enhanced**: Fixed environment variable resolution for better config management
+- 📖 **[GitHub Integration Guide](docs/github-integration-guide.md)**: Comprehensive 700+ line setup and usage guide
+
+### v0.2.1 - Enhanced Ranking
 - ✅ **Multi-Signal Ranking**: Search results now ranked by 5 configurable factors
 - ✅ **File Proximity Scoring**: Boosts results from same/nearby directories
 - ✅ **Dependency Distance**: Prioritizes files with import relationships

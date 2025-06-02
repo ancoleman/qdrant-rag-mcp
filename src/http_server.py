@@ -19,7 +19,11 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from qdrant_mcp_context_aware import (
     index_code, index_config, index_documentation, index_directory,
     search, search_code, search_docs, reindex_directory,
-    detect_changes, get_file_chunks, get_context, switch_project, health_check
+    detect_changes, get_file_chunks, get_context, switch_project, health_check,
+    # GitHub integration functions (v0.3.0)
+    github_list_repositories, github_switch_repository, github_fetch_issues,
+    github_get_issue, github_create_issue, github_add_comment, github_analyze_issue, github_suggest_fix,
+    github_create_pull_request, github_resolve_issue
 )
 
 @asynccontextmanager
@@ -34,7 +38,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Qdrant RAG Server HTTP API", 
-    version="0.2.7",
+    version="0.3.0",
     lifespan=lifespan
 )
 
@@ -106,6 +110,49 @@ class GetFileChunksRequest(BaseModel):
 
 class SwitchProjectRequest(BaseModel):
     project_path: str
+
+# GitHub request models (v0.3.0)
+class GitHubListRepositoriesRequest(BaseModel):
+    owner: Optional[str] = None
+
+class GitHubSwitchRepositoryRequest(BaseModel):
+    owner: str
+    repo: str
+
+class GitHubFetchIssuesRequest(BaseModel):
+    state: Optional[str] = "open"
+    labels: Optional[List[str]] = None
+    limit: Optional[int] = None
+
+class GitHubGetIssueRequest(BaseModel):
+    issue_number: int
+
+class GitHubCreateIssueRequest(BaseModel):
+    title: str
+    body: Optional[str] = ""
+    labels: Optional[List[str]] = None
+    assignees: Optional[List[str]] = None
+
+class GitHubAddCommentRequest(BaseModel):
+    issue_number: int
+    body: str
+
+class GitHubAnalyzeIssueRequest(BaseModel):
+    issue_number: int
+
+class GitHubSuggestFixRequest(BaseModel):
+    issue_number: int
+
+class GitHubCreatePullRequestRequest(BaseModel):
+    title: str
+    body: str
+    head: str
+    base: Optional[str] = "main"
+    files: Optional[List[Dict[str, str]]] = None
+
+class GitHubResolveIssueRequest(BaseModel):
+    issue_number: int
+    dry_run: Optional[bool] = True
 
 # Startup is now handled by lifespan context manager
 
@@ -362,6 +409,192 @@ async def get_collections():
         qdrant_client = get_qdrant_client()
         collections = qdrant_client.get_collections()
         return {"collections": [c.name for c in collections.collections]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# GitHub Integration Endpoints (v0.3.0)
+
+@app.get("/github/repositories")
+async def github_list_repositories_endpoint(owner: Optional[str] = None):
+    """List GitHub repositories for a user/organization"""
+    try:
+        result = github_list_repositories(owner=owner)
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/github/switch_repository")
+async def github_switch_repository_endpoint(request: GitHubSwitchRepositoryRequest):
+    """Switch to a different GitHub repository context"""
+    try:
+        result = github_switch_repository(owner=request.owner, repo=request.repo)
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/github/issues")
+async def github_fetch_issues_endpoint(
+    state: Optional[str] = "open",
+    labels: Optional[str] = None,
+    limit: Optional[int] = None
+):
+    """Fetch GitHub issues from current repository"""
+    try:
+        # Parse labels from comma-separated string
+        labels_list = labels.split(",") if labels else None
+        
+        result = github_fetch_issues(
+            state=state,
+            labels=labels_list,
+            limit=limit
+        )
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/github/issues/{issue_number}")
+async def github_get_issue_endpoint(issue_number: int):
+    """Get detailed information about a specific GitHub issue"""
+    try:
+        result = github_get_issue(issue_number=issue_number)
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/github/issues")
+async def github_create_issue_endpoint(request: GitHubCreateIssueRequest):
+    """Create a new GitHub issue"""
+    try:
+        result = github_create_issue(
+            title=request.title,
+            body=request.body,
+            labels=request.labels,
+            assignees=request.assignees
+        )
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/github/issues/{issue_number}/comment")
+async def github_add_comment_endpoint(issue_number: int, request: GitHubAddCommentRequest):
+    """Add a comment to an existing GitHub issue"""
+    try:
+        result = github_add_comment(
+            issue_number=issue_number,
+            body=request.body
+        )
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/github/issues/{issue_number}/analyze")
+async def github_analyze_issue_endpoint(issue_number: int):
+    """Perform comprehensive analysis of a GitHub issue using RAG search"""
+    try:
+        result = github_analyze_issue(issue_number=issue_number)
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/github/issues/{issue_number}/suggest_fix")
+async def github_suggest_fix_endpoint(issue_number: int):
+    """Generate fix suggestions for a GitHub issue using RAG analysis"""
+    try:
+        result = github_suggest_fix(issue_number=issue_number)
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/github/pull_requests")
+async def github_create_pull_request_endpoint(request: GitHubCreatePullRequestRequest):
+    """Create a GitHub pull request"""
+    try:
+        result = github_create_pull_request(
+            title=request.title,
+            body=request.body,
+            head=request.head,
+            base=request.base,
+            files=request.files
+        )
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/github/issues/{issue_number}/resolve")
+async def github_resolve_issue_endpoint(
+    issue_number: int,
+    dry_run: Optional[bool] = True
+):
+    """Attempt to resolve a GitHub issue with automated analysis and PR creation"""
+    try:
+        result = github_resolve_issue(
+            issue_number=issue_number,
+            dry_run=dry_run
+        )
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/github/health")
+async def github_health_endpoint():
+    """Check GitHub integration health and authentication status"""
+    try:
+        # Get overall health check which includes GitHub status
+        result = health_check()
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        # Extract GitHub-specific health information
+        github_health = result.get("services", {}).get("github", {
+            "status": "not_configured",
+            "message": "GitHub integration not configured or available"
+        })
+        
+        return {
+            "github": github_health,
+            "timestamp": result.get("timestamp")
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

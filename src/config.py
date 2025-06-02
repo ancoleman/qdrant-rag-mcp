@@ -7,6 +7,7 @@ Manages configuration loading from JSON files and environment variables.
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Dict, Any, Optional
 import logging
@@ -75,8 +76,11 @@ class Config:
             except Exception as e:
                 logger.warning(f"Failed to load config file: {e}. Using defaults.")
         
-        # Override with environment variables
-        config = self._apply_env_vars(default_config)
+        # Resolve environment variable substitutions
+        config = self._resolve_env_vars(default_config)
+        
+        # Override with environment variables (legacy method)
+        config = self._apply_env_vars(config)
         
         return config
     
@@ -89,6 +93,34 @@ class Config:
             else:
                 result[key] = value
         return result
+    
+    def _resolve_env_vars(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Resolve environment variable substitutions like ${VAR:-default}"""
+        def resolve_value(value):
+            if isinstance(value, str):
+                # Pattern to match ${VAR:-default} or ${VAR}
+                pattern = r'\$\{([^}]+)\}'
+                
+                def replace_env_var(match):
+                    env_expr = match.group(1)
+                    
+                    # Handle ${VAR:-default} syntax
+                    if ':-' in env_expr:
+                        var_name, default_val = env_expr.split(':-', 1)
+                        return os.getenv(var_name, default_val)
+                    else:
+                        # Handle ${VAR} syntax
+                        return os.getenv(env_expr, '')
+                
+                return re.sub(pattern, replace_env_var, value)
+            elif isinstance(value, dict):
+                return {k: resolve_value(v) for k, v in value.items()}
+            elif isinstance(value, list):
+                return [resolve_value(item) for item in value]
+            else:
+                return value
+        
+        return resolve_value(config)
     
     def _apply_env_vars(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """Apply environment variables to configuration"""

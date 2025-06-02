@@ -7,6 +7,123 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2025-06-02
+
+### 🚀 Major Feature: GitHub Integration
+
+Added comprehensive GitHub issue resolution capabilities that transform the RAG server into an intelligent automation system.
+
+#### Added
+- **10 New GitHub MCP Tools** for complete issue lifecycle management:
+  - `github_list_repositories` - List user/organization repositories
+  - `github_switch_repository` - Set repository context for operations
+  - `github_fetch_issues` - Fetch repository issues with filtering
+  - `github_get_issue` - Get detailed issue information including comments
+  - `github_create_issue` - Create new issues (perfect for testing workflows)
+  - `github_add_comment` - Add comments to existing issues for workflow updates
+  - `github_analyze_issue` - RAG-powered issue analysis using codebase search
+  - `github_suggest_fix` - Generate automated fix suggestions with confidence scoring
+  - `github_create_pull_request` - Create pull requests with automated content
+  - `github_resolve_issue` - End-to-end issue resolution workflow with dry-run support
+
+- **Complete GitHub Integration Module** (`src/github_integration/`):
+  - `client.py` - GitHub API client with authentication and rate limiting
+  - `issue_analyzer.py` - RAG-powered issue analysis and pattern extraction
+  - `code_generator.py` - Automated fix generation with code templates
+  - `workflows.py` - End-to-end workflow orchestration and feasibility assessment
+
+- **Authentication Support**:
+  - Personal Access Token authentication (recommended for individual use)
+  - GitHub App authentication (recommended for organizations)
+  - Automatic token validation and rate limit handling
+  - Graceful degradation when dependencies not installed
+
+- **HTTP API Endpoints** (10 new endpoints under `/github/`):
+  - `GET /github/repositories` - List repositories
+  - `POST /github/switch_repository` - Switch repository context
+  - `GET /github/issues` - Fetch issues with query parameters
+  - `GET /github/issues/{id}` - Get specific issue details
+  - `POST /github/issues` - Create new issues
+  - `POST /github/issues/{id}/comment` - Add comments to existing issues
+  - `POST /github/issues/{id}/analyze` - Analyze issue with RAG
+  - `POST /github/issues/{id}/suggest_fix` - Generate fix suggestions
+  - `POST /github/pull_requests` - Create pull requests
+  - `POST /github/issues/{id}/resolve` - Full resolution workflow
+  - `GET /github/health` - GitHub integration health check
+
+#### Enhanced
+- **Configuration System**: Enhanced environment variable resolution
+  - Fixed `${VAR:-default}` syntax parsing in `config/server_config.json`
+  - Added comprehensive GitHub configuration section with all options
+  - Support for API settings, repository context, safety features, and workflow configuration
+
+- **RAG Analysis Integration**: GitHub issues leverage full RAG capabilities
+  - Code search with dependency analysis for related components
+  - Documentation search for guides and examples
+  - Error pattern extraction and similar issue detection
+  - Confidence scoring and implementation feasibility assessment
+
+- **Safety & Security Features**:
+  - Dry-run mode by default for all destructive operations
+  - File protection patterns (secrets, keys, CI/CD workflows)
+  - Rate limiting with exponential backoff retry logic
+  - Audit logging for compliance and monitoring
+  - Input validation and sanitization
+
+#### Technical
+- **Dependencies**: Added PyGithub>=2.6.1 and GitPython>=3.1.44
+- **Error Handling**: Comprehensive GitHub-specific error types and recovery
+- **Health Monitoring**: Separate GitHub health checks with rate limit status
+- **Performance**: Efficient GitHub API usage with intelligent caching and batching
+
+#### Documentation
+- **[GitHub Integration Guide](docs/github-integration-guide.md)** - Comprehensive 600+ line guide covering:
+  - Setup and authentication (Personal Access Token and GitHub App)
+  - Complete API reference for all 9 tools and HTTP endpoints
+  - Usage examples for both MCP tools and HTTP API testing
+  - Testing patterns and development workflows
+  - Safety features, troubleshooting, and best practices
+  - Integration with existing RAG workflows
+
+- **Testing Infrastructure**:
+  - `scripts/test_github_http_api.sh` - Comprehensive HTTP API testing script
+  - Updated CLAUDE.md with GitHub integration examples
+  - Complete MCP tool testing patterns and natural language examples
+
+#### Migration Guide
+For users upgrading to v0.3.0:
+
+1. **Install GitHub dependencies** (optional - graceful degradation if not installed):
+   ```bash
+   uv add "PyGithub>=2.6.1" "GitPython>=3.1.44"
+   ```
+
+2. **Set up GitHub authentication** (see [GitHub Integration Guide](docs/github-integration-guide.md)):
+   ```bash
+   # Add to .env file
+   GITHUB_TOKEN=your_personal_access_token
+   GITHUB_REPO_OWNER=your-username  # Optional
+   GITHUB_REPO_NAME=your-repo       # Optional
+   ```
+
+3. **Test the integration**:
+   ```bash
+   # Via Claude Code
+   "Check GitHub health status"
+   "Switch to repository owner/repo-name"
+   "Show me open issues"
+   
+   # Via HTTP API
+   curl http://localhost:8081/github/health
+   ./scripts/test_github_http_api.sh
+   ```
+
+#### Performance Impact
+- **No impact on existing functionality** - GitHub integration is completely optional
+- **Lazy loading** - GitHub dependencies only loaded when GitHub tools are used
+- **Efficient API usage** - Rate limiting and caching prevent API abuse
+- **Smart defaults** - Dry-run mode prevents accidental operations
+
 ## [0.2.7] - 2025-06-02
 
 ### Fixed

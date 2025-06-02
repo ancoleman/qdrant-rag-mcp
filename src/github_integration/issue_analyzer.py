@@ -91,7 +91,12 @@ class IssueAnalyzer:
             # Generate recommendations
             recommendations = self._generate_recommendations(issue, extracted_info, analysis)
             
-            return {
+            # Check configuration for response verbosity
+            analysis_config = self.config.get("issues", {}).get("analysis", {})
+            response_verbosity = analysis_config.get("response_verbosity", "full")
+            include_raw_search = analysis_config.get("include_raw_search_results", True)
+            
+            result = {
                 "issue": {
                     "number": issue_number,
                     "title": issue["title"],
@@ -99,12 +104,20 @@ class IssueAnalyzer:
                     "labels": issue["labels"],
                     "state": issue["state"]
                 },
-                "extracted_info": extracted_info,
-                "search_results": search_results,
+                "extracted_info": self._summarize_extracted_info(extracted_info) if response_verbosity == "summary" else extracted_info,
                 "analysis": analysis,
                 "recommendations": recommendations,
                 "analyzed_at": datetime.now().isoformat()
             }
+            
+            # Include search results based on configuration
+            if include_raw_search and response_verbosity == "full":
+                result["search_results"] = search_results
+            elif response_verbosity == "summary":
+                # Create a summarized version
+                result["search_summary"] = self._summarize_search_results(search_results, analysis)
+            
+            return result
             
         except Exception as e:
             logger.error(f"Failed to analyze issue {issue_number}: {e}")
@@ -474,6 +487,78 @@ class IssueAnalyzer:
             recommendations["risk_level"] = "low"
         
         return recommendations
+    
+    def _summarize_search_results(self, search_results: Dict[str, Any], 
+                                 analysis: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a summarized version of search results for reduced token consumption."""
+        summary = {
+            "total_searches": 0,
+            "total_results": 0,
+            "high_relevance_count": 0,
+            "search_categories": {},
+            "top_files": [],
+            "key_insights": []
+        }
+        
+        # Count searches and results
+        for category, results in search_results.items():
+            if results:
+                summary["total_searches"] += 1
+                summary["total_results"] += len(results)
+                summary["search_categories"][category] = len(results)
+                
+                # Count high relevance results
+                high_relevance = [r for r in results if r.get("score", 0) >= self.similarity_threshold]
+                summary["high_relevance_count"] += len(high_relevance)
+        
+        # Get top files from analysis
+        if analysis.get("relevant_files"):
+            max_files = self.config.get("issues", {}).get("analysis", {}).get("max_relevant_files", 5)
+            summary["top_files"] = [
+                {
+                    "path": f["file_path"],
+                    "score": round(f["relevance_score"], 3),
+                    "language": f.get("language", "unknown")
+                }
+                for f in analysis["relevant_files"][:max_files]
+            ]
+        
+        # Generate key insights
+        if summary["high_relevance_count"] > 5:
+            summary["key_insights"].append(f"Found {summary['high_relevance_count']} highly relevant code sections")
+        
+        if analysis.get("code_patterns"):
+            summary["key_insights"].append(f"Identified {len(analysis['code_patterns'])} common code patterns")
+        
+        if analysis.get("confidence_score", 0) > 70:
+            summary["key_insights"].append("High confidence match - similar issues likely resolved before")
+        
+        return summary
+    
+    def _summarize_extracted_info(self, extracted_info: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a summarized version of extracted information."""
+        summary = {
+            "issue_type": extracted_info["issue_type"],
+            "priority": extracted_info["priority"],
+            "complexity": extracted_info["complexity"],
+            "key_references": {
+                "errors": len(extracted_info.get("errors", [])),
+                "files": len(extracted_info.get("file_references", [])),
+                "functions": len(extracted_info.get("function_references", [])),
+                "classes": len(extracted_info.get("class_references", [])),
+                "features": len(extracted_info.get("features_requested", []))
+            },
+            "top_keywords": extracted_info.get("keywords", [])[:5]
+        }
+        
+        # Include sample references if present
+        if extracted_info.get("errors"):
+            summary["sample_error"] = extracted_info["errors"][0][:100] + "..." if len(extracted_info["errors"][0]) > 100 else extracted_info["errors"][0]
+        
+        if extracted_info.get("file_references"):
+            summary["sample_files"] = extracted_info["file_references"][:3]
+        
+        return summary
 
 
 # Global analyzer instance

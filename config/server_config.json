@@ -148,7 +148,12 @@
         "search_limit": 10,
         "context_expansion": true,
         "include_dependencies": true,
-        "code_similarity_threshold": 0.7
+        "code_similarity_threshold": 0.7,
+        "response_verbosity": "summary",
+        "include_raw_search_results": false,
+        "max_relevant_files": 5,
+        "truncate_content": true,
+        "content_preview_length": 200
       }
     },
     "pull_requests": {

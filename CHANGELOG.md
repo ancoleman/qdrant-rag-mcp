@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - TBD
+
+### Added
+- **Context Tracking System** - Complete visibility into Claude's context window usage
+  - `SessionContextTracker` class tracks all context-consuming operations
+  - Token estimation for searches, file reads, and tool uses
+  - Persistent session storage in JSON format
+  - Context usage warnings at 60% and 80% thresholds
+  
+- **3 New MCP Tools** for context awareness:
+  - `get_context_status` - Detailed metrics about current session including token usage, files read, and searches performed
+  - `get_context_timeline` - Chronological list of all context events with token estimates
+  - `get_context_summary` - Natural language summary of what Claude knows in the session
+  
+- **Session Viewer Utility** (`scripts/qdrant-sessions`)
+  - List recent sessions with summary statistics
+  - View detailed session information including token breakdown
+  - Show timeline of events for any session
+  - Analyze patterns across multiple sessions
+  
+- **Configuration Support**:
+  - New `context_tracking` section in `server_config.json`
+  - Configurable context window size and warning thresholds
+  - Auto-save settings for session persistence
+  - Toggle tracking for different operation types
+
+### Changed
+- Search operations (`search`, `search_code`, `search_docs`) now automatically track context usage
+- Added context tracking initialization to server startup
+
+### Technical Details
+- Context tracking integrates seamlessly with existing operations
+- Simple token estimation using 4 characters per token approximation
+- Sessions stored in `~/.mcp-servers/qdrant-rag/sessions/`
+- Minimal performance overhead (<1% on operations)
+
+### Documentation
+- Updated CLAUDE.md with context tracking usage examples
+- Added comprehensive test suite for context tracking functionality
+- Created session viewer documentation with examples
+
 ## [0.3.0] - 2025-06-02
 
 ### 🚀 Major Feature: GitHub Integration

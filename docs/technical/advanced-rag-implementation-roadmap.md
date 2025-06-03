@@ -27,9 +27,10 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 
 ### Upcoming
 - 📋 GitHub Issue Resolution - v0.3.0 (Local prototype with MCP integration)
-- 📋 Advanced Hybrid Search - v0.3.1 (Adaptive search intelligence)
-- 📋 Progressive Context Management - v0.3.2 (-50% initial tokens)
-- 📋 Query Enhancement - v0.3.3 (+35% recall)
+- 📋 Context Tracking - v0.3.1 (Developer visibility into Claude's context window)
+- 📋 Advanced Hybrid Search - v0.3.2 (Adaptive search intelligence)
+- 📋 Progressive Context Management - v0.3.3 (-50% initial tokens)
+- 📋 Query Enhancement - v0.3.4 (+35% recall)
 
 ## 📊 Current State vs. Target State
 
@@ -202,7 +203,26 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
   - Option A: Separate TypeScript GitHub server + existing Python RAG server
   - Option B: Extended Python server with GitHub functionality (recommended)
 
-##### v0.3.1: Adaptive Search Intelligence (5-6 days)
+##### v0.3.1: Context Tracking (1 week)
+- **Status**: 📋 Planned
+- **Focus**: Developer visibility into Claude's context window usage
+- **Deliverables**:
+  - SessionContextTracker class for tracking all context-consuming operations
+  - Token estimation for files, searches, and tool outputs
+  - MCP tools: `get_context_status`, `get_context_timeline`, `get_context_summary`
+  - Session persistence with JSON storage
+  - Context usage warnings when approaching limits
+  - Visual indicators for context usage in responses
+  - Session viewer utility for debugging
+- **Benefits**: 
+  - Developers understand what Claude "knows" in the current session
+  - Better context management and efficiency
+  - Reduced confusion about "forgotten" information
+  - Proactive warnings before context limits
+- **Risk**: Low - mostly tracking and reporting functionality
+- **Implementation Plan**: [Context Tracking Implementation Plan](./context-tracking-implementation-plan.md)
+
+##### v0.3.2: Adaptive Search Intelligence (5-6 days)
 - **Status**: 📋 Planned
 - **Focus**: Smart query understanding and dynamic optimization
 - **Deliverables**:
@@ -213,7 +233,7 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 - **Benefits**: Optimal search for different query types
 - **Risk**: Higher - complex implementation
 
-##### v0.3.2: Progressive Context Management (1.5 weeks)
+##### v0.3.3: Progressive Context Management (1.5 weeks)
 - **Status**: 📋 Planned  
 - **Focus**: Multi-level context with semantic caching
 - **Deliverables**:
@@ -224,7 +244,7 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 - **Benefits**: 50-70% initial token reduction for high-level queries
 - **Risk**: Medium - requires careful caching strategy
 
-##### v0.3.3: Query Enhancement & Reformulation (1 week)
+##### v0.3.4: Query Enhancement & Reformulation (1 week)
 - **Status**: 📋 Planned
 - **Focus**: Natural language to code-aware query transformation
 - **Deliverables**:
@@ -244,13 +264,14 @@ The Phase 3 focus shifts to a major new capability: GitHub issue resolution. Thi
 #### v0.3.0: GitHub Issue Resolution Local Prototype
 Detailed implementation plan included above in the version-specific sections.
 
-#### v0.3.1-v0.3.3: Enhanced RAG Foundation
+#### v0.3.1-v0.3.4: Enhanced RAG Foundation
 The remaining v0.3.x releases continue the advanced RAG research implementations:
-- v0.3.1: Adaptive Search Intelligence 
-- v0.3.2: Progressive Context Management
-- v0.3.3: Query Enhancement & Reformulation
+- v0.3.1: Context Tracking - Developer visibility into context window
+- v0.3.2: Adaptive Search Intelligence 
+- v0.3.3: Progressive Context Management
+- v0.3.4: Query Enhancement & Reformulation
 
-These provide the enhanced search capabilities needed to effectively analyze codebases for issue resolution.
+These provide the enhanced search capabilities and developer tools needed to effectively analyze codebases for issue resolution.
 
 ### Phase 4: Optimization (Weeks 10-12)
 **Goal**: Maximize efficiency and performance
@@ -433,3 +454,11 @@ By week 12, Claude Code users will experience:
 - **Whole project understanding** instead of file fragments
 
 This transformation will make Claude Code qualitatively better at understanding and working with codebases, moving from "helpful but limited" to "genuinely understands my entire project."
+
+## 📚 Related Documentation
+
+- [Context Tracking Implementation Plan](./context-tracking-implementation-plan.md) - Detailed plan for v0.3.1 context tracking feature
+- [AST Chunking Implementation](./ast-chunking-implementation.md) - Technical details of AST-based code parsing
+- [Hybrid Search Implementation](./hybrid-search-implementation.md) - How hybrid search combines vector and keyword search
+- [Smart Reindex Implementation Plan](./smart-reindex-implementation-plan.md) - Incremental reindexing strategy
+- [GitHub Issues Analysis](./github-issues-analysis.md) - GitHub integration research and planning

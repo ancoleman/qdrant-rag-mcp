@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     from . import __version__
 except ImportError:
-    __version__ = "0.3.0"  # Fallback version
+    __version__ = "0.3.1"  # Fallback version
 
 # Load environment variables from the MCP server directory
 from dotenv import load_dotenv
@@ -48,6 +48,8 @@ from utils.enhanced_ranker import get_enhanced_ranker
 from utils.file_hash import calculate_file_hash, get_file_info
 # Import configuration
 from config import get_config
+# Import context tracking
+from utils.context_tracking import SessionContextTracker, SessionStore, check_context_usage, get_context_indicator
 
 # Configure basic console logging for startup messages
 logging.basicConfig(
@@ -93,6 +95,8 @@ _code_indexer = None
 _config_indexer = None
 _documentation_indexer = None
 _current_project = None  # Cache current project detection
+_context_tracker = None  # Context tracking instance
+_session_store = None    # Session persistence
 
 # Configuration
 PROJECT_MARKERS = ['.git', 'package.json', 'pyproject.toml', 'Cargo.toml', 'go.mod', 'pom.xml', '.project']
@@ -259,6 +263,29 @@ def get_logger():
         }
         return get_project_logger(project_context)
     return get_project_logger()
+
+def get_context_tracker():
+    """Get or initialize the context tracking system."""
+    global _context_tracker, _session_store
+    
+    if _context_tracker is None:
+        # Initialize context tracker
+        _context_tracker = SessionContextTracker()
+        
+        # Initialize session store
+        config = get_config()
+        context_config = config.get("context_tracking", {})
+        base_dir = Path(context_config.get("session_dir", "~/.mcp-servers/qdrant-rag")).expanduser()
+        _session_store = SessionStore(base_dir)
+        
+        # Set current project in tracker
+        project = get_current_project()
+        if project:
+            _context_tracker.set_current_project(project)
+        
+        console_logger.info(f"Context tracking initialized with session ID: {_context_tracker.session_id}")
+    
+    return _context_tracker
 
 def get_collection_name(file_path: str, file_type: str = "code") -> str:
     """Get collection name for a file, respecting project boundaries"""
@@ -2292,6 +2319,10 @@ def search(query: str, n_results: int = 5, cross_project: bool = False, search_m
         # Get context info
         current_project = get_current_project()
         
+        # Track the search in context
+        tracker = get_context_tracker()
+        tracker.track_search(query, all_results, search_type="general")
+        
         duration_ms = (time.time() - start_time) * 1000
         result = {
             "results": all_results,
@@ -2575,6 +2606,10 @@ def search_code(query: str, language: Optional[str] = None, n_results: int = 5, 
         
         current_project = get_current_project()
         
+        # Track the search in context
+        tracker = get_context_tracker()
+        tracker.track_search(query, all_results, search_type="code")
+        
         return {
             "results": all_results,
             "query": query,
@@ -2842,6 +2877,10 @@ def search_docs(query: str, doc_type: Optional[str] = None, n_results: int = 5, 
             "duration_ms": duration_ms,
             "status": "success"
         })
+        
+        # Track the search in context
+        tracker = get_context_tracker()
+        tracker.track_search(query, all_results, search_type="documentation")
         
         return {
             "results": all_results,
@@ -3808,6 +3847,122 @@ def github_resolve_issue(issue_number: int, dry_run: bool = True) -> Dict[str, A
             }
         )
         return {"error": error_msg}
+
+
+# Context tracking tools
+@mcp.tool()
+def get_context_status() -> Dict[str, Any]:
+    """
+    Get current context window usage and statistics
+    
+    Returns information about:
+    - Session ID and uptime
+    - Token usage estimates
+    - Files read and searches performed
+    - Top resource-consuming operations
+    """
+    tracker = get_context_tracker()
+    
+    # Get summary
+    summary = tracker.get_session_summary()
+    
+    # Get context usage warning if applicable
+    usage_check = check_context_usage(tracker)
+    
+    # Get top files by tokens
+    top_files = tracker.get_top_files_by_tokens(limit=5)
+    
+    return {
+        "session_id": summary["session_id"],
+        "uptime_minutes": summary["uptime_minutes"],
+        "context_usage": {
+            "estimated_tokens": summary["total_tokens_estimate"],
+            "percentage_used": summary["context_usage_percentage"],
+            "tokens_remaining": 50000 - summary["total_tokens_estimate"]
+        },
+        "activity_summary": {
+            "files_read": summary["files_read"],
+            "searches_performed": summary["searches_performed"],
+            "indexed_directories": summary["indexed_directories"]
+        },
+        "token_breakdown": summary["token_usage_by_category"],
+        "top_files": [{"path": path, "tokens": tokens} for path, tokens in top_files],
+        "usage_status": usage_check,
+        "current_project": summary["current_project"]
+    }
+
+@mcp.tool()
+def get_context_timeline() -> List[Dict[str, Any]]:
+    """
+    Get chronological timeline of context events
+    
+    Returns a list of all context-consuming events in chronological order,
+    including file reads, searches, and tool uses.
+    """
+    tracker = get_context_tracker()
+    
+    # Get all events
+    events = []
+    for event in tracker.context_events:
+        events.append({
+            "timestamp": event.timestamp,
+            "event_type": event.event_type,
+            "tokens_estimate": event.tokens_estimate,
+            "details": event.details
+        })
+    
+    return events
+
+@mcp.tool()
+def get_context_summary() -> str:
+    """
+    Get a natural language summary of current context
+    
+    Returns a human-readable summary of what Claude currently knows
+    about the session, including key files, searches, and project context.
+    """
+    tracker = get_context_tracker()
+    summary = tracker.get_session_summary()
+    
+    # Build natural language summary
+    lines = [
+        f"Current Session Context Summary:",
+        f"- Session started: {summary['uptime_minutes']} minutes ago",
+        f"- Current project: {summary['current_project']['name'] if summary['current_project'] else 'No project context'}",
+        f"",
+        f"Activity:",
+        f"- Files read: {summary['files_read']} files",
+        f"- Searches performed: {summary['searches_performed']} searches",
+        f"- Directories indexed: {summary['indexed_directories']} directories",
+        f"",
+        f"Context usage: {summary['context_usage_percentage']:.1f}% of available window",
+        f"- Estimated tokens used: {summary['total_tokens_estimate']:,}",
+        f"- Tokens remaining: {50000 - summary['total_tokens_estimate']:,}",
+    ]
+    
+    # Add top files if any
+    if tracker.files_read:
+        lines.append("")
+        lines.append("Top files in context:")
+        top_files = tracker.get_top_files_by_tokens(limit=3)
+        for path, tokens in top_files:
+            lines.append(f"  - {path} (~{tokens:,} tokens)")
+    
+    # Add recent searches if any
+    if tracker.searches_performed:
+        lines.append("")
+        lines.append("Recent searches:")
+        for search in tracker.searches_performed[-3:]:
+            lines.append(f"  - \"{search['query']}\" ({search['search_type']}, {search['results_count']} results)")
+    
+    # Add usage warning if needed
+    usage_check = check_context_usage(tracker)
+    if usage_check.get("warning"):
+        lines.append("")
+        lines.append(f"⚠️ {usage_check['message']}")
+        lines.append(f"   {usage_check['suggestion']}")
+    
+    return "\n".join(lines)
 
 
 # Run the server

@@ -1,0 +1,376 @@
+"""
+Context tracking system for monitoring Claude's context window usage.
+
+This module provides tools to track what information Claude has in its context
+window during a session, helping developers understand and optimize their
+interactions with the AI assistant.
+"""
+
+import json
+import uuid
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Any, Optional
+from dataclasses import dataclass, field, asdict
+from collections import defaultdict
+
+from utils.logging import get_project_logger
+
+logger = get_project_logger()
+
+
+@dataclass
+class ContextEvent:
+    """Represents a single context-consuming event."""
+    timestamp: str
+    event_type: str  # file_read, search, tool_use, etc.
+    details: Dict[str, Any]
+    tokens_estimate: int
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return asdict(self)
+
+
+@dataclass
+class FileReadInfo:
+    """Information about a file read into context."""
+    file_path: str
+    read_at: str
+    lines: int
+    characters: int
+    tokens_estimate: int
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+class SessionContextTracker:
+    """Tracks all context-consuming operations in a session."""
+    
+    def __init__(self, session_id: Optional[str] = None):
+        """Initialize a new session tracker."""
+        self.session_id = session_id or str(uuid.uuid4())
+        self.session_start = datetime.now()
+        self.context_events: List[ContextEvent] = []
+        self.files_read: Dict[str, FileReadInfo] = {}
+        self.searches_performed: List[Dict[str, Any]] = []
+        self.todos_tracked: List[Dict[str, Any]] = []
+        self.indexed_directories: List[str] = []
+        self.current_project: Optional[Dict[str, Any]] = None
+        self.total_tokens_estimate = 0
+        
+        # Track token usage by category
+        self.token_usage = defaultdict(int)
+        self.token_usage["system_prompt"] = 2000  # Rough estimate for system prompt
+        
+        logger.info(f"Session context tracker initialized: {self.session_id}")
+    
+    def estimate_tokens(self, text: str) -> int:
+        """
+        Estimate token count for text.
+        
+        Simple estimation: ~4 characters per token (rough average for English).
+        This can be made more sophisticated with tiktoken or similar libraries.
+        """
+        return len(text) // 4
+    
+    def track_file_read(self, file_path: str, content: str, metadata: Optional[Dict[str, Any]] = None):
+        """Track when a file is read into context."""
+        lines = len(content.splitlines())
+        characters = len(content)
+        tokens_estimate = self.estimate_tokens(content)
+        
+        # Create file info
+        file_info = FileReadInfo(
+            file_path=file_path,
+            read_at=datetime.now().isoformat(),
+            lines=lines,
+            characters=characters,
+            tokens_estimate=tokens_estimate,
+            metadata=metadata or {}
+        )
+        
+        # Store file info
+        self.files_read[file_path] = file_info
+        
+        # Create event
+        event = ContextEvent(
+            timestamp=datetime.now().isoformat(),
+            event_type="file_read",
+            details={
+                "file_path": file_path,
+                "lines": lines,
+                "characters": characters,
+                "metadata": metadata
+            },
+            tokens_estimate=tokens_estimate
+        )
+        
+        self.context_events.append(event)
+        self.total_tokens_estimate += tokens_estimate
+        self.token_usage["files"] += tokens_estimate
+        
+        logger.debug(f"Tracked file read: {file_path} (~{tokens_estimate} tokens)")
+    
+    def track_search(self, query: str, results: List[Dict[str, Any]], search_type: str = "general"):
+        """Track search operations and results."""
+        # Estimate tokens for search results
+        results_text = json.dumps(results)
+        tokens_estimate = self.estimate_tokens(results_text)
+        
+        search_info = {
+            "query": query,
+            "search_type": search_type,
+            "results_count": len(results),
+            "timestamp": datetime.now().isoformat(),
+            "tokens_estimate": tokens_estimate
+        }
+        
+        self.searches_performed.append(search_info)
+        
+        # Create event
+        event = ContextEvent(
+            timestamp=datetime.now().isoformat(),
+            event_type="search",
+            details={
+                "query": query,
+                "search_type": search_type,
+                "results_count": len(results)
+            },
+            tokens_estimate=tokens_estimate
+        )
+        
+        self.context_events.append(event)
+        self.total_tokens_estimate += tokens_estimate
+        self.token_usage["searches"] += tokens_estimate
+        
+        logger.debug(f"Tracked search: '{query}' ({search_type}) ~{tokens_estimate} tokens")
+    
+    def track_tool_use(self, tool_name: str, params: Dict[str, Any], result_size: int):
+        """Track any tool usage that adds to context."""
+        # Estimate tokens for tool interaction
+        params_text = json.dumps(params)
+        tokens_estimate = self.estimate_tokens(params_text) + (result_size // 4)
+        
+        # Create event
+        event = ContextEvent(
+            timestamp=datetime.now().isoformat(),
+            event_type="tool_use",
+            details={
+                "tool_name": tool_name,
+                "params": params,
+                "result_size": result_size
+            },
+            tokens_estimate=tokens_estimate
+        )
+        
+        self.context_events.append(event)
+        self.total_tokens_estimate += tokens_estimate
+        self.token_usage["tools"] += tokens_estimate
+        
+        logger.debug(f"Tracked tool use: {tool_name} ~{tokens_estimate} tokens")
+    
+    def track_index_operation(self, directory: str, file_count: int):
+        """Track directory indexing operations."""
+        self.indexed_directories.append(directory)
+        
+        # Create event
+        event = ContextEvent(
+            timestamp=datetime.now().isoformat(),
+            event_type="index_directory",
+            details={
+                "directory": directory,
+                "file_count": file_count
+            },
+            tokens_estimate=0  # Indexing doesn't consume context tokens
+        )
+        
+        self.context_events.append(event)
+        logger.debug(f"Tracked index operation: {directory} ({file_count} files)")
+    
+    def set_current_project(self, project_info: Dict[str, Any]):
+        """Set the current project context."""
+        self.current_project = project_info
+        logger.debug(f"Set current project: {project_info.get('name', 'unknown')}")
+    
+    def get_context_usage_percentage(self, context_window_size: int = 50000) -> float:
+        """Get percentage of context window used."""
+        return (self.total_tokens_estimate / context_window_size) * 100
+    
+    def get_top_files_by_tokens(self, limit: int = 5) -> List[tuple]:
+        """Get files consuming the most tokens."""
+        sorted_files = sorted(
+            self.files_read.items(),
+            key=lambda x: x[1].tokens_estimate,
+            reverse=True
+        )
+        return [(path, info.tokens_estimate) for path, info in sorted_files[:limit]]
+    
+    def get_session_summary(self) -> Dict[str, Any]:
+        """Get a summary of the current session."""
+        uptime_seconds = (datetime.now() - self.session_start).total_seconds()
+        
+        return {
+            "session_id": self.session_id,
+            "session_start": self.session_start.isoformat(),
+            "uptime_minutes": int(uptime_seconds // 60),
+            "total_events": len(self.context_events),
+            "files_read": len(self.files_read),
+            "searches_performed": len(self.searches_performed),
+            "indexed_directories": len(self.indexed_directories),
+            "total_tokens_estimate": self.total_tokens_estimate,
+            "token_usage_by_category": dict(self.token_usage),
+            "context_usage_percentage": self.get_context_usage_percentage(),
+            "current_project": self.current_project
+        }
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert entire session to dictionary for serialization."""
+        return {
+            "session_id": self.session_id,
+            "session_start": self.session_start.isoformat(),
+            "current_project": self.current_project,
+            "context_events": [event.to_dict() for event in self.context_events],
+            "files_read": {
+                path: {
+                    "file_path": info.file_path,
+                    "read_at": info.read_at,
+                    "lines": info.lines,
+                    "characters": info.characters,
+                    "tokens_estimate": info.tokens_estimate,
+                    "metadata": info.metadata
+                }
+                for path, info in self.files_read.items()
+            },
+            "searches_performed": self.searches_performed,
+            "indexed_directories": self.indexed_directories,
+            "summary": self.get_session_summary()
+        }
+
+
+class SessionStore:
+    """Manages persistent storage of session data."""
+    
+    def __init__(self, base_dir: Path):
+        """Initialize session store with base directory."""
+        self.sessions_dir = base_dir / "sessions"
+        self.sessions_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Session store initialized at: {self.sessions_dir}")
+    
+    def get_session_file_path(self, session_id: str) -> Path:
+        """Get the file path for a session."""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return self.sessions_dir / f"session_{session_id}_{timestamp}.json"
+    
+    def save_session(self, tracker: SessionContextTracker):
+        """Save session data to JSON file."""
+        file_path = self.get_session_file_path(tracker.session_id)
+        
+        try:
+            with open(file_path, 'w') as f:
+                json.dump(tracker.to_dict(), f, indent=2)
+            logger.info(f"Session saved to: {file_path}")
+        except Exception as e:
+            logger.error(f"Failed to save session: {e}")
+    
+    def load_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Load session data from file."""
+        # Find the most recent session file with this ID
+        session_files = list(self.sessions_dir.glob(f"session_{session_id}_*.json"))
+        
+        if not session_files:
+            logger.warning(f"No session found with ID: {session_id}")
+            return None
+        
+        # Sort by modification time and get the most recent
+        latest_file = max(session_files, key=lambda p: p.stat().st_mtime)
+        
+        try:
+            with open(latest_file, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to load session: {e}")
+            return None
+    
+    def get_current_session(self) -> Optional[Dict[str, Any]]:
+        """Get the most recent session."""
+        session_files = list(self.sessions_dir.glob("session_*.json"))
+        
+        if not session_files:
+            return None
+        
+        # Sort by modification time and get the most recent
+        latest_file = max(session_files, key=lambda p: p.stat().st_mtime)
+        
+        try:
+            with open(latest_file, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to load current session: {e}")
+            return None
+    
+    def list_sessions(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """List recent sessions with basic info."""
+        session_files = sorted(
+            self.sessions_dir.glob("session_*.json"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True
+        )[:limit]
+        
+        sessions = []
+        for file_path in session_files:
+            try:
+                # Extract session ID from filename
+                parts = file_path.stem.split('_')
+                if len(parts) >= 3:
+                    session_id = parts[1]
+                    
+                    # Load summary only
+                    with open(file_path, 'r') as f:
+                        data = json.load(f)
+                        summary = data.get('summary', {})
+                        summary['file_path'] = str(file_path)
+                        sessions.append(summary)
+            except Exception as e:
+                logger.error(f"Failed to read session file {file_path}: {e}")
+        
+        return sessions
+
+
+def check_context_usage(tracker: SessionContextTracker, context_window_size: int = 50000) -> Dict[str, Any]:
+    """Check if context usage is approaching limits and provide warnings."""
+    usage_percent = tracker.get_context_usage_percentage(context_window_size)
+    
+    if usage_percent > 80:
+        return {
+            "warning": "HIGH_CONTEXT_USAGE",
+            "message": f"Context window is {usage_percent:.0f}% full",
+            "suggestion": "Consider clearing non-essential context or starting a new session",
+            "usage_percent": usage_percent,
+            "tokens_used": tracker.total_tokens_estimate,
+            "tokens_remaining": context_window_size - tracker.total_tokens_estimate
+        }
+    elif usage_percent > 60:
+        return {
+            "warning": "MODERATE_CONTEXT_USAGE",
+            "message": f"Context window is {usage_percent:.0f}% full",
+            "suggestion": "Be mindful of large file reads and search results",
+            "usage_percent": usage_percent,
+            "tokens_used": tracker.total_tokens_estimate,
+            "tokens_remaining": context_window_size - tracker.total_tokens_estimate
+        }
+    
+    return {
+        "status": "OK",
+        "usage_percent": usage_percent,
+        "tokens_used": tracker.total_tokens_estimate,
+        "tokens_remaining": context_window_size - tracker.total_tokens_estimate
+    }
+
+
+def get_context_indicator(tracker: SessionContextTracker) -> str:
+    """Get a compact context status indicator for inclusion in responses."""
+    files = len(tracker.files_read)
+    searches = len(tracker.searches_performed)
+    tokens_k = tracker.total_tokens_estimate // 1000
+    
+    return f"[Context: {tokens_k}k/50k tokens | {files} files | {searches} searches]"

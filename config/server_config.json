@@ -192,5 +192,36 @@
         "include_file_references": true
       }
     }
+  },
+  "context_tracking": {
+    "enabled": true,
+    "session_dir": "${HOME}/.mcp-servers/qdrant-rag/sessions",
+    "max_session_files": 100,
+    "token_estimation": {
+      "method": "simple",
+      "chars_per_token": 4
+    },
+    "context_window": {
+      "size": 50000,
+      "warning_threshold": 0.8,
+      "critical_threshold": 0.9
+    },
+    "auto_save": {
+      "enabled": true,
+      "interval_seconds": 300,
+      "on_shutdown": true
+    },
+    "tracking": {
+      "track_file_reads": true,
+      "track_searches": true,
+      "track_tool_uses": true,
+      "track_indexing": true,
+      "include_content_preview": false
+    },
+    "display": {
+      "include_in_responses": false,
+      "show_warnings": true,
+      "compact_indicator": true
+    }
   }
 }

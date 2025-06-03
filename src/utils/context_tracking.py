@@ -56,11 +56,12 @@ class SessionContextTracker:
         self.todos_tracked: List[Dict[str, Any]] = []
         self.indexed_directories: List[str] = []
         self.current_project: Optional[Dict[str, Any]] = None
-        self.total_tokens_estimate = 0
-        
         # Track token usage by category
         self.token_usage = defaultdict(int)
         self.token_usage["system_prompt"] = 2000  # Rough estimate for system prompt
+        
+        # Initialize total with system prompt
+        self.total_tokens_estimate = self.token_usage["system_prompt"]
         
         logger.info(f"Session context tracker initialized: {self.session_id}")
     
@@ -114,8 +115,21 @@ class SessionContextTracker:
     def track_search(self, query: str, results: List[Dict[str, Any]], search_type: str = "general"):
         """Track search operations and results."""
         # Estimate tokens for search results
-        results_text = json.dumps(results)
-        tokens_estimate = self.estimate_tokens(results_text)
+        # Only count the content that Claude actually sees, not all the metadata
+        content_length = 0
+        for result in results:
+            # Count the main content
+            content_length += len(result.get("content", ""))
+            # Count expanded content if present
+            content_length += len(result.get("expanded_content", ""))
+            # Add some overhead for formatting (file paths, scores, etc)
+            content_length += 200  # Rough estimate for metadata per result
+        
+        # Add query length
+        content_length += len(query)
+        
+        # Create a dummy string of the estimated length for token calculation
+        tokens_estimate = content_length // 4  # Direct calculation since we already have character count
         
         search_info = {
             "query": query,

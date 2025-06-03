@@ -151,67 +151,80 @@ class ExpansionOption:
 
 ### MCP Tool Integration
 
-#### New MCP Tools
+**Note**: Based on our integration strategy (see `progressive-context-integration-strategy.md`), we will enhance existing search tools rather than create new ones.
 
-1. **search_progressive**
+#### Enhanced Existing Tools
+
+1. **Enhanced search() parameters**
 ```python
-@mcp_tool
-async def search_progressive(
+def search(
     query: str,
-    level: str = "file",
     n_results: int = 5,
-    expand_paths: Optional[List[str]] = None
-) -> ProgressiveSearchResult:
+    cross_project: bool = False,
+    search_mode: str = "hybrid",
+    include_dependencies: bool = False,
+    include_context: bool = True,
+    context_chunks: int = 1,
+    # New progressive parameters
+    context_level: str = "auto",  # "auto", "file", "class", "method", "full"
+    progressive_mode: bool = None,  # None = auto-detect based on context_level
+    include_expansion_options: bool = True,
+    semantic_cache: bool = True
+) -> Dict[str, Any]:
     """
-    Search with progressive context management.
+    Search with optional progressive context management.
     
-    Args:
-        query: Search query
-        level: Context level ("file", "class", "method")
-        n_results: Number of results
-        expand_paths: Specific paths to expand to next level
-    
-    Returns:
-        Progressive search results with expansion options
+    New parameters:
+    - context_level: Granularity of results (auto-detects by default)
+    - progressive_mode: Explicitly enable/disable progressive features
+    - include_expansion_options: Include options to drill down
+    - semantic_cache: Use semantic similarity caching
     """
 ```
 
-2. **expand_context**
+2. **Enhanced search_code() parameters**
 ```python
-@mcp_tool
-async def expand_context(
-    expansion_option: ExpansionOption,
-    include_dependencies: bool = False
-) -> ProgressiveResult:
+def search_code(
+    # ... existing parameters ...
+    context_level: str = "auto",
+    progressive_mode: bool = None,
+    include_expansion_options: bool = True,
+    semantic_cache: bool = True
+) -> Dict[str, Any]:
     """
-    Expand a specific context to more detail.
-    
-    Args:
-        expansion_option: The expansion to perform
-        include_dependencies: Include related code
-        
-    Returns:
-        Expanded context at the next level
+    Code search with progressive context support.
+    Particularly useful for exploring large codebases.
     """
 ```
 
-3. **get_code_hierarchy**
+3. **Response Structure Enhancement**
 ```python
-@mcp_tool
-async def get_code_hierarchy(
-    file_paths: List[str],
-    max_depth: int = 3
-) -> CodeHierarchy:
-    """
-    Get hierarchical structure of code files.
-    
-    Args:
-        file_paths: Files to analyze
-        max_depth: Maximum hierarchy depth
-        
-    Returns:
-        Hierarchical code structure
-    """
+# Standard response structure remains the same
+# Additional 'progressive' field when progressive_mode=True
+{
+    "results": [...],  # Existing results format
+    "query": "...",
+    "total": 10,
+    # New optional progressive metadata
+    "progressive": {
+        "level_used": "file",
+        "token_estimate": 1500,
+        "token_reduction": "70%",
+        "expansion_options": [
+            {
+                "type": "class",
+                "path": "auth/authenticator.py::Authenticator",
+                "estimated_tokens": 800,
+                "relevance": 0.92
+            }
+        ],
+        "cache_hit": true,
+        "query_intent": {
+            "type": "exploration",
+            "confidence": 0.85
+        }
+    }
+}
 ```
 
 ### Query Intent Classification
@@ -268,10 +281,10 @@ class QueryIntentClassifier:
    - Add hierarchy extraction from AST metadata
    - Create hierarchy navigation methods
 
-3. **Add Basic MCP Tools**
-   - Implement search_progressive tool
-   - Add expand_context tool
-   - Update existing search to use progressive manager
+3. **Integrate with Existing Search Functions**
+   - Add progressive parameters to search() function
+   - Implement feature flag checking
+   - Create backward compatibility layer
 
 ### Phase 2: Semantic Caching (Days 4-6)
 
@@ -304,10 +317,10 @@ class QueryIntentClassifier:
 
 ### Phase 4: Integration & Testing (Days 9-10)
 
-1. **Update Existing Tools**
-   - Modify search tools to support progressive mode
-   - Add backward compatibility
-   - Update documentation
+1. **Complete Integration**
+   - Add progressive support to search_code()
+   - Add progressive support to search_docs()
+   - Ensure all features work together
 
 2. **Performance Testing**
    - Measure token reduction
@@ -326,8 +339,8 @@ Add to `server_config.json`:
 ```json
 {
   "progressive_context": {
-    "enabled": true,
-    "default_level": "class",
+    "enabled": false,  // Feature flag - start disabled
+    "default_level": "auto",
     "cache": {
       "similarity_threshold": 0.85,
       "max_cache_size": 1000,

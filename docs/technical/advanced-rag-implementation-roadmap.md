@@ -235,6 +235,7 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
   - Query intent classifier for context depth selection
 - **Benefits**: 50-70% initial token reduction for high-level queries
 - **Risk**: Medium - requires careful caching strategy
+- **Implementation Plan**: [Progressive Context Implementation Plan](./progressive-context/progressive-context-implementation-plan.md)
 
 ##### v0.3.3: Adaptive Search Intelligence (5-6 days)
 - **Status**: 📋 Planned
@@ -529,6 +530,7 @@ This transformation will make Claude Code qualitatively better at understanding 
 
 ## 📚 Related Documentation
 
+- [Progressive Context Implementation Plan](./progressive-context/progressive-context-implementation-plan.md) - Detailed plan for v0.3.2 progressive context feature
 - [Context Tracking Implementation Plan](./context-tracking-implementation-plan.md) - Detailed plan for v0.3.1 context tracking feature
 - [AST Chunking Implementation](./ast-chunking-implementation.md) - Technical details of AST-based code parsing
 - [Hybrid Search Implementation](./hybrid-search-implementation.md) - How hybrid search combines vector and keyword search

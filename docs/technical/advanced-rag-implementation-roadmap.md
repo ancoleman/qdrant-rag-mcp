@@ -28,8 +28,8 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 - 🚧 None currently
 
 ### Upcoming
-- 📋 Advanced Hybrid Search - v0.3.2 (Adaptive search intelligence)
-- 📋 Progressive Context Management - v0.3.3 (-50% initial tokens)
+- 📋 Progressive Context Management - v0.3.2 (-50% initial tokens) ⭐ **NEXT PRIORITY**
+- 📋 Adaptive Search Intelligence - v0.3.3 (Smart query understanding)
 - 📋 Query Enhancement - v0.3.4 (+35% recall)
 - 📋 MCP Server Optimizations - v0.4.x (Performance improvements)
 - 📋 Semantic Compression - v0.5.x (Advanced token reduction)
@@ -225,7 +225,18 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 - **Risk**: Low - mostly tracking and reporting functionality
 - **Implementation Plan**: [Context Tracking Implementation Plan](./context-tracking-implementation-plan.md)
 
-##### v0.3.2: Adaptive Search Intelligence (5-6 days)
+##### v0.3.2: Progressive Context Management (1.5 weeks)
+- **Status**: 📋 Planned ⭐ **NEXT PRIORITY**
+- **Focus**: Multi-level context with semantic caching
+- **Deliverables**:
+  - Multi-level context API (file → class → method hierarchy)
+  - Semantic caching layer for query similarities
+  - Context expansion mechanism with progressive detail retrieval
+  - Query intent classifier for context depth selection
+- **Benefits**: 50-70% initial token reduction for high-level queries
+- **Risk**: Medium - requires careful caching strategy
+
+##### v0.3.3: Adaptive Search Intelligence (5-6 days)
 - **Status**: 📋 Planned
 - **Focus**: Smart query understanding and dynamic optimization
 - **Deliverables**:
@@ -235,17 +246,6 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
   - Multi-signal search API with advanced parameters
 - **Benefits**: Optimal search for different query types
 - **Risk**: Higher - complex implementation
-
-##### v0.3.3: Progressive Context Management (1.5 weeks)
-- **Status**: 📋 Planned  
-- **Focus**: Multi-level context with semantic caching
-- **Deliverables**:
-  - Multi-level context API (file → class → method hierarchy)
-  - Semantic caching layer for query similarities
-  - Context expansion mechanism with progressive detail retrieval
-  - Query intent classifier for context depth selection
-- **Benefits**: 50-70% initial token reduction for high-level queries
-- **Risk**: Medium - requires careful caching strategy
 
 ##### v0.3.4: Query Enhancement & Reformulation (1 week)
 - **Status**: 📋 Planned
@@ -269,8 +269,8 @@ Detailed implementation plan included above in the version-specific sections.
 
 #### v0.3.2-v0.3.4: Enhanced RAG Foundation
 The remaining v0.3.x releases continue the advanced RAG research implementations:
-- v0.3.2: Adaptive Search Intelligence - Smart query understanding and optimization
-- v0.3.3: Progressive Context Management - Multi-level context with 50%+ token reduction
+- v0.3.2: Progressive Context Management - Multi-level context with 50%+ token reduction ⭐ **NEXT PRIORITY**
+- v0.3.3: Adaptive Search Intelligence - Smart query understanding and optimization
 - v0.3.4: Query Enhancement & Reformulation - Natural language to code-aware queries
 
 These provide the enhanced search capabilities needed to build on the GitHub integration and context tracking foundations.

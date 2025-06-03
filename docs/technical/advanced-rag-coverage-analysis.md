@@ -158,7 +158,7 @@ hybrid_searcher = HybridSearcher(
 
 **Research Promise**: 50-70% token reduction for initial queries
 
-**Current Status**: ❌ **Not Implemented** (Scheduled for v0.3.3)
+**Current Status**: ❌ **Not Implemented** (Scheduled for v0.3.2 - NEXT PRIORITY)
 
 **What We Have**:
 - Basic LRU caching in embedding manager
@@ -180,7 +180,7 @@ def encode(self, text):
 # - Query intent classifier for context depth selection
 ```
 
-**Planned Implementation (v0.3.3)**:
+**Planned Implementation (v0.3.2 - NEXT PRIORITY)**:
 - Multi-level context with 50-70% initial token reduction
 - Semantic caching for query similarities
 - Progressive expansion based on user needs
@@ -386,7 +386,7 @@ def search(query, n_results=5):
 
 ### 🔥 High Priority (Maximum Impact)
 
-1. **Progressive Context Management** ⭐ **NEXT PRIORITY (v0.3.3)**
+1. **Progressive Context Management** ⭐ **NEXT PRIORITY (v0.3.2)**
    - Impact: 50-70% initial token reduction
    - Effort: Medium
    - Status: Not implemented - highest value remaining feature
@@ -398,7 +398,7 @@ def search(query, n_results=5):
    - Status: Not implemented
    - Recommendation: Natural language to code mapping
 
-3. **Adaptive Search Intelligence (v0.3.2)**
+3. **Adaptive Search Intelligence (v0.3.3)**
    - Impact: Better search for different query types
    - Effort: Medium-High
    - Status: Not implemented
@@ -471,13 +471,13 @@ If we implement the planned features:
 ### Upcoming Phases 📋
 
 ### Phase 1: Advanced Search (v0.3.2-v0.3.4) - 3-4 weeks
-1. **v0.3.2**: Adaptive Search Intelligence
-   - Query intent classification
-   - Dynamic BM25/vector weight adjustment
-2. **v0.3.3**: Progressive Context Management ⭐ **Highest Priority**
+1. **v0.3.2**: Progressive Context Management ⭐ **NEXT PRIORITY**
    - Multi-level context API
    - Semantic caching layer
    - 50-70% token reduction
+2. **v0.3.3**: Adaptive Search Intelligence
+   - Query intent classification
+   - Dynamic BM25/vector weight adjustment
 3. **v0.3.4**: Query Enhancement
    - Natural language to code term mapping
    - Technical synonym expansion
@@ -506,11 +506,11 @@ Our implementation has successfully delivered many of the promised advanced RAG 
 - ✅ **Automated workflows** through GitHub integration
 - ✅ **Full visibility** through context tracking
 
-The remaining high-priority opportunity is **Progressive Context Management (v0.3.3)**, which could deliver an additional 50-70% token reduction through:
+The remaining high-priority opportunity is **Progressive Context Management (v0.3.2 - NEXT PRIORITY)**, which could deliver an additional 50-70% token reduction through:
 - Multi-level context APIs (file → class → method)
 - Semantic similarity caching
 - Query intent classification
 
 With this feature, we would achieve **~88-94% total token reduction** from baseline, enabling Claude to work with entire large codebases while maintaining deep understanding. This would transform Claude Code from "helpful assistant" to "comprehensive codebase expert."
 
-**Recommendation**: Prioritize v0.3.3 Progressive Context Management as the next major feature, as it provides the highest value for quality assurance and maximizes MCP utilization with Claude Code.
+**Recommendation**: Prioritize v0.3.2 Progressive Context Management as the next major feature, as it provides the highest value for quality assurance and maximizes MCP utilization with Claude Code.

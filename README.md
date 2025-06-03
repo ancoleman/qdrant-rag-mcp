@@ -15,6 +15,14 @@ A context-aware Model Context Protocol (MCP) server that provides semantic searc
 - **📊 RAG-Enhanced Analysis**: Leverage full codebase search for issue understanding
 - **🛡️ Safety-First Design**: Dry-run mode, file protection, rate limiting, and audit logging
 
+### 🆕 Context Tracking (v0.3.1)
+- **👁️ Context Window Visibility**: Monitor what Claude knows in the current session
+- **📊 Token Usage Tracking**: Real-time estimates of context window consumption
+- **⚠️ Usage Warnings**: Automatic alerts at 60% and 80% context usage
+- **📈 Session Timeline**: Chronological view of all context-consuming operations
+- **💾 Session Persistence**: Automatic saving for later analysis
+- **🔍 Session Viewer**: Utility to analyze patterns across sessions
+
 ### Core RAG Capabilities
 - **🎯 Context-Aware**: Automatically detects and scopes to your current project
 - **🔍 Hybrid Search**: Combines semantic understanding with keyword matching for +30% better precision
@@ -155,6 +163,7 @@ In your Claude Code configuration (`~/.claude-code/config.json`):
 
 ### Reference Documentation
 - **[Why MCP RAG for Agentic Coding](docs/reference/why-mcp-rag-agentic-coding.md)** 🤖 - Understand how MCP enables efficient AI coding
+- **[Context Tracking Guide](docs/reference/context-tracking-guide.md)** 👁️ - Monitor and understand Claude's context window usage (v0.3.1)
 - **[Qdrant Quick Reference](docs/reference/qdrant-quick-reference.md)** - Quick commands for Qdrant operations
 - **[MPS Quick Reference](docs/reference/mps-quick-reference.md)** - Apple Silicon optimization guide
 - **[Troubleshooting Guide](docs/reference/troubleshooting.md)** - Common issues and solutions

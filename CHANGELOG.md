@@ -81,6 +81,12 @@ Added intelligent multi-level context retrieval with semantic caching, achieving
   - Added missing score update after enhanced ranking is applied
   - Now correctly displays enhanced scores that include all ranking signals
 
+- **Hybrid Search Scoring Improvement**: Switched from RRF to linear combination for more accurate scoring
+  - RRF produced artificially low scores (0.01-0.02) that didn't represent actual similarity
+  - Linear combination preserves semantic similarity information from embeddings
+  - Results now show meaningful scores (0.6-0.9) that reflect actual match quality
+  - Applied to both progressive and regular search for consistency
+
 ### Documentation
 
 - Updated implementation status document

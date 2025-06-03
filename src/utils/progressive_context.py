@@ -602,7 +602,7 @@ class ProgressiveContextManager:
         reduction_percent = f"{int((1 - token_estimate / base_tokens) * 100)}%" if base_tokens > 0 else "0%"
         
         # Generate expansion options
-        expansion_options = self._get_expansion_options(hierarchy, level, search_results)
+        expansion_options = self._get_expansion_options(hierarchy, level)
         
         # Create result
         progressive_result = ProgressiveResult(
@@ -679,11 +679,10 @@ class ProgressiveContextManager:
                     )
                     bm25_scores_map = {doc_id: score for doc_id, score in bm25_results}
                     
-                    # Fuse results using RRF
-                    fused_results = hybrid_searcher.reciprocal_rank_fusion(
+                    # Fuse results using linear combination for better score accuracy
+                    fused_results = hybrid_searcher.linear_combination(
                         vector_results=vector_results,
                         bm25_results=bm25_results,
-                        k=60,
                         vector_weight=0.7,
                         bm25_weight=0.3
                     )
@@ -797,7 +796,7 @@ class ProgressiveContextManager:
                             # Extract signature/definition only
                             lines = content.split('\n')
                             signature_lines = []
-                            for i, line in enumerate(lines[:10]):  # Look at first 10 lines
+                            for line in lines[:10]:  # Look at first 10 lines
                                 signature_lines.append(line)
                                 if line.strip().endswith(':'):  # Found end of signature
                                     break
@@ -938,8 +937,7 @@ class ProgressiveContextManager:
     def _get_expansion_options(
         self,
         hierarchy: CodeHierarchy,
-        current_level: str,
-        results: List[Dict[str, Any]]
+        current_level: str
     ) -> List[ExpansionOption]:
         """Generate expansion options for drilling down to more detail."""
         options = []

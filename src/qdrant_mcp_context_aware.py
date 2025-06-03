@@ -2265,11 +2265,10 @@ def search(
                     )
                     bm25_scores_map = {doc_id: score for doc_id, score in bm25_results}
                     
-                    # Fuse results using RRF
-                    fused_results = hybrid_searcher.reciprocal_rank_fusion(
+                    # Fuse results using linear combination for better score accuracy
+                    fused_results = hybrid_searcher.linear_combination(
                         vector_results=vector_results,
                         bm25_results=bm25_results,
-                        k=60,
                         vector_weight=0.7,
                         bm25_weight=0.3
                     )

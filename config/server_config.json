@@ -94,7 +94,7 @@
   "documentation": {
     "supported_extensions": [
       ".md",
-      ".markdown", 
+      ".markdown",
       ".rst",
       ".txt",
       ".mdx"
@@ -222,6 +222,42 @@
       "include_in_responses": false,
       "show_warnings": true,
       "compact_indicator": true
+    }
+  },
+  "progressive_context": {
+    "enabled": true,
+    "default_level": "auto",
+    "cache": {
+      "enabled": true,
+      "similarity_threshold": 0.85,
+      "max_cache_size": 1000,
+      "ttl_seconds": 3600,
+      "persistence_enabled": true,
+      "persistence_path": "~/.mcp-servers/qdrant-rag/progressive_cache"
+    },
+    "levels": {
+      "file": {
+        "include_summaries": true,
+        "max_summary_length": 500,
+        "include_structure": true,
+        "token_reduction_target": 0.7
+      },
+      "class": {
+        "include_signatures": true,
+        "include_docstrings": true,
+        "exclude_private": false,
+        "token_reduction_target": 0.5
+      },
+      "method": {
+        "include_implementation": true,
+        "context_lines": 10,
+        "token_reduction_target": 0.2
+      }
+    },
+    "query_classification": {
+      "enabled": true,
+      "confidence_threshold": 0.7,
+      "fallback_level": "class"
     }
   }
 }

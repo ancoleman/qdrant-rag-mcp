@@ -62,6 +62,11 @@ class SearchRequest(BaseModel):
     include_dependencies: Optional[bool] = False
     include_context: Optional[bool] = True
     context_chunks: Optional[int] = 1
+    # Progressive context parameters (v0.3.2)
+    context_level: Optional[str] = "auto"
+    progressive_mode: Optional[bool] = None
+    include_expansion_options: Optional[bool] = True
+    semantic_cache: Optional[bool] = True
 
 class SearchCodeRequest(BaseModel):
     query: str
@@ -72,6 +77,11 @@ class SearchCodeRequest(BaseModel):
     include_dependencies: Optional[bool] = False
     include_context: Optional[bool] = True
     context_chunks: Optional[int] = 1
+    # Progressive context parameters (v0.3.2)
+    context_level: Optional[str] = "auto"
+    progressive_mode: Optional[bool] = None
+    include_expansion_options: Optional[bool] = True
+    semantic_cache: Optional[bool] = True
 
 class SearchConfigRequest(BaseModel):
     query: str
@@ -92,6 +102,11 @@ class SearchDocsRequest(BaseModel):
     search_mode: Optional[str] = "hybrid"
     include_context: Optional[bool] = True
     context_chunks: Optional[int] = 1
+    # Progressive context parameters (v0.3.2)
+    context_level: Optional[str] = "auto"
+    progressive_mode: Optional[bool] = None
+    include_expansion_options: Optional[bool] = True
+    semantic_cache: Optional[bool] = True
 
 class ReindexDirectoryRequest(BaseModel):
     directory: str
@@ -220,7 +235,12 @@ async def search_endpoint(request: SearchRequest):
             search_mode=request.search_mode,
             include_dependencies=request.include_dependencies,
             include_context=request.include_context,
-            context_chunks=request.context_chunks
+            context_chunks=request.context_chunks,
+            # Progressive context parameters
+            context_level=request.context_level,
+            progressive_mode=request.progressive_mode,
+            include_expansion_options=request.include_expansion_options,
+            semantic_cache=request.semantic_cache
         )
         
         if "error" in result:
@@ -242,7 +262,12 @@ async def search_code_endpoint(request: SearchCodeRequest):
             search_mode=request.search_mode,
             include_dependencies=request.include_dependencies,
             include_context=request.include_context,
-            context_chunks=request.context_chunks
+            context_chunks=request.context_chunks,
+            # Progressive context parameters
+            context_level=request.context_level,
+            progressive_mode=request.progressive_mode,
+            include_expansion_options=request.include_expansion_options,
+            semantic_cache=request.semantic_cache
         )
         
         if "error" in result:
@@ -297,7 +322,12 @@ async def search_docs_endpoint(request: SearchDocsRequest):
             cross_project=request.cross_project,
             search_mode=request.search_mode,
             include_context=request.include_context,
-            context_chunks=request.context_chunks
+            context_chunks=request.context_chunks,
+            # Progressive context parameters
+            context_level=request.context_level,
+            progressive_mode=request.progressive_mode,
+            include_expansion_options=request.include_expansion_options,
+            semantic_cache=request.semantic_cache
         )
         
         if "error" in result:

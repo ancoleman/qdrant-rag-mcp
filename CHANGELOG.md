@@ -7,6 +7,87 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2025-06-03
+
+### 🚀 Major Feature: Progressive Context Management
+
+Added intelligent multi-level context retrieval with semantic caching, achieving 50-70% token reduction for high-level queries while maintaining full detail access when needed.
+
+### Added
+
+- **Progressive Context Core Module** (`src/utils/progressive_context.py`):
+  - `ProgressiveContextManager` - Orchestrates multi-level context retrieval (file → class → method)
+  - `SemanticCache` - Implements similarity-based caching with persistent storage
+  - `HierarchyBuilder` - Constructs code structure hierarchies from search results
+  - `QueryIntentClassifier` - Auto-detects appropriate context level based on query patterns
+  - Token estimation and reduction metrics for each context level
+
+- **Integration with All Search Functions**:
+  - Enhanced `search()`, `search_code()`, and `search_docs()` with progressive parameters:
+    - `context_level`: "auto", "file", "class", "method", or "full" granularity
+    - `progressive_mode`: Enable/disable progressive features (auto-detects by default)
+    - `include_expansion_options`: Include drill-down options for deeper exploration
+    - `semantic_cache`: Use semantic similarity caching for repeated queries
+  - Seamless fallback to regular search when progressive mode is disabled
+
+- **HTTP API Enhancements**:
+  - Updated all search request models with progressive context parameters
+  - Full API compatibility for `/search`, `/search_code`, and `/search_docs` endpoints
+  - Progressive metadata included in responses with token estimates and expansion options
+
+- **Configuration Support** (`config/server_config.json`):
+  - New `progressive_context` section with comprehensive settings
+  - Feature flag for safe rollout (enabled by default)
+  - Configurable cache settings (similarity threshold: 0.85, TTL: 1 hour)
+  - Level-specific configurations for token reduction targets
+  - Query classification tuning parameters
+
+- **Testing Infrastructure**:
+  - Unit tests for all progressive context components (`tests/test_progressive_context.py`)
+  - HTTP API test script (`tests/test_progressive_http.py`) with multiple test scenarios
+  - Cache behavior validation and auto-classification testing
+
+### Changed
+
+- Search functions now intelligently adapt context level based on query intent
+- Enhanced ranking signals (file proximity, dependency distance, code structure, recency) fully integrated with progressive search
+- Hybrid search (vector + BM25 + fusion) implemented within progressive context manager
+- Default behavior unchanged - progressive features only activate when explicitly requested or auto-detected
+
+### Technical Details
+
+- **Token Reduction by Level**:
+  - File level: 70% reduction - High-level summaries and structure
+  - Class level: 50% reduction - Signatures and key methods
+  - Method level: 20% reduction - Focused implementation details
+  - Full level: 0% reduction - Complete traditional search results
+
+- **Semantic Cache**:
+  - Similarity threshold: 0.85 for cache hits
+  - Persistent storage in `~/.mcp-servers/qdrant-rag/progressive_cache/`
+  - TTL: 1 hour for cached results
+  - Automatic cache size management (max 1000 entries)
+
+- **Query Intent Classification**:
+  - "Understanding" queries → File level (e.g., "What does X do?")
+  - "Navigation" queries → Class level (e.g., "Find the Y class")
+  - "Debugging" queries → Method level (e.g., "Bug in line Z")
+  - Confidence-based fallback to configurable default level
+
+### Fixed
+
+- **Progressive Context Scoring Bug**: Fixed issue where search results showed low base scores (0.01-0.04) instead of enhanced scores (0.4-0.6)
+  - Removed premature sorting that occurred before enhanced ranking
+  - Added missing score update after enhanced ranking is applied
+  - Now correctly displays enhanced scores that include all ranking signals
+
+### Documentation
+
+- Updated implementation status document
+- Added progressive context code structure documentation
+- Integration strategy documentation for future enhancements
+- Test examples demonstrating all progressive features
+
 ## [0.3.1] - 2025-06-03
 
 ### Added

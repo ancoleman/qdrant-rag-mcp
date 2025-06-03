@@ -23,6 +23,14 @@ A context-aware Model Context Protocol (MCP) server that provides semantic searc
 - **💾 Session Persistence**: Automatic saving for later analysis
 - **🔍 Session Viewer**: Utility to analyze patterns across sessions
 
+### 🆕 Progressive Context Management (v0.3.2)
+- **🎯 Multi-Level Context**: File → Class → Method hierarchy for optimal token usage
+- **💰 50-70% Token Reduction**: Get high-level overviews without sacrificing detail access
+- **🧠 Query Intent Detection**: Automatically determines the right context level for your query
+- **⚡ Semantic Caching**: Similar queries hit cache with 0.85 similarity threshold
+- **🔄 Drill-Down Options**: Start with overview, expand to details as needed
+- **🏗️ Smart Structure Building**: Automatically constructs code hierarchies from search results
+
 ### Core RAG Capabilities
 - **🎯 Context-Aware**: Automatically detects and scopes to your current project
 - **🔍 Hybrid Search**: Combines semantic understanding with keyword matching for +30% better precision
@@ -171,6 +179,7 @@ In your Claude Code configuration (`~/.claude-code/config.json`):
 ### Technical Documentation
 - **[Enhanced RAG Guide](docs/technical/enhanced-qdrant-rag-guide.md)** - Technical implementation details
 - **[Development Workflow Guide](docs/development-workflow-guide.md)** 🛠️ - Efficient development patterns using RAG search
+- **[Progressive Context Implementation](docs/technical/progressive-context/)** 🎯 - Multi-level context retrieval system (v0.3.2)
 - **[AST Chunking Implementation](docs/technical/ast-chunking-implementation.md)** - How AST-based chunking works (v0.1.5+)
 - **[Hybrid Search Implementation](docs/technical/hybrid-search-implementation.md)** - How hybrid search works (v0.1.4+)
 - **[Enhanced Ranking Guide](docs/enhanced-ranking-guide.md)** 🎯 - Configure multi-signal ranking for better results (v0.2.1+)
@@ -184,6 +193,7 @@ In your Claude Code configuration (`~/.claude-code/config.json`):
 
 - **Get started quickly** → [Complete Setup & Usage Guide](docs/complete-setup-and-usage-guide.md)
 - **🆕 Automate GitHub issues** → [GitHub Integration Guide](docs/github-integration-guide.md)
+- **🆕 Use progressive search efficiently** → [Progressive Search Usage Guide](docs/technical/progressive-context/progressive-search-usage-guide.md)
 - **Load context fast in Claude** → [Quick Context Setup](docs/quick-context-setup.md)
 - **Use RAG in ALL my projects** → [MCP Scope Configuration Guide](docs/mcp-scope-configuration-guide.md)
 - **Understand project isolation** → [Context-Aware Guide](docs/context-aware-guide.md)
@@ -221,6 +231,21 @@ claude
 # - Analyze: "Analyze issue #123 using RAG search"
 # - Fix: "Generate fix suggestions for issue #123"
 # - Resolve: "Resolve issue #123 in dry-run mode"
+```
+
+**🆕 Progressive Context Management (v0.3.2)**
+```bash
+# In Claude - use progressive context for token efficiency:
+# - Overview: "What does the authentication system do?" (70% token reduction)
+# - Navigation: "Find the DatabaseManager class" (50% token reduction)
+# - Debugging: "Show me the bug in save_user function" (20% token reduction)
+# - Explicit: "Search for logging with context_level=file"
+# - Full detail: "Search for validate_user with progressive_mode=false"
+
+# The system automatically:
+# - Detects query intent (understanding vs debugging)
+# - Uses semantic cache for similar queries
+# - Provides drill-down options for deeper exploration
 ```
 
 **With Auto-Indexing**

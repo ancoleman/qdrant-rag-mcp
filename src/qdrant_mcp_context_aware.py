@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     from . import __version__
 except ImportError:
-    __version__ = "0.3.1"  # Fallback version
+    __version__ = "0.3.2"  # Fallback version
 
 # Load environment variables from the MCP server directory
 from dotenv import load_dotenv
@@ -48,6 +48,12 @@ from utils.enhanced_ranker import get_enhanced_ranker
 from utils.file_hash import calculate_file_hash, get_file_info
 # Import configuration
 from config import get_config
+# Import progressive context
+from utils.progressive_context import (
+    get_progressive_manager,
+    get_query_classifier,
+    ProgressiveResult
+)
 # Import context tracking
 from utils.context_tracking import SessionContextTracker, SessionStore, check_context_usage, get_context_indicator
 
@@ -1992,7 +1998,20 @@ def reindex_directory(
         return {"error": str(e), "directory": directory}
 
 @mcp.tool()
-def search(query: str, n_results: int = 5, cross_project: bool = False, search_mode: str = "hybrid", include_dependencies: bool = False, include_context: bool = True, context_chunks: int = 1) -> Dict[str, Any]:
+def search(
+    query: str, 
+    n_results: int = 5, 
+    cross_project: bool = False, 
+    search_mode: str = "hybrid", 
+    include_dependencies: bool = False, 
+    include_context: bool = True, 
+    context_chunks: int = 1,
+    # New progressive context parameters
+    context_level: str = "auto",
+    progressive_mode: Optional[bool] = None,
+    include_expansion_options: bool = True,
+    semantic_cache: bool = True
+) -> Dict[str, Any]:
     """
     Search indexed content (defaults to current project only)
     
@@ -2004,6 +2023,10 @@ def search(query: str, n_results: int = 5, cross_project: bool = False, search_m
         include_dependencies: If True, include files that import/are imported by the results
         include_context: If True, include surrounding chunks for more context (default: True)
         context_chunks: Number of chunks before/after to include (default: 1, max: 3)
+        context_level: Granularity level ("auto", "file", "class", "method", "full") - new in v0.3.2
+        progressive_mode: Enable progressive features (None = auto-detect) - new in v0.3.2
+        include_expansion_options: Include drill-down options - new in v0.3.2
+        semantic_cache: Use semantic similarity caching - new in v0.3.2
     """
     logger = get_logger()
     start_time = time.time()
@@ -2038,6 +2061,95 @@ def search(query: str, n_results: int = 5, cross_project: bool = False, search_m
         "search_mode": search_mode
     })
     
+    # Check if progressive context is enabled
+    config = get_config()
+    progressive_enabled = config.get("progressive_context", {}).get("enabled", False)
+    
+    if progressive_mode is None:
+        # Auto-detect based on context_level
+        progressive_mode = progressive_enabled and context_level != "full"
+    
+    # If progressive mode is requested and enabled, use progressive context manager
+    if progressive_mode and progressive_enabled:
+        try:
+            # Get progressive context manager
+            embedding_model = get_embedding_model()
+            qdrant_client = get_qdrant_client()
+            progressive_manager = get_progressive_manager(
+                qdrant_client, 
+                embedding_model,
+                config.get("progressive_context", {})
+            )
+            
+            # Use progressive context
+            progressive_result = progressive_manager.get_progressive_context(
+                query=query,
+                level=context_level,
+                n_results=n_results,
+                cross_project=cross_project,
+                search_mode=search_mode,
+                include_dependencies=include_dependencies,
+                semantic_cache=semantic_cache
+            )
+            
+            # Convert to standard response format with progressive metadata
+            response = {
+                "results": progressive_result.results,
+                "query": query,
+                "total": len(progressive_result.results),
+                "search_mode": search_mode,
+                "project_context": get_current_project()["name"] if get_current_project() else None,
+                "search_scope": "cross-project" if cross_project else "current project"
+            }
+            
+            # Add progressive metadata
+            if include_expansion_options or progressive_result.level != "full":
+                response["progressive"] = {
+                    "level_used": progressive_result.level,
+                    "token_estimate": progressive_result.token_estimate,
+                    "token_reduction": progressive_result.token_reduction_percent,
+                    "expansion_options": [
+                        {
+                            "type": opt.target_level,
+                            "path": opt.target_path,
+                            "estimated_tokens": opt.estimated_tokens,
+                            "relevance": opt.relevance_score
+                        }
+                        for opt in progressive_result.expansion_options
+                    ] if include_expansion_options else [],
+                    "cache_hit": progressive_result.from_cache,
+                    "query_intent": {
+                        "type": progressive_result.query_intent.exploration_type,
+                        "confidence": progressive_result.query_intent.confidence
+                    } if progressive_result.query_intent else None
+                }
+            
+            # Track in context tracking
+            tracker = get_context_tracker()
+            if tracker:
+                tracker.track_search(query, response["results"], search_type="progressive")
+            
+            # Log completion
+            console_logger.info(f"Progressive search completed", extra={
+                "operation": "search_progressive",
+                "duration": time.time() - start_time,
+                "results_count": len(response["results"]),
+                "level": progressive_result.level,
+                "cache_hit": progressive_result.from_cache,
+                "token_reduction": progressive_result.token_reduction_percent
+            })
+            
+            return response
+            
+        except Exception as e:
+            # Log error but fall back to regular search
+            console_logger.warning(f"Progressive search failed, falling back to regular search: {e}", extra={
+                "operation": "search_progressive_fallback",
+                "error": str(e)
+            })
+            # Continue with regular search below
+    
+    # Regular search implementation (existing code)
     try:
         embedding_model = get_embedding_model()
         qdrant_client = get_qdrant_client()
@@ -2359,7 +2471,21 @@ def search(query: str, n_results: int = 5, cross_project: bool = False, search_m
         return {"error": str(e), "query": query}
 
 @mcp.tool()
-def search_code(query: str, language: Optional[str] = None, n_results: int = 5, cross_project: bool = False, search_mode: str = "hybrid", include_dependencies: bool = False, include_context: bool = True, context_chunks: int = 1) -> Dict[str, Any]:
+def search_code(
+    query: str, 
+    language: Optional[str] = None, 
+    n_results: int = 5, 
+    cross_project: bool = False, 
+    search_mode: str = "hybrid", 
+    include_dependencies: bool = False, 
+    include_context: bool = True, 
+    context_chunks: int = 1,
+    # New progressive context parameters
+    context_level: str = "auto",
+    progressive_mode: Optional[bool] = None,
+    include_expansion_options: bool = True,
+    semantic_cache: bool = True
+) -> Dict[str, Any]:
     """
     Search specifically in code files (defaults to current project)
     
@@ -2372,8 +2498,113 @@ def search_code(query: str, language: Optional[str] = None, n_results: int = 5, 
         include_dependencies: If True, include files that import/are imported by the results
         include_context: If True, include surrounding chunks for more context (default: True)
         context_chunks: Number of chunks before/after to include (default: 1, max: 3)
+        context_level: Granularity level ("auto", "file", "class", "method", "full") - new in v0.3.2
+        progressive_mode: Enable progressive features (None = auto-detect) - new in v0.3.2
+        include_expansion_options: Include drill-down options - new in v0.3.2
+        semantic_cache: Use semantic similarity caching - new in v0.3.2
     """
     logger = get_logger()
+    start_time = time.time()
+    
+    # Check if progressive context is enabled
+    config = get_config()
+    progressive_enabled = config.get("progressive_context", {}).get("enabled", False)
+    
+    if progressive_mode is None:
+        # Auto-detect based on context_level
+        progressive_mode = progressive_enabled and context_level != "full"
+    
+    # If progressive mode is requested and enabled, use progressive context manager
+    if progressive_mode and progressive_enabled:
+        try:
+            # Import here to avoid circular imports
+            from utils.progressive_context import get_progressive_manager
+            
+            # Get services
+            embedding_model = get_embedding_model()
+            qdrant_client = get_qdrant_client()
+            progressive_manager = get_progressive_manager(
+                qdrant_client, 
+                embedding_model,
+                config.get("progressive_context", {})
+            )
+            
+            # Use progressive context for code search
+            progressive_result = progressive_manager.get_progressive_context(
+                query=query,
+                level=context_level,
+                n_results=n_results,
+                cross_project=cross_project,
+                search_mode=search_mode,
+                include_dependencies=include_dependencies,
+                semantic_cache=semantic_cache
+            )
+            
+            # Filter results by language if specified
+            if language:
+                progressive_result.results = [
+                    r for r in progressive_result.results 
+                    if r.get("language", "").lower() == language.lower()
+                ]
+            
+            # Convert to standard response format with progressive metadata
+            response = {
+                "results": progressive_result.results,
+                "query": query,
+                "language_filter": language,
+                "total": len(progressive_result.results),
+                "project_context": get_current_project()["name"] if get_current_project() else None,
+                "search_scope": "all projects" if cross_project else "current project"
+            }
+            
+            # Add progressive metadata
+            if include_expansion_options or progressive_result.level != "full":
+                response["progressive"] = {
+                    "level_used": progressive_result.level,
+                    "token_estimate": progressive_result.token_estimate,
+                    "token_reduction": progressive_result.token_reduction_percent,
+                    "expansion_options": [
+                        {
+                            "type": opt.target_level,
+                            "path": opt.target_path,
+                            "estimated_tokens": opt.estimated_tokens,
+                            "relevance": opt.relevance_score
+                        }
+                        for opt in progressive_result.expansion_options
+                    ] if include_expansion_options else [],
+                    "cache_hit": progressive_result.from_cache,
+                    "query_intent": {
+                        "type": progressive_result.query_intent.exploration_type,
+                        "confidence": progressive_result.query_intent.confidence
+                    } if progressive_result.query_intent else None
+                }
+            
+            # Track in context tracking
+            tracker = get_context_tracker()
+            if tracker:
+                tracker.track_search(query, response["results"], search_type="code_progressive")
+            
+            # Log completion
+            console_logger.info(f"Progressive code search completed", extra={
+                "operation": "search_code_progressive",
+                "duration": time.time() - start_time,
+                "results_count": len(response["results"]),
+                "level": progressive_result.level,
+                "cache_hit": progressive_result.from_cache,
+                "language_filter": language
+            })
+            
+            return response
+            
+        except Exception as e:
+            # Log error but fall back to regular search
+            console_logger.warning(f"Progressive code search failed, falling back to regular search: {e}", extra={
+                "operation": "search_code_progressive_fallback",
+                "error": str(e)
+            })
+            # Continue with regular search below
+    
+    # Regular search implementation (existing code)
     try:
         embedding_model = get_embedding_model()
         qdrant_client = get_qdrant_client()
@@ -2623,7 +2854,20 @@ def search_code(query: str, language: Optional[str] = None, n_results: int = 5, 
         return {"error": str(e), "query": query}
 
 @mcp.tool()
-def search_docs(query: str, doc_type: Optional[str] = None, n_results: int = 5, cross_project: bool = False, search_mode: str = "hybrid", include_context: bool = True, context_chunks: int = 1) -> Dict[str, Any]:
+def search_docs(
+    query: str, 
+    doc_type: Optional[str] = None, 
+    n_results: int = 5, 
+    cross_project: bool = False, 
+    search_mode: str = "hybrid", 
+    include_context: bool = True, 
+    context_chunks: int = 1,
+    # New progressive context parameters
+    context_level: str = "auto",
+    progressive_mode: Optional[bool] = None,
+    include_expansion_options: bool = True,
+    semantic_cache: bool = True
+) -> Dict[str, Any]:
     """
     Search specifically in documentation files
     
@@ -2635,9 +2879,112 @@ def search_docs(query: str, doc_type: Optional[str] = None, n_results: int = 5, 
         search_mode: Search mode - "vector", "keyword", or "hybrid" (default: "hybrid")
         include_context: If True, include surrounding chunks for more context
         context_chunks: Number of chunks before/after to include (default: 1, max: 3)
+        context_level: Granularity level ("auto", "file", "class", "method", "full") - new in v0.3.2
+        progressive_mode: Enable progressive features (None = auto-detect) - new in v0.3.2
+        include_expansion_options: Include drill-down options - new in v0.3.2
+        semantic_cache: Use semantic similarity caching - new in v0.3.2
     """
     logger = get_logger()
     start_time = time.time()
+    
+    # Check if progressive context is enabled
+    config = get_config()
+    progressive_enabled = config.get("progressive_context", {}).get("enabled", False)
+    
+    if progressive_mode is None:
+        # Auto-detect based on context_level
+        progressive_mode = progressive_enabled and context_level != "full"
+    
+    # If progressive mode is requested and enabled, use progressive context manager
+    if progressive_mode and progressive_enabled:
+        try:
+            # Import here to avoid circular imports
+            from utils.progressive_context import get_progressive_manager
+            
+            # Get services
+            embedding_model = get_embedding_model()
+            qdrant_client = get_qdrant_client()
+            progressive_manager = get_progressive_manager(
+                qdrant_client, 
+                embedding_model,
+                config.get("progressive_context", {})
+            )
+            
+            # Use progressive context for documentation search
+            progressive_result = progressive_manager.get_progressive_context(
+                query=query,
+                level=context_level,
+                n_results=n_results,
+                cross_project=cross_project,
+                search_mode=search_mode,
+                include_dependencies=False,  # Not applicable for docs
+                semantic_cache=semantic_cache
+            )
+            
+            # Filter results by doc type if specified
+            if doc_type:
+                progressive_result.results = [
+                    r for r in progressive_result.results 
+                    if r.get("doc_type", "").lower() == doc_type.lower() or r.get("file_path", "").endswith(f".{doc_type}")
+                ]
+            
+            # Convert to standard response format with progressive metadata
+            response = {
+                "results": progressive_result.results,
+                "query": query,
+                "doc_type_filter": doc_type,
+                "total": len(progressive_result.results),
+                "search_mode": search_mode,
+                "project_context": get_current_project()["name"] if get_current_project() else None,
+                "search_scope": "all projects" if cross_project else "current project"
+            }
+            
+            # Add progressive metadata
+            if include_expansion_options or progressive_result.level != "full":
+                response["progressive"] = {
+                    "level_used": progressive_result.level,
+                    "token_estimate": progressive_result.token_estimate,
+                    "token_reduction": progressive_result.token_reduction_percent,
+                    "expansion_options": [
+                        {
+                            "type": opt.target_level,
+                            "path": opt.target_path,
+                            "estimated_tokens": opt.estimated_tokens,
+                            "relevance": opt.relevance_score
+                        }
+                        for opt in progressive_result.expansion_options
+                    ] if include_expansion_options else [],
+                    "cache_hit": progressive_result.from_cache,
+                    "query_intent": {
+                        "type": progressive_result.query_intent.exploration_type,
+                        "confidence": progressive_result.query_intent.confidence
+                    } if progressive_result.query_intent else None
+                }
+            
+            # Track in context tracking
+            tracker = get_context_tracker()
+            if tracker:
+                tracker.track_search(query, response["results"], search_type="docs_progressive")
+            
+            # Log completion
+            console_logger.info(f"Progressive documentation search completed", extra={
+                "operation": "search_docs_progressive",
+                "duration": time.time() - start_time,
+                "results_count": len(response["results"]),
+                "level": progressive_result.level,
+                "cache_hit": progressive_result.from_cache,
+                "doc_type_filter": doc_type
+            })
+            
+            return response
+            
+        except Exception as e:
+            # Log error but fall back to regular search
+            console_logger.warning(f"Progressive docs search failed, falling back to regular search: {e}", extra={
+                "operation": "search_docs_progressive_fallback",
+                "error": str(e)
+            })
+            # Continue with regular search below
     
     # Input validation
     if not query or not isinstance(query, str):

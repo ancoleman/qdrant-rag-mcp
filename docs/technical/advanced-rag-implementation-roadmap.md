@@ -21,16 +21,19 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 - ✅ **Smart Incremental Reindex (v0.2.4)** - File hash tracking and change detection (90%+ faster)
 - ✅ **Bug Fixes & Dev Guide (v0.2.5)** - Fixed get_file_chunks collection routing, added development workflow guide
 - ✅ **Enhanced Ranking Type Fix (v0.2.6)** - Fixed critical search failure from type comparison error in enhanced ranking
+- ✅ **GitHub Issue Resolution (v0.3.0)** - 10 GitHub MCP tools for issue analysis, fix generation, and PR creation
+- ✅ **Context Tracking (v0.3.1)** - Session tracking with visibility into Claude's context window usage
 
 ### In Progress
 - 🚧 None currently
 
 ### Upcoming
-- 📋 GitHub Issue Resolution - v0.3.0 (Local prototype with MCP integration)
-- 📋 Context Tracking - v0.3.1 (Developer visibility into Claude's context window)
 - 📋 Advanced Hybrid Search - v0.3.2 (Adaptive search intelligence)
 - 📋 Progressive Context Management - v0.3.3 (-50% initial tokens)
 - 📋 Query Enhancement - v0.3.4 (+35% recall)
+- 📋 MCP Server Optimizations - v0.4.x (Performance improvements)
+- 📋 Semantic Compression - v0.5.x (Advanced token reduction)
+- 📋 Specialized Embeddings - v0.6.x (Content-type-specific models)
 
 ## 📊 Current State vs. Target State
 
@@ -187,8 +190,8 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
   - Prevents "'>' not supported between instances of 'str' and 'int'" error
 - **Impact**: Ensures stable sorting of search results with enhanced scoring enabled
 
-##### v0.3.0: GitHub Issue Resolution (2-3 weeks)
-- **Status**: 📋 Planned
+##### v0.3.0: GitHub Issue Resolution ✅ **COMPLETED**
+- **Status**: ✅ Completed (2025-06-02)
 - **Focus**: Local prototype for GitHub issue analysis and resolution
 - **Deliverables**:
   - GitHub API integration via PyGithub library
@@ -203,8 +206,8 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
   - Option A: Separate TypeScript GitHub server + existing Python RAG server
   - Option B: Extended Python server with GitHub functionality (recommended)
 
-##### v0.3.1: Context Tracking (1 week)
-- **Status**: 📋 Planned
+##### v0.3.1: Context Tracking ✅ **COMPLETED**
+- **Status**: ✅ Completed (2025-06-03)
 - **Focus**: Developer visibility into Claude's context window usage
 - **Deliverables**:
   - SessionContextTracker class for tracking all context-consuming operations
@@ -256,7 +259,7 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 - **Benefits**: +35% recall improvement for natural language queries
 - **Risk**: Low-Medium - well-defined problem with clear research patterns
 
-### Phase 3: GitHub Integration (Weeks 7-9)
+### Phase 3: GitHub Integration (Weeks 7-9) ✅ **COMPLETED**
 **Goal**: Automated issue resolution and repository management
 
 The Phase 3 focus shifts to a major new capability: GitHub issue resolution. This represents a significant expansion beyond pure RAG optimization into practical automation workflows that leverage our existing search infrastructure.
@@ -264,14 +267,13 @@ The Phase 3 focus shifts to a major new capability: GitHub issue resolution. Thi
 #### v0.3.0: GitHub Issue Resolution Local Prototype
 Detailed implementation plan included above in the version-specific sections.
 
-#### v0.3.1-v0.3.4: Enhanced RAG Foundation
+#### v0.3.2-v0.3.4: Enhanced RAG Foundation
 The remaining v0.3.x releases continue the advanced RAG research implementations:
-- v0.3.1: Context Tracking - Developer visibility into context window
-- v0.3.2: Adaptive Search Intelligence 
-- v0.3.3: Progressive Context Management
-- v0.3.4: Query Enhancement & Reformulation
+- v0.3.2: Adaptive Search Intelligence - Smart query understanding and optimization
+- v0.3.3: Progressive Context Management - Multi-level context with 50%+ token reduction
+- v0.3.4: Query Enhancement & Reformulation - Natural language to code-aware queries
 
-These provide the enhanced search capabilities and developer tools needed to effectively analyze codebases for issue resolution.
+These provide the enhanced search capabilities needed to build on the GitHub integration and context tracking foundations.
 
 ### Phase 4: Optimization (Weeks 10-12)
 **Goal**: Maximize efficiency and performance
@@ -314,6 +316,67 @@ These provide the enhanced search capabilities and developer tools needed to eff
   - Strategy selector
   - Performance tracking
   - Learning mechanism
+
+### Phase 6: Specialized Embeddings (Weeks 16-20)
+**Goal**: Content-type-specific embedding models for superior search quality
+
+#### v0.6.0: Embedding Architecture Refactor
+- **Implementation**: 1 week
+- **Focus**: Multi-model infrastructure without breaking changes
+- **Deliverables**:
+  - Refactor embedding system to support multiple models
+  - Add model metadata to collection storage
+  - Create model registry and configuration system
+  - Backward compatibility layer for existing collections
+  - Model memory management and lazy loading
+- **Benefits**: Foundation for specialized models
+- **Risk**: Low - pure infrastructure change
+
+#### v0.6.1: Code-Specific Embeddings
+- **Implementation**: 1.5 weeks
+- **Focus**: Specialized code understanding
+- **Deliverables**:
+  - Integrate CodeBERT or UnixCoder for code collections
+  - Code-aware tokenization (preserving syntax)
+  - Programming language detection
+  - Automatic model selection for code files
+  - A/B testing framework for model comparison
+- **Benefits**: 30-50% better code search relevance
+- **Risk**: Medium - new model integration
+
+#### v0.6.2: Configuration Embeddings
+- **Implementation**: 1 week
+- **Focus**: Structured data understanding
+- **Deliverables**:
+  - Specialized model for config files (JSON, YAML, etc.)
+  - Hierarchical structure preservation
+  - Key-path aware embeddings
+  - Schema-aware tokenization
+- **Benefits**: Better config navigation and search
+- **Risk**: Low - simpler than code models
+
+#### v0.6.3: Documentation Embeddings
+- **Implementation**: 1 week
+- **Focus**: Natural language optimization
+- **Deliverables**:
+  - Integrate all-mpnet-base-v2 or similar for docs
+  - Section-aware embeddings
+  - Cross-reference understanding
+  - Markdown structure awareness
+- **Benefits**: Improved documentation search
+- **Risk**: Low - well-established models
+
+#### v0.6.4: Migration and Optimization
+- **Implementation**: 1.5 weeks
+- **Focus**: Smooth transition and performance
+- **Deliverables**:
+  - Batch re-embedding tool with progress tracking
+  - Collection migration utilities
+  - Model performance benchmarks
+  - Memory optimization for multi-model loading
+  - Rollback capabilities
+- **Benefits**: Safe migration path
+- **Risk**: Medium - data migration complexity
 
 ## 📈 Progressive Impact on Claude Code
 
@@ -439,10 +502,12 @@ These provide immediate benefits while building toward larger changes.
 ## 📅 Timeline Summary
 
 ```
-Weeks 1-3:  [████████████] Foundation (AST + Basic Hybrid)
-Weeks 4-6:  [████████████] Enhancement (Advanced Search + Context)
-Weeks 7-9:  [████████████] Optimization (Query + Performance)
-Weeks 10-12:[████████████] Advanced (Compression + Adaptive)
+Weeks 1-3:   [████████████] Foundation (AST + Basic Hybrid)
+Weeks 4-6:   [████████████] Enhancement (Advanced Search + Context)
+Weeks 7-9:   [████████████] GitHub Integration (Issue Resolution)
+Weeks 10-12: [████████████] Optimization (Performance Tuning)
+Weeks 13-15: [████████████] Advanced (Compression + Adaptive)
+Weeks 16-20: [████████████] Specialized Embeddings (Multi-Model)
 ```
 
 ## 🎉 Expected Outcome
@@ -453,7 +518,14 @@ By week 12, Claude Code users will experience:
 - **45% better** search accuracy
 - **Whole project understanding** instead of file fragments
 
-This transformation will make Claude Code qualitatively better at understanding and working with codebases, moving from "helpful but limited" to "genuinely understands my entire project."
+By week 20 (with specialized embeddings), users will additionally experience:
+- **30-50% better code search** with programming-aware embeddings
+- **Precise config navigation** with structure-aware models
+- **Natural documentation search** with prose-optimized embeddings
+- **Language-specific understanding** (Python idioms, JS patterns, etc.)
+- **Reduced cross-type noise** (configs don't pollute code searches)
+
+This transformation will make Claude Code qualitatively better at understanding and working with codebases, moving from "helpful but limited" to "genuinely understands my entire project with deep semantic awareness."
 
 ## 📚 Related Documentation
 

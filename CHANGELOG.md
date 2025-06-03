@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.3.1] - TBD
+## [0.3.1] - 2025-06-03
 
 ### Added
 - **Context Tracking System** - Complete visibility into Claude's context window usage
@@ -36,6 +36,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Search operations (`search`, `search_code`, `search_docs`) now automatically track context usage
 - Added context tracking initialization to server startup
+- Default context window size increased to 200,000 tokens in configuration
+
+### Fixed
+- Improved token estimation accuracy - now only counts visible content, not internal JSON metadata
+- Fixed system prompt token calculation to include actual CLAUDE.md content (~14,700 tokens vs hardcoded 2,000)
 
 ### Technical Details
 - Context tracking integrates seamlessly with existing operations
@@ -47,6 +52,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated CLAUDE.md with context tracking usage examples
 - Added comprehensive test suite for context tracking functionality
 - Created session viewer documentation with examples
+- Added [Context Tracking Guide](docs/reference/context-tracking-guide.md) with detailed testing instructions
+- Updated roadmap to mark v0.3.0 and v0.3.1 as completed
+- Added v0.6.x specialized embeddings roadmap for content-type-specific models
 
 ## [0.3.0] - 2025-06-02
 

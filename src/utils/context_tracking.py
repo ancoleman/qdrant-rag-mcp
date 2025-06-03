@@ -43,6 +43,41 @@ class FileReadInfo:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
+def calculate_system_context_tokens() -> Dict[str, int]:
+    """
+    Calculate the actual system context tokens from known sources.
+    
+    Returns dict with breakdown of system context tokens.
+    """
+    system_tokens = {}
+    
+    # 1. Calculate CLAUDE.md tokens if it exists
+    claude_md_path = Path(__file__).parent.parent.parent / "CLAUDE.md"
+    if claude_md_path.exists():
+        try:
+            with open(claude_md_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                # Use the standard 4 chars per token approximation
+                system_tokens["CLAUDE.md"] = len(content) // 4
+        except:
+            system_tokens["CLAUDE.md"] = 6000  # Fallback estimate
+    
+    # 2. Estimate MCP tool definitions
+    # Each tool has name, description, parameters schema
+    # Rough estimate: ~200 tokens per tool for definition
+    # We have 26 tools currently
+    system_tokens["mcp_tools"] = 26 * 200  # ~5200 tokens
+    
+    # 3. Claude's base system prompt (estimated)
+    # This includes Claude Code instructions, behavior guidelines, etc.
+    system_tokens["claude_system"] = 3000  # Conservative estimate
+    
+    # 4. Other context (file paths, system info, etc.)
+    system_tokens["other_context"] = 500
+    
+    return system_tokens
+
+
 class SessionContextTracker:
     """Tracks all context-consuming operations in a session."""
     
@@ -56,14 +91,23 @@ class SessionContextTracker:
         self.todos_tracked: List[Dict[str, Any]] = []
         self.indexed_directories: List[str] = []
         self.current_project: Optional[Dict[str, Any]] = None
+        
         # Track token usage by category
         self.token_usage = defaultdict(int)
-        self.token_usage["system_prompt"] = 2000  # Rough estimate for system prompt
+        
+        # Calculate actual system context
+        system_breakdown = calculate_system_context_tokens()
+        system_total = sum(system_breakdown.values())
+        
+        self.token_usage["system_prompt"] = system_total
+        self.token_usage["system_breakdown"] = system_breakdown  # Store breakdown for transparency
         
         # Initialize total with system prompt
         self.total_tokens_estimate = self.token_usage["system_prompt"]
         
         logger.info(f"Session context tracker initialized: {self.session_id}")
+        logger.info(f"System context breakdown: {system_breakdown}")
+        logger.info(f"Total system context: {system_total} tokens")
     
     def estimate_tokens(self, text: str) -> int:
         """
@@ -128,8 +172,8 @@ class SessionContextTracker:
         # Add query length
         content_length += len(query)
         
-        # Create a dummy string of the estimated length for token calculation
-        tokens_estimate = content_length // 4  # Direct calculation since we already have character count
+        # Convert character count to token estimate (4 chars ≈ 1 token)
+        tokens_estimate = content_length // 4
         
         search_info = {
             "query": query,
@@ -206,7 +250,7 @@ class SessionContextTracker:
         self.current_project = project_info
         logger.debug(f"Set current project: {project_info.get('name', 'unknown')}")
     
-    def get_context_usage_percentage(self, context_window_size: int = 50000) -> float:
+    def get_context_usage_percentage(self, context_window_size: int = 200000) -> float:
         """Get percentage of context window used."""
         return (self.total_tokens_estimate / context_window_size) * 100
     
@@ -223,6 +267,9 @@ class SessionContextTracker:
         """Get a summary of the current session."""
         uptime_seconds = (datetime.now() - self.session_start).total_seconds()
         
+        # Get system breakdown if available
+        system_breakdown = self.token_usage.get("system_breakdown", {})
+        
         return {
             "session_id": self.session_id,
             "session_start": self.session_start.isoformat(),
@@ -233,6 +280,7 @@ class SessionContextTracker:
             "indexed_directories": len(self.indexed_directories),
             "total_tokens_estimate": self.total_tokens_estimate,
             "token_usage_by_category": dict(self.token_usage),
+            "system_context_breakdown": system_breakdown,
             "context_usage_percentage": self.get_context_usage_percentage(),
             "current_project": self.current_project
         }
@@ -336,7 +384,8 @@ class SessionStore:
                 # Extract session ID from filename
                 parts = file_path.stem.split('_')
                 if len(parts) >= 3:
-                    session_id = parts[1]
+                    # Skip 'session' prefix and join the UUID parts
+                    session_id = '-'.join(parts[1:-2]) + '-' + parts[-2]
                     
                     # Load summary only
                     with open(file_path, 'r') as f:
@@ -350,7 +399,7 @@ class SessionStore:
         return sessions
 
 
-def check_context_usage(tracker: SessionContextTracker, context_window_size: int = 50000) -> Dict[str, Any]:
+def check_context_usage(tracker: SessionContextTracker, context_window_size: int = 200000) -> Dict[str, Any]:
     """Check if context usage is approaching limits and provide warnings."""
     usage_percent = tracker.get_context_usage_percentage(context_window_size)
     
@@ -387,4 +436,4 @@ def get_context_indicator(tracker: SessionContextTracker) -> str:
     searches = len(tracker.searches_performed)
     tokens_k = tracker.total_tokens_estimate // 1000
     
-    return f"[Context: {tokens_k}k/50k tokens | {files} files | {searches} searches]"
+    return f"[Context: {tokens_k}k/200k tokens | {files} files | {searches} searches]"

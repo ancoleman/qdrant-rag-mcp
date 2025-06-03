@@ -86,6 +86,8 @@ Cargo.lock
 # Cache
 .cache/
 *.cache
+progressive_cache/
+sessions/
 
 # Media files (usually not needed for code analysis)
 *.jpg

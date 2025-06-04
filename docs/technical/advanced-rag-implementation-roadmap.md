@@ -24,6 +24,10 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 - ✅ **GitHub Issue Resolution (v0.3.0)** - 10 GitHub MCP tools for issue analysis, fix generation, and PR creation
 - ✅ **Context Tracking (v0.3.1)** - Session tracking with visibility into Claude's context window usage
 - ✅ **Progressive Context Management (v0.3.2)** - Multi-level context retrieval with semantic caching (-50-70% initial tokens)
+- ✅ **Configurable Scoring Pipeline (v0.3.2)** - Modular scoring system with pluggable stages
+- ✅ **Enhanced BM25 Code Tokenization (v0.3.2)** - Code-specific preprocessing for better keyword matching
+- ✅ **Improved AST Chunking (v0.3.2)** - Classes+methods kept together, better structure preservation
+- ✅ **Linear Combination Scoring (v0.3.2)** - Replaced RRF for more accurate hybrid search scores
 
 ### In Progress
 - 🚧 None currently
@@ -225,10 +229,10 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 - **Risk**: Low - mostly tracking and reporting functionality
 - **Implementation Plan**: [Context Tracking Implementation Plan](./context-tracking-implementation-plan.md)
 
-##### v0.3.2: Progressive Context Management ✅ **COMPLETED**
+##### v0.3.2: Progressive Context Management + Scoring Enhancements ✅ **COMPLETED**
 - **Status**: ✅ Completed (2025-06-03)
-- **Focus**: Multi-level context with semantic caching
-- **Delivered**:
+- **Focus**: Multi-level context with semantic caching + modular scoring system
+- **Delivered Progressive Context**:
   - ProgressiveContextManager for orchestrating multi-level retrieval (file → class → method)
   - SemanticCache with similarity-based caching (threshold: 0.85) and persistence
   - HierarchyBuilder for constructing code structure from search results
@@ -236,14 +240,26 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
   - Integration with all search functions (search, search_code, search_docs)
   - Full HTTP API support with progressive parameters
   - Comprehensive test suite and configuration options
+- **Delivered Scoring Improvements**:
+  - Configurable ScoringPipeline with pluggable stages
+  - Built-in stages: VectorScoringStage, BM25ScoringStage, ExactMatchStage, FusionStage, EnhancedRankingStage
+  - Factory functions: create_hybrid_pipeline(), create_code_search_pipeline(), create_documentation_pipeline()
+  - Enhanced BM25 tokenization with code_preprocessor (camelCase, snake_case, operators)
+  - Improved AST chunking: class_with_methods, better structure preservation
+  - Linear combination scoring replacing RRF (meaningful 0.6-0.9 scores vs 0.01-0.02)
+  - Unified _perform_hybrid_search() eliminating code duplication
 - **Benefits**: 
   - 70% token reduction at file level
   - 50% token reduction at class level
   - 20% token reduction at method level
   - Semantic caching reduces repeated query costs
-  - Enhanced ranking signals fully integrated
-- **Impact**: Enables Claude Code to work with entire codebases efficiently
-- **Implementation Plan**: [Progressive Context Implementation Plan](./progressive-context/progressive-context-implementation-plan.md)
+  - More accurate scoring with linear combination
+  - Modular scoring architecture for experimentation
+  - Better code search through enhanced tokenization
+- **Impact**: Enables Claude Code to work with entire codebases efficiently with more accurate search
+- **Implementation Plans**: 
+  - [Progressive Context Implementation Plan](./progressive-context/progressive-context-implementation-plan.md)
+  - [Scoring Pipeline Architecture](./scoring-pipeline-architecture.md)
 
 ##### v0.3.3: Adaptive Search Intelligence (5-6 days)
 - **Status**: 📋 Planned

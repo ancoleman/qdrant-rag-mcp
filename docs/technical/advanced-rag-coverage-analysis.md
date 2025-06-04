@@ -12,8 +12,12 @@ Our implementation has evolved significantly beyond the initial foundation. We'v
 - ✅ Specialized documentation indexer
 - ✅ GitHub integration for automated issue resolution
 - ✅ Context tracking system for visibility
+- ✅ **Progressive Context Management (v0.3.2)** - 50-70% token reduction through multi-level retrieval
+- ✅ **Configurable Scoring Pipeline (v0.3.2)** - Modular scoring architecture
+- ✅ **Enhanced BM25 Code Tokenization (v0.3.2)** - Better keyword matching for code
+- ✅ **Linear Combination Scoring (v0.3.2)** - More accurate hybrid search scores
 
-Remaining opportunities for advanced RAG techniques could deliver an additional **50-70% token reduction** through Progressive Context Management (v0.3.3) and Semantic Compression (v0.5.x).
+We've achieved the **50-70% token reduction** goal through Progressive Context Management in v0.3.2! Remaining opportunities include Adaptive Search Intelligence (v0.3.3) and Semantic Compression (v0.5.x) for even greater efficiency.
 
 ## Coverage Analysis
 

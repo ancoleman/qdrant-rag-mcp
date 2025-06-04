@@ -520,10 +520,13 @@ class PythonASTChunker:
 class ShellScriptChunker:
     """Structure-aware chunker for Shell scripts"""
     
-    def __init__(self, max_chunk_size: int = 2000, min_chunk_size: int = 100):
+    def __init__(self, max_chunk_size: int = 2000, min_chunk_size: int = 100,
+                 keep_class_together: bool = True):  # Accept param for compatibility
         self.max_chunk_size = max_chunk_size
         self.min_chunk_size = min_chunk_size
         self.chunk_index = 0
+        # Shell scripts don't have classes, but we keep functions together
+        self.keep_function_together = keep_class_together
         
     def chunk_file(self, file_path: str) -> List[ASTChunk]:
         """Parse Shell script and create structural chunks"""
@@ -606,6 +609,26 @@ class ShellScriptChunker:
                 # Extract function content
                 func_content = ''.join(lines[i:end_line + 1])
                 
+                # Phase 2: Check if we should keep related functions together
+                if self.keep_function_together and chunks:
+                    last_chunk = chunks[-1]
+                    combined_size = len(last_chunk.content) + len(func_content)
+                    
+                    # If combined size is within threshold, merge functions
+                    if combined_size <= self.max_chunk_size * 1.5:
+                        # Check if functions are related (simple heuristic: proximity)
+                        if start_line - last_chunk.line_end <= 5:
+                            # Merge with previous chunk
+                            combined_content = last_chunk.content + "\n\n" + func_content
+                            last_chunk.content = combined_content.strip()
+                            last_chunk.line_end = end_line + 1
+                            last_chunk.chunk_type = 'functions'  # Multiple functions
+                            last_chunk.name = f"{last_chunk.name}+{func_name}"
+                            last_chunk.metadata['function_count'] = last_chunk.metadata.get('function_count', 1) + 1
+                            last_chunk.metadata['functions'] = last_chunk.metadata.get('functions', [last_chunk.name.split('+')[0]]) + [func_name]
+                            i = end_line + 1
+                            continue
+                
                 chunk = ASTChunk(
                     content=func_content.strip(),
                     file_path=file_path,
@@ -617,7 +640,9 @@ class ShellScriptChunker:
                     hierarchy=['script', func_name],
                     metadata={
                         'language': 'shell',
-                        'is_exported': 'export -f' in func_content
+                        'is_exported': 'export -f' in func_content,
+                        'function_count': 1,
+                        'functions': [func_name]
                     }
                 )
                 chunks.append(chunk)
@@ -698,10 +723,13 @@ class ShellScriptChunker:
 class GoChunker:
     """Structure-aware chunker for Go code"""
     
-    def __init__(self, max_chunk_size: int = 2000, min_chunk_size: int = 100):
+    def __init__(self, max_chunk_size: int = 2000, min_chunk_size: int = 100,
+                 keep_class_together: bool = True):  # Accept param for compatibility
         self.max_chunk_size = max_chunk_size
         self.min_chunk_size = min_chunk_size
         self.chunk_index = 0
+        # Go doesn't have classes, but we keep structs with their methods
+        self.keep_struct_together = keep_class_together
         
     def chunk_file(self, file_path: str) -> List[ASTChunk]:
         """Parse Go file and create structural chunks"""
@@ -719,6 +747,11 @@ class GoChunker:
             
             # Extract structs, interfaces, and functions
             code_chunks = self._extract_go_structures(lines, file_path)
+            
+            # Phase 2: Group structs with their methods if enabled
+            if self.keep_struct_together:
+                code_chunks = self._group_structs_with_methods(code_chunks, lines)
+            
             chunks.extend(code_chunks)
             
             # If no chunks created, treat as module
@@ -946,6 +979,67 @@ class GoChunker:
         self.chunk_index += 1
         return chunk
     
+    def _group_structs_with_methods(self, chunks: List[ASTChunk], lines: List[str]) -> List[ASTChunk]:
+        """Group structs with their methods for better cohesion"""
+        if not chunks:
+            return chunks
+        
+        # Build a map of struct names to their chunks
+        struct_map = {}
+        method_chunks = []
+        other_chunks = []
+        
+        for chunk in chunks:
+            if chunk.chunk_type == 'struct':
+                struct_map[chunk.name] = chunk
+            elif chunk.chunk_type == 'method' and 'receiver_type' in chunk.metadata:
+                method_chunks.append(chunk)
+            else:
+                other_chunks.append(chunk)
+        
+        # Group methods with their structs
+        for struct_name, struct_chunk in struct_map.items():
+            related_methods = [m for m in method_chunks 
+                             if m.metadata.get('receiver_type') == struct_name]
+            
+            if not related_methods:
+                continue
+            
+            # Calculate combined size
+            struct_content = struct_chunk.content
+            methods_content = []
+            total_size = len(struct_content)
+            
+            for method in sorted(related_methods, key=lambda x: x.line_start):
+                method_size = len(method.content)
+                # Check if adding this method would exceed limit
+                if total_size + method_size > self.max_chunk_size * 1.5:
+                    break
+                methods_content.append(method.content)
+                total_size += method_size
+                method_chunks.remove(method)
+            
+            if methods_content:
+                # Combine struct with its methods
+                combined_content = struct_content + "\n\n" + "\n\n".join(methods_content)
+                struct_chunk.content = combined_content
+                struct_chunk.chunk_type = 'struct_with_methods'
+                struct_chunk.line_end = max(struct_chunk.line_end, 
+                                          max(m.line_end for m in related_methods if m.content in methods_content))
+                struct_chunk.metadata['method_count'] = len(methods_content)
+                struct_chunk.metadata['methods'] = [m.name for m in related_methods if m.content in methods_content]
+        
+        # Combine all chunks back together
+        all_chunks = []
+        all_chunks.extend(other_chunks)
+        all_chunks.extend(struct_map.values())
+        all_chunks.extend(method_chunks)  # Remaining ungrouped methods
+        
+        # Sort by line number to maintain order
+        all_chunks.sort(key=lambda x: x.line_start)
+        
+        return all_chunks
+    
     def _fallback_chunk(self, content: str, file_path: str) -> List[ASTChunk]:
         """Fallback to simple chunking"""
         python_chunker = PythonASTChunker(self.max_chunk_size, self.min_chunk_size)
@@ -956,10 +1050,13 @@ class GoChunker:
 class JavaScriptChunker:
     """Structure-aware chunker for JavaScript/TypeScript code"""
     
-    def __init__(self, max_chunk_size: int = 2000, min_chunk_size: int = 100):
+    def __init__(self, max_chunk_size: int = 2000, min_chunk_size: int = 100,
+                 keep_class_together: bool = True):  # Accept param for compatibility
         self.max_chunk_size = max_chunk_size
         self.min_chunk_size = min_chunk_size
         self.chunk_index = 0
+        # JavaScript has classes, keep them with methods like Python
+        self.keep_class_together = keep_class_together
         
     def chunk_file(self, file_path: str) -> List[ASTChunk]:
         """Parse JavaScript/TypeScript file and create structural chunks"""
@@ -1149,8 +1246,23 @@ class JavaScriptChunker:
         
         content = ''.join(lines[start_idx:end_idx + 1])
         
+        # Phase 2: Check if we should analyze class size for smart splitting
+        if self.keep_class_together and len(content) > self.max_chunk_size:
+            # Determine if class should be kept together up to 1.5x limit
+            if len(content) <= self.max_chunk_size * 1.5:
+                # Keep together
+                pass
+            else:
+                # Class is too large, extract methods for smart grouping
+                return self._smart_split_js_class(lines, start_idx, end_idx, file_path, class_name)
+        
         # Check if it's exported
         is_exported = 'export' in lines[start_idx]
+        
+        # Count methods in the class
+        import re
+        method_pattern = re.compile(r'^\s*(?:async\s+)?(?:static\s+)?(\w+)\s*\(.*?\)\s*{', re.MULTILINE)
+        methods = method_pattern.findall(content)
         
         chunk = ASTChunk(
             content=content.strip(),
@@ -1158,13 +1270,15 @@ class JavaScriptChunker:
             chunk_index=self.chunk_index,
             line_start=start_idx + 1,
             line_end=end_idx + 1,
-            chunk_type='class',
+            chunk_type='class' if len(methods) <= 1 else 'class_with_methods',
             name=class_name,
             hierarchy=['module', class_name],
             metadata={
                 'language': 'javascript',
                 'is_exported': is_exported,
-                'is_abstract': 'abstract' in lines[start_idx]
+                'is_abstract': 'abstract' in lines[start_idx],
+                'method_count': len(methods),
+                'methods': methods[:10]  # First 10 method names
             }
         )
         self.chunk_index += 1
@@ -1350,6 +1464,141 @@ class JavaScriptChunker:
         )
         self.chunk_index += 1
         return chunk
+    
+    def _smart_split_js_class(self, lines: List[str], start_idx: int, end_idx: int,
+                              file_path: str, class_name: str) -> List[ASTChunk]:
+        """Smart splitting for large JavaScript/TypeScript classes"""
+        import re
+        chunks = []
+        class_hierarchy = ['module', class_name]
+        
+        # Extract class definition and constructor
+        constructor_end = start_idx
+        method_groups = []
+        current_group = {
+            'methods': [],
+            'start_line': start_idx,
+            'end_line': None,
+            'size': 0,
+            'has_constructor': False
+        }
+        
+        # Include class definition in first group
+        class_def_lines = []
+        i = start_idx
+        while i <= end_idx:
+            line = lines[i]
+            # Look for constructor
+            if re.match(r'^\s*constructor\s*\(', line.strip()):
+                # Find end of constructor
+                brace_count = 1 if '{' in line else 0
+                constructor_start = i
+                for j in range(i + 1, end_idx + 1):
+                    if '{' in lines[j]:
+                        brace_count += lines[j].count('{')
+                    if '}' in lines[j]:
+                        brace_count -= lines[j].count('}')
+                        if brace_count == 0:
+                            constructor_end = j
+                            current_group['has_constructor'] = True
+                            current_group['end_line'] = j
+                            break
+                i = constructor_end + 1
+                continue
+            
+            # Look for methods
+            method_match = re.match(r'^\s*(?:async\s+)?(?:static\s+)?(\w+)\s*\(.*?\)\s*{', line.strip())
+            if method_match and i > start_idx:
+                method_name = method_match.group(1)
+                # Find method end
+                brace_count = 1
+                method_start = i
+                for j in range(i + 1, end_idx + 1):
+                    if '{' in lines[j]:
+                        brace_count += lines[j].count('{')
+                    if '}' in lines[j]:
+                        brace_count -= lines[j].count('}')
+                        if brace_count == 0:
+                            method_end = j
+                            method_content = ''.join(lines[method_start:method_end + 1])
+                            method_size = len(method_content)
+                            
+                            # Check if adding this method would exceed limit
+                            if current_group['methods'] and current_group['size'] + method_size > self.max_chunk_size:
+                                # Start new group
+                                method_groups.append(current_group)
+                                current_group = {
+                                    'methods': [(method_name, method_start, method_end)],
+                                    'start_line': method_start,
+                                    'end_line': method_end,
+                                    'size': method_size,
+                                    'has_constructor': False
+                                }
+                            else:
+                                current_group['methods'].append((method_name, method_start, method_end))
+                                current_group['size'] += method_size
+                                current_group['end_line'] = method_end
+                            
+                            i = method_end + 1
+                            break
+                continue
+            i += 1
+        
+        # Add the last group
+        if current_group['methods'] or current_group['has_constructor']:
+            method_groups.append(current_group)
+        
+        # Create chunks from groups
+        for idx, group in enumerate(method_groups):
+            if idx == 0:
+                # First chunk includes class definition
+                chunk_end = group['end_line'] if group['end_line'] else start_idx + 1
+                content = ''.join(lines[start_idx:chunk_end + 1])
+                chunk_type = 'class_with_methods'
+                
+                chunk = ASTChunk(
+                    content=content.strip(),
+                    file_path=file_path,
+                    chunk_index=self.chunk_index,
+                    line_start=start_idx + 1,
+                    line_end=chunk_end + 1,
+                    chunk_type=chunk_type,
+                    name=class_name,
+                    hierarchy=class_hierarchy,
+                    metadata={
+                        'language': 'javascript',
+                        'is_exported': 'export' in lines[start_idx],
+                        'methods': [m[0] for m in group['methods']],
+                        'has_constructor': group['has_constructor'],
+                        'chunk_part': f"1/{len(method_groups)}"
+                    }
+                )
+            else:
+                # Subsequent chunks are method groups
+                content = f"// Methods from class {class_name}\n"
+                for method_name, m_start, m_end in group['methods']:
+                    content += ''.join(lines[m_start:m_end + 1]) + "\n"
+                
+                chunk = ASTChunk(
+                    content=content.strip(),
+                    file_path=file_path,
+                    chunk_index=self.chunk_index,
+                    line_start=group['start_line'] + 1,
+                    line_end=group['end_line'] + 1,
+                    chunk_type='class_methods',
+                    name=f"{class_name}_methods_{idx}",
+                    hierarchy=class_hierarchy + ['methods'],
+                    metadata={
+                        'class_name': class_name,
+                        'methods': [m[0] for m in group['methods']],
+                        'chunk_part': f"{idx+1}/{len(method_groups)}"
+                    }
+                )
+            
+            self.chunk_index += 1
+            chunks.append(chunk)
+        
+        return chunks
     
     def _fallback_chunk(self, content: str, file_path: str) -> List[ASTChunk]:
         """Fallback to simple chunking"""

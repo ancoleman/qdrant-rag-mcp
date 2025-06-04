@@ -7,7 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Phase 2 AST Chunking Improvements**: Smart code structure grouping for all language chunkers
+  - **Python**: Enhanced `keep_class_together` parameter with `_smart_split_class()` method
+    - Keeps `__init__` method with class definition
+    - Groups related methods together up to 1.5x chunk size limit
+    - Creates `class_with_methods` and `class_methods` chunk types
+  - **Shell Scripts**: Added `keep_function_together` feature (mapped from `keep_class_together`)
+    - Groups functions within 5 lines proximity if combined size permits
+    - Creates `functions` chunk type for multiple grouped functions
+    - Tracks function count and names in metadata
+  - **Go**: Added `keep_struct_together` feature with `_group_structs_with_methods()`
+    - Groups structs with their receiver methods
+    - Creates `struct_with_methods` chunk type
+    - Maintains proper method associations via receiver_type metadata
+  - **JavaScript/TypeScript**: Added `keep_class_together` with `_smart_split_js_class()`
+    - Keeps constructor with class definition
+    - Smart method grouping based on size limits
+    - Handles ES6 classes, methods, and arrow functions
+
 ### Fixed
+
+- **Shell Script Indexing**: Fixed AST chunking failures for shell scripts
+  - All language chunkers now accept `keep_class_together` parameter for compatibility
+  - ShellScriptChunker, GoChunker, and JavaScriptChunker constructors updated
+  - Enables successful indexing of all .sh files with intelligent chunking
 
 - **Dynamic Embedding Dimensions**: Fixed hardcoded vector dimensions that prevented using different embedding models
   - `_expand_search_context()` now uses dynamic embedding dimensions instead of hardcoded 384

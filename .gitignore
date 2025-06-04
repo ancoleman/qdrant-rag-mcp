@@ -55,3 +55,4 @@ htmlcov/
 
 # Claude project file
 CLAUDE.md
+progressive_cache/

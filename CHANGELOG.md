@@ -15,6 +15,36 @@ Added intelligent multi-level context retrieval with semantic caching, achieving
 
 ### Added
 
+- **Configurable Scoring Pipeline**: Implemented modular scoring system for hybrid search
+  - New `ScoringPipeline` class with pluggable scoring stages
+  - Built-in stages: `VectorScoringStage`, `BM25ScoringStage`, `ExactMatchStage`, `FusionStage`, `EnhancedRankingStage`
+  - Factory functions for common configurations: `create_hybrid_pipeline()`, `create_code_search_pipeline()`, `create_documentation_pipeline()`
+  - Support for custom scoring stages with extensible architecture
+  - Detailed score breakdown and debugging metadata in results
+  - Integration with `HybridSearcher.search_with_pipeline()` method
+
+- **Enhanced BM25 Code Tokenization**: Improved keyword matching for code-specific patterns
+  - `code_preprocessor` function handles camelCase splitting (BM25Manager → BM25 Manager)
+  - Snake_case tokenization (append_documents → append documents)
+  - Number-letter separation for better code token matching
+  - Special character handling for operators and symbols
+
+- **Improved AST Chunking Strategy**: Better code structure preservation in chunks
+  - Classes now chunked together with their methods (`class_with_methods` type)
+  - Related methods grouped together (`class_methods` type)
+  - Function signatures kept with their implementation
+  - Enhanced metadata for code structure understanding
+
+- **Unified Hybrid Search Component**: Created reusable `_perform_hybrid_search()` helper function
+  - Eliminates code duplication across all search functions
+  - Ensures consistent hybrid search behavior with linear combination fusion
+  - Supports customizable metadata extraction and result processing per search type
+  - All search functions now support vector, keyword, and hybrid modes
+
+- **Technical Documentation**: Comprehensive guides for scoring pipeline
+  - `docs/technical/scoring-pipeline-architecture.md`: Complete architectural overview
+  - `docs/technical/scoring-pipeline-quick-reference.md`: Developer quick reference
+
 - **Progressive Context Core Module** (`src/utils/progressive_context.py`):
   - `ProgressiveContextManager` - Orchestrates multi-level context retrieval (file → class → method)
   - `SemanticCache` - Implements similarity-based caching with persistent storage
@@ -74,6 +104,19 @@ Added intelligent multi-level context retrieval with semantic caching, achieving
   - "Debugging" queries → Method level (e.g., "Bug in line Z")
   - Confidence-based fallback to configurable default level
 
+### Changed
+
+- **Refactored Search Functions**: All search functions now use unified hybrid search
+  - `search()`: Uses general metadata extractor for all collection types
+  - `search_code()`: Now supports hybrid search (previously vector-only) with code-specific metadata
+  - `search_docs()`: Simplified to use common hybrid search with docs-specific metadata
+  - Consistent scoring and ranking across all search types
+
+- **Linear Combination Scoring**: Switched from RRF to linear combination for accurate hybrid search
+  - More interpretable scores that preserve semantic similarity information
+  - Configurable weights for different content types (code: 50/50, docs: 80/20)
+  - Enhanced score accuracy and consistency across search modes
+
 ### Fixed
 
 - **Progressive Context Scoring Bug**: Fixed issue where search results showed low base scores (0.01-0.04) instead of enhanced scores (0.4-0.6)
@@ -86,6 +129,11 @@ Added intelligent multi-level context retrieval with semantic caching, achieving
   - Linear combination preserves semantic similarity information from embeddings
   - Results now show meaningful scores (0.6-0.9) that reflect actual match quality
   - Applied to both progressive and regular search for consistency
+
+- **Search Performance Optimization**: Fixed inefficient document fetching in hybrid and keyword search modes
+  - Regular search now reuses original vector search results instead of re-fetching with dummy vectors
+  - Keyword search now uses actual query vectors instead of dummy zeros when fetching documents
+  - Reduces redundant Qdrant queries and improves score accuracy
 
 ### Documentation
 

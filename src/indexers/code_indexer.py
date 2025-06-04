@@ -101,7 +101,8 @@ class CodeIndexer:
         language = file_path.suffix
         ast_chunker = create_ast_chunker(language, 
                                        max_chunk_size=self.chunk_size,
-                                       min_chunk_size=100)
+                                       min_chunk_size=100,
+                                       keep_class_together=True)  # Phase 2 improvement
         
         if not ast_chunker:
             # Fallback to text splitter

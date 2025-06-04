@@ -11,7 +11,7 @@ import threading
 import time
 import argparse
 import fnmatch
-from typing import Dict, List, Optional, Any, Set, Tuple
+from typing import Dict, List, Optional, Any, Set, Tuple, Callable
 from pathlib import Path
 import logging
 from datetime import datetime
@@ -49,13 +49,9 @@ from utils.file_hash import calculate_file_hash, get_file_info
 # Import configuration
 from config import get_config
 # Import progressive context
-from utils.progressive_context import (
-    get_progressive_manager,
-    get_query_classifier,
-    ProgressiveResult
-)
+from utils.progressive_context import get_progressive_manager
 # Import context tracking
-from utils.context_tracking import SessionContextTracker, SessionStore, check_context_usage, get_context_indicator
+from utils.context_tracking import SessionContextTracker, SessionStore, check_context_usage
 
 # Configure basic console logging for startup messages
 logging.basicConfig(
@@ -1207,7 +1203,7 @@ def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
                 points=points
             )
             
-            # Update BM25 index
+            # Update BM25 index - use append for efficiency
             hybrid_searcher = get_hybrid_searcher()
             documents = []
             for chunk in chunks:
@@ -1223,30 +1219,8 @@ def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
                 }
                 documents.append(doc)
             
-            # Get all documents in collection for BM25 update
-            # Note: In production, we'd want incremental updates
-            all_docs = []
-            scroll_result = qdrant_client.scroll(
-                collection_name=collection_name,
-                limit=100,
-                with_payload=True,
-                with_vectors=False
-            )
-            
-            for point in scroll_result[0]:
-                doc = {
-                    "id": f"{point.payload['file_path']}_{point.payload['chunk_index']}",
-                    "content": point.payload.get("content", ""),
-                    "file_path": point.payload.get("file_path", ""),
-                    "chunk_index": point.payload.get("chunk_index", 0),
-                    "line_start": point.payload.get("line_start", 0),
-                    "line_end": point.payload.get("line_end", 0),
-                    "language": point.payload.get("language", ""),
-                    "chunk_type": point.payload.get("chunk_type", "general")
-                }
-                all_docs.append(doc)
-                
-            hybrid_searcher.bm25_manager.update_index(collection_name, all_docs)
+            # Append new documents to BM25 index (more efficient than rebuilding)
+            hybrid_searcher.bm25_manager.append_documents(collection_name, documents)
         
         duration_ms = (time.time() - start_time) * 1000
         result = {
@@ -1763,6 +1737,20 @@ def index_directory(directory: str = None, patterns: List[str] = None, recursive
                 except Exception as e:
                     errors.append({"file": str(file_path), "error": str(e)})
         
+        # Build/rebuild BM25 indices for all affected collections after indexing
+        if indexed_files and collections_used:
+            console_logger.info(f"Building BM25 indices for {len(collections_used)} collections")
+            hybrid_searcher = get_hybrid_searcher()
+            qdrant_client = get_qdrant_client()
+            
+            for collection_name in collections_used:
+                try:
+                    # Build BM25 index from all documents in the collection
+                    hybrid_searcher.bm25_manager.build_from_qdrant(collection_name, qdrant_client)
+                    console_logger.debug(f"Built BM25 index for {collection_name}")
+                except Exception as e:
+                    console_logger.warning(f"Failed to build BM25 index for {collection_name}: {e}")
+        
         return {
             "indexed_files": indexed_files,
             "total": len(indexed_files),
@@ -1872,6 +1860,8 @@ def reindex_directory(
             # Process deletions first - remove chunks for deleted files
             deleted_count = 0
             deletion_errors = []
+            collections_used = set()  # Track all affected collections
+            
             for file_path in deleted_files:
                 try:
                     # Determine collection name based on file type
@@ -1889,6 +1879,9 @@ def reindex_directory(
                     
                     if "error" not in delete_result:
                         deleted_count += delete_result.get("deleted_points", 0)
+                        # Track the collection that was affected
+                        if "collection" in delete_result:
+                            collections_used.add(delete_result["collection"])
                         console_logger.info(f"Removed chunks for deleted file: {file_path}")
                     else:
                         deletion_errors.append({
@@ -1905,7 +1898,6 @@ def reindex_directory(
             files_to_index = added_files + modified_files
             indexed_files = []
             indexing_errors = []
-            collections_used = set()
             
             if files_to_index:
                 console_logger.info(f"Indexing {len(files_to_index)} changed files ({len(added_files)} added, {len(modified_files)} modified)")
@@ -1952,6 +1944,20 @@ def reindex_directory(
                             "error": str(e)
                         })
             
+            # Build/rebuild BM25 indices for affected collections after incremental indexing
+            if (indexed_files or deleted_files) and collections_used:
+                console_logger.info(f"Rebuilding BM25 indices for {len(collections_used)} collections after incremental reindex")
+                hybrid_searcher = get_hybrid_searcher()
+                qdrant_client = get_qdrant_client()
+                
+                for collection_name in collections_used:
+                    try:
+                        # Rebuild BM25 index from all documents in the collection
+                        hybrid_searcher.bm25_manager.build_from_qdrant(collection_name, qdrant_client)
+                        console_logger.debug(f"Rebuilt BM25 index for {collection_name}")
+                    except Exception as e:
+                        console_logger.warning(f"Failed to rebuild BM25 index for {collection_name}: {e}")
+            
             # Combine results
             duration_ms = (time.time() - start_time) * 1000
             total_errors = deletion_errors + indexing_errors
@@ -1996,6 +2002,273 @@ def reindex_directory(
             "status": "error"
         })
         return {"error": str(e), "directory": directory}
+
+def _perform_hybrid_search(
+    qdrant_client,
+    embedding_model,
+    query: str,
+    query_embedding: List[float],
+    search_collections: List[str],
+    n_results: int,
+    search_mode: str = "hybrid",
+    collection_filter: Optional[Dict] = None,
+    result_processor: Optional[Callable] = None,
+    metadata_extractor: Optional[Callable] = None
+) -> List[Dict[str, Any]]:
+    """
+    Reusable hybrid search component for all search functions.
+    
+    Args:
+        qdrant_client: Qdrant client instance
+        embedding_model: Embedding model instance
+        query: Search query text
+        query_embedding: Pre-computed query embedding
+        search_collections: Collections to search
+        n_results: Number of results to return
+        search_mode: "vector", "keyword", or "hybrid"
+        collection_filter: Optional filter for collection-specific queries
+        result_processor: Optional function to process each result
+        metadata_extractor: Optional function to extract type-specific metadata
+    
+    Returns:
+        List of search results with scores and metadata
+    """
+    logger = get_logger()
+    all_results = []
+    
+    for collection in search_collections:
+        try:
+            if search_mode == "vector":
+                # Simple vector search
+                results = qdrant_client.search(
+                    collection_name=collection,
+                    query_vector=query_embedding,
+                    query_filter=collection_filter,
+                    limit=n_results
+                )
+                
+                for result in results:
+                    base_result = {
+                        "score": float(result.score),
+                        "vector_score": float(result.score),  # Always include vector_score
+                        "collection": collection,
+                        "search_mode": search_mode,
+                        "file_path": result.payload.get("file_path", ""),
+                        "content": result.payload.get("content", ""),
+                        "chunk_index": result.payload.get("chunk_index", 0),
+                        "project": result.payload.get("project", "unknown")
+                    }
+                    
+                    # Apply type-specific metadata extraction
+                    if metadata_extractor:
+                        base_result.update(metadata_extractor(result.payload))
+                    
+                    # Apply result processing
+                    if result_processor:
+                        base_result = result_processor(base_result)
+                    
+                    all_results.append(base_result)
+                    
+            elif search_mode == "keyword":
+                # BM25 keyword search only
+                hybrid_searcher = get_hybrid_searcher()
+                if not hybrid_searcher:
+                    logger.warning("Hybrid searcher not available for keyword search")
+                    continue
+                    
+                bm25_results = hybrid_searcher.bm25_manager.search(
+                    collection_name=collection,
+                    query=query,
+                    k=n_results,
+                    qdrant_client=qdrant_client
+                )
+                
+                # Fetch full documents from Qdrant
+                for doc_id, score in bm25_results:
+                    parts = doc_id.rsplit('_', 1)
+                    if len(parts) == 2:
+                        file_path = parts[0]
+                        chunk_index = int(parts[1])
+                        
+                        # Fetch from Qdrant
+                        filter_conditions = {
+                            "must": [
+                                {"key": "file_path", "match": {"value": file_path}},
+                                {"key": "chunk_index", "match": {"value": chunk_index}}
+                            ]
+                        }
+                        
+                        search_result = qdrant_client.search(
+                            collection_name=collection,
+                            query_vector=query_embedding,  # Use actual query vector
+                            query_filter=filter_conditions,
+                            limit=1
+                        )
+                        
+                        if search_result:
+                            payload = search_result[0].payload
+                            base_result = {
+                                "score": score,
+                                "collection": collection,
+                                "search_mode": search_mode,
+                                "file_path": payload.get("file_path", ""),
+                                "content": payload.get("content", ""),
+                                "chunk_index": payload.get("chunk_index", 0),
+                                "project": payload.get("project", "unknown")
+                            }
+                            
+                            # Apply type-specific metadata extraction
+                            if metadata_extractor:
+                                base_result.update(metadata_extractor(payload))
+                            
+                            # Apply result processing
+                            if result_processor:
+                                base_result = result_processor(base_result)
+                            
+                            all_results.append(base_result)
+                            
+            else:  # hybrid mode
+                # Get vector search results first
+                vector_results = []
+                vector_scores_map = {}
+                result_objects_map = {}  # Store original result objects
+                
+                search_results = qdrant_client.search(
+                    collection_name=collection,
+                    query_vector=query_embedding,
+                    query_filter=collection_filter,
+                    limit=n_results * 2  # Get more for fusion
+                )
+                
+                for result in search_results:
+                    doc_id = f"{result.payload['file_path']}_{result.payload.get('chunk_index', 0)}"
+                    score = float(result.score)
+                    vector_results.append((doc_id, score))
+                    vector_scores_map[doc_id] = score
+                    result_objects_map[doc_id] = result  # Store the original result
+                
+                # Get BM25 results
+                hybrid_searcher = get_hybrid_searcher()
+                if not hybrid_searcher:
+                    logger.warning("Hybrid searcher not available, falling back to vector search")
+                    # Just use vector results
+                    for result in search_results[:n_results]:
+                        base_result = {
+                            "score": float(result.score),
+                            "collection": collection,
+                            "search_mode": "vector",  # Indicate fallback
+                            "file_path": result.payload.get("file_path", ""),
+                            "content": result.payload.get("content", ""),
+                            "chunk_index": result.payload.get("chunk_index", 0),
+                            "project": result.payload.get("project", "unknown")
+                        }
+                        
+                        if metadata_extractor:
+                            base_result.update(metadata_extractor(result.payload))
+                        if result_processor:
+                            base_result = result_processor(base_result)
+                        
+                        all_results.append(base_result)
+                    continue
+                
+                bm25_results = hybrid_searcher.bm25_manager.search(
+                    collection_name=collection,
+                    query=query,
+                    k=n_results * 2,
+                    qdrant_client=qdrant_client
+                )
+                bm25_scores_map = {doc_id: score for doc_id, score in bm25_results}
+                
+                # Determine search type from collection name
+                search_type = "code" if "_code" in collection else "documentation" if "_documentation" in collection else "config" if "_config" in collection else "general"
+                vector_weight, bm25_weight = hybrid_searcher.get_weights_for_search_type(search_type)
+                
+                # Fuse results using linear combination with exact match bonus
+                fused_results = hybrid_searcher.linear_combination_with_exact_match(
+                    vector_results=vector_results,
+                    bm25_results=bm25_results,
+                    query=query,
+                    result_objects_map=result_objects_map,
+                    vector_weight=vector_weight,
+                    bm25_weight=bm25_weight,
+                    exact_match_bonus=0.2
+                )
+                
+                # Use original results or fetch BM25-only results
+                for result in fused_results[:n_results]:
+                    doc_id = result.content  # doc_id is stored in content field
+                    
+                    if doc_id in result_objects_map:
+                        # Use the original result object
+                        original_result = result_objects_map[doc_id]
+                        payload = original_result.payload
+                        base_result = {
+                            "score": result.combined_score,
+                            "vector_score": vector_scores_map.get(doc_id, None),
+                            "bm25_score": bm25_scores_map.get(doc_id, None),
+                            "collection": collection,
+                            "search_mode": search_mode,
+                            "file_path": payload.get("file_path", ""),
+                            "content": payload.get("content", ""),
+                            "chunk_index": payload.get("chunk_index", 0),
+                            "project": payload.get("project", "unknown")
+                        }
+                    else:
+                        # This is a BM25-only result, need to fetch it
+                        parts = doc_id.rsplit('_', 1)
+                        if len(parts) == 2:
+                            file_path = parts[0]
+                            chunk_index = int(parts[1])
+                            
+                            # Fetch from Qdrant with actual query vector
+                            filter_conditions = {
+                                "must": [
+                                    {"key": "file_path", "match": {"value": file_path}},
+                                    {"key": "chunk_index", "match": {"value": chunk_index}}
+                                ]
+                            }
+                            
+                            search_result = qdrant_client.search(
+                                collection_name=collection,
+                                query_vector=query_embedding,  # Use actual query vector
+                                query_filter=filter_conditions,
+                                limit=1
+                            )
+                            
+                            if search_result:
+                                payload = search_result[0].payload
+                                base_result = {
+                                    "score": result.combined_score,
+                                    "vector_score": vector_scores_map.get(doc_id, None),
+                                    "bm25_score": bm25_scores_map.get(doc_id, None),
+                                    "collection": collection,
+                                    "search_mode": search_mode,
+                                    "file_path": payload.get("file_path", ""),
+                                    "content": payload.get("content", ""),
+                                    "chunk_index": payload.get("chunk_index", 0),
+                                    "project": payload.get("project", "unknown")
+                                }
+                            else:
+                                continue
+                        else:
+                            continue
+                    
+                    # Apply type-specific metadata extraction
+                    if metadata_extractor:
+                        base_result.update(metadata_extractor(payload))
+                    
+                    # Apply result processing
+                    if result_processor:
+                        base_result = result_processor(base_result)
+                    
+                    all_results.append(base_result)
+                    
+        except Exception as e:
+            # Skip if collection doesn't exist
+            logger.debug(f"Error searching collection {collection}: {e}")
+            pass
+    
+    return all_results
 
 @mcp.tool()
 def search(
@@ -2178,140 +2451,28 @@ def search(
                     if c.startswith('global_')
                 ]
         
-        # Search across collections
-        all_results = []
-        hybrid_searcher = get_hybrid_searcher()
+        # Use the new hybrid search helper
+        def general_metadata_extractor(payload):
+            # Extract type-specific metadata for general search
+            collection = payload.get("collection", "")
+            return {
+                "display_path": payload.get("display_path", payload.get("file_path", "")),
+                "type": "code" if "_code" in collection else ("config" if "_config" in collection else "docs"),
+                "language": payload.get("language", "") if "_code" in collection else payload.get("format", ""),
+                "line_start": payload.get("line_start", 0),
+                "line_end": payload.get("line_end", 0)
+            }
         
-        for collection in search_collections:
-            try:
-                if search_mode == "vector":
-                    # Vector search only
-                    results = qdrant_client.search(
-                        collection_name=collection,
-                        query_vector=query_embedding,
-                        limit=n_results
-                    )
-                    
-                    for result in results:
-                        payload = result.payload
-                        all_results.append({
-                            "score": result.score,
-                            "type": "code" if "_code" in collection else "config",
-                            "collection": collection,
-                            **payload
-                        })
-                        
-                elif search_mode == "keyword":
-                    # BM25 keyword search only
-                    bm25_results = hybrid_searcher.bm25_manager.search(
-                        collection_name=collection,
-                        query=query,
-                        k=n_results
-                    )
-                    
-                    # Fetch full documents from Qdrant
-                    for doc_id, score in bm25_results:
-                        # Parse doc_id to get file_path and chunk_index
-                        parts = doc_id.rsplit('_', 1)
-                        if len(parts) == 2:
-                            file_path = parts[0]
-                            chunk_index = int(parts[1])
-                            
-                            # Fetch from Qdrant
-                            filter_conditions = {
-                                "must": [
-                                    {"key": "file_path", "match": {"value": file_path}},
-                                    {"key": "chunk_index", "match": {"value": chunk_index}}
-                                ]
-                            }
-                            
-                            search_result = qdrant_client.search(
-                                collection_name=collection,
-                                query_vector=[0.0] * 384,  # Dummy vector
-                                query_filter=filter_conditions,
-                                limit=1
-                            )
-                            
-                            if search_result:
-                                payload = search_result[0].payload
-                                all_results.append({
-                                    "score": score,
-                                    "type": "code" if "_code" in collection else "config",
-                                    "collection": collection,
-                                    **payload
-                                })
-                                
-                else:  # hybrid mode
-                    # Get vector search results
-                    vector_results = []
-                    vector_scores_map = {}  # Store vector scores by doc_id
-                    search_results = qdrant_client.search(
-                        collection_name=collection,
-                        query_vector=query_embedding,
-                        limit=n_results * 2  # Get more for fusion
-                    )
-                    
-                    for result in search_results:
-                        doc_id = f"{result.payload['file_path']}_{result.payload['chunk_index']}"
-                        score = float(result.score)
-                        vector_results.append((doc_id, score))
-                        vector_scores_map[doc_id] = score
-                    
-                    # Get BM25 results
-                    bm25_results = hybrid_searcher.bm25_manager.search(
-                        collection_name=collection,
-                        query=query,
-                        k=n_results * 2
-                    )
-                    bm25_scores_map = {doc_id: score for doc_id, score in bm25_results}
-                    
-                    # Fuse results using linear combination for better score accuracy
-                    fused_results = hybrid_searcher.linear_combination(
-                        vector_results=vector_results,
-                        bm25_results=bm25_results,
-                        vector_weight=0.7,
-                        bm25_weight=0.3
-                    )
-                    
-                    # Fetch full documents for top results
-                    for result in fused_results[:n_results]:
-                        doc_id = result.content  # doc_id is stored in content field
-                        parts = doc_id.rsplit('_', 1)
-                        if len(parts) == 2:
-                            file_path = parts[0]
-                            chunk_index = int(parts[1])
-                            
-                            # Fetch from Qdrant
-                            filter_conditions = {
-                                "must": [
-                                    {"key": "file_path", "match": {"value": file_path}},
-                                    {"key": "chunk_index", "match": {"value": chunk_index}}
-                                ]
-                            }
-                            
-                            search_result = qdrant_client.search(
-                                collection_name=collection,
-                                query_vector=[0.0] * 384,  # Dummy vector
-                                query_filter=filter_conditions,
-                                limit=1
-                            )
-                            
-                            if search_result:
-                                payload = search_result[0].payload
-                                all_results.append({
-                                    "score": result.combined_score,
-                                    "vector_score": vector_scores_map.get(doc_id, None),
-                                    "bm25_score": bm25_scores_map.get(doc_id, None),
-                                    "type": "code" if "_code" in collection else "config",
-                                    "collection": collection,
-                                    "search_mode": search_mode,
-                                    **payload
-                                })
-                                
-            except Exception as e:
-                # Skip if collection doesn't exist
-                logger.debug(f"Error searching collection {collection}: {e}")
-                pass
+        all_results = _perform_hybrid_search(
+            qdrant_client=qdrant_client,
+            embedding_model=embedding_model,
+            query=query,
+            query_embedding=query_embedding,
+            search_collections=search_collections,
+            n_results=n_results,
+            search_mode=search_mode,
+            metadata_extractor=general_metadata_extractor
+        )
         
         # Handle dependency inclusion if requested
         if include_dependencies and all_results:
@@ -2536,7 +2697,8 @@ def search_code(
                 cross_project=cross_project,
                 search_mode=search_mode,
                 include_dependencies=include_dependencies,
-                semantic_cache=semantic_cache
+                semantic_cache=semantic_cache,
+                collection_suffix="_code"  # Only search code collections
             )
             
             # Filter results by language if specified
@@ -2634,37 +2796,31 @@ def search_code(
                 must=[FieldCondition(key="language", match=MatchValue(value=language))]
             )
         
-        # Search across collections
-        all_results = []
+        # Use the new hybrid search helper
+        def code_metadata_extractor(payload):
+            return {
+                "display_path": payload.get("display_path", payload.get("file_path", "")),
+                "language": payload.get("language", ""),
+                "line_range": {
+                    "start": payload.get("line_start", 0),
+                    "end": payload.get("line_end", 0)
+                },
+                "chunk_type": payload.get("chunk_type", "general"),
+                "complexity": payload.get("complexity", 0),
+                "imports": payload.get("imports", [])
+            }
         
-        for collection in search_collections:
-            try:
-                results = qdrant_client.search(
-                    collection_name=collection,
-                    query_vector=query_embedding,
-                    query_filter=filter_dict,
-                    limit=n_results
-                )
-                
-                for result in results:
-                    payload = result.payload
-                    all_results.append({
-                        "score": result.score,
-                        "file_path": payload.get("file_path", ""),  # Keep actual file_path for internal use
-                        "display_path": payload.get("display_path", payload.get("file_path", "")),  # Add display_path separately
-                        "language": payload.get("language", ""),
-                        "line_range": {
-                            "start": payload.get("line_start", 0),
-                            "end": payload.get("line_end", 0)
-                        },
-                        "content": payload.get("content", ""),
-                        "chunk_type": payload.get("chunk_type", "general"),
-                        "project": payload.get("project", "unknown"),
-                        "chunk_index": payload.get("chunk_index", 0),
-                        "collection": collection
-                    })
-            except:
-                pass
+        all_results = _perform_hybrid_search(
+            qdrant_client=qdrant_client,
+            embedding_model=embedding_model,
+            query=query,
+            query_embedding=query_embedding,
+            search_collections=search_collections,
+            n_results=n_results,
+            search_mode=search_mode,  # Now search_code supports hybrid!
+            collection_filter=filter_dict,
+            metadata_extractor=code_metadata_extractor
+        )
         
         # Handle dependency inclusion if requested
         if include_dependencies and all_results:
@@ -2917,7 +3073,8 @@ def search_docs(
                 cross_project=cross_project,
                 search_mode=search_mode,
                 include_dependencies=False,  # Not applicable for docs
-                semantic_cache=semantic_cache
+                semantic_cache=semantic_cache,
+                collection_suffix="_documentation"  # Only search documentation collections
             )
             
             # Filter results by doc type if specified
@@ -3035,93 +3192,52 @@ def search_docs(
         # Generate query embedding for vector search
         query_embedding = model.encode(query).tolist()
         
-        all_results = []
+        # Build filter if doc_type specified
+        filter_dict = None
+        if doc_type:
+            from qdrant_client.http.models import Filter, FieldCondition, MatchValue
+            filter_dict = Filter(
+                must=[FieldCondition(key="doc_type", match=MatchValue(value=doc_type.lower()))]
+            )
         
-        if search_mode in ["vector", "hybrid"]:
-            # Vector search
-            for collection in search_collections:
-                try:
-                    # Build search filter
-                    search_filter = None
-                    if doc_type:
-                        search_filter = {
-                            "must": [
-                                {"key": "doc_type", "match": {"value": doc_type.lower()}}
-                            ]
-                        }
-                    
-                    results = qdrant_client.search(
-                        collection_name=collection,
-                        query_vector=query_embedding,
-                        query_filter=search_filter,
-                        limit=n_results if not search_mode == "hybrid" else n_results * 2
-                    )
-                    
-                    for result in results:
-                        payload = result.payload
-                        all_results.append({
-                            "score": result.score,
-                            "vector_score": result.score,
-                            "file_path": payload.get("file_path", ""),
-                            "file_name": payload.get("file_name", ""),
-                            "doc_type": payload.get("doc_type", "markdown"),
-                            "title": payload.get("title", ""),
-                            "heading": payload.get("heading", ""),
-                            "heading_hierarchy": payload.get("heading_hierarchy", []),
-                            "heading_level": payload.get("heading_level", 0),
-                            "content": _truncate_content(payload.get("content", "")),
-                            "chunk_index": payload.get("chunk_index", 0),
-                            "chunk_type": payload.get("chunk_type", "section"),
-                            "has_code_blocks": payload.get("has_code_blocks", False),
-                            "code_languages": payload.get("code_languages", []),
-                            "collection": collection,
-                            "project": payload.get("project", "unknown")
-                        })
-                except Exception as e:
-                    logger.warning(f"Error searching collection {collection}: {e}")
-        
-        if search_mode in ["keyword", "hybrid"]:
-            # BM25 keyword search
-            hybrid_searcher = get_hybrid_searcher()
+        # Use the new hybrid search helper
+        def docs_metadata_extractor(payload):
+            # Ensure file_name is set (fallback to extracting from file_path if needed)
+            file_name = payload.get("file_name", "")
+            if not file_name and payload.get("file_path"):
+                file_name = Path(payload.get("file_path", "")).name
             
-            for collection in search_collections:
-                try:
-                    bm25_results = hybrid_searcher.bm25_manager.search(
-                        collection_name=collection,
-                        query=query,
-                        k=n_results if not search_mode == "hybrid" else n_results * 2
-                    )
-                    
-                    for doc in bm25_results:
-                        # Check if already in results (for hybrid mode)
-                        existing = next((r for r in all_results if r["file_path"] == doc["file_path"] and r["chunk_index"] == doc["chunk_index"]), None)
-                        
-                        if existing and search_mode == "hybrid":
-                            # Update with BM25 score
-                            existing["bm25_score"] = doc.get("score", 0.5)
-                            existing["combined_score"] = (existing["vector_score"] + doc.get("score", 0.5)) / 2
-                        elif not existing:
-                            # Add new result
-                            all_results.append({
-                                "score": doc.get("score", 0.5),
-                                "bm25_score": doc.get("score", 0.5),
-                                "file_path": doc.get("file_path", ""),
-                                "file_name": Path(doc.get("file_path", "")).name,
-                                "doc_type": doc.get("doc_type", "markdown"),
-                                "title": doc.get("title", ""),
-                                "heading": doc.get("heading", ""),
-                                "heading_hierarchy": doc.get("heading_hierarchy", []),
-                                "heading_level": doc.get("heading_level", 0),
-                                "content": _truncate_content(doc.get("content", "")),
-                                "chunk_index": doc.get("chunk_index", 0),
-                                "chunk_type": doc.get("chunk_type", "section"),
-                                "has_code_blocks": doc.get("has_code_blocks", False),
-                                "code_languages": doc.get("code_languages", []),
-                                "collection": collection,
-                                "project": doc.get("project", "unknown")
-                            })
-                except Exception as e:
-                    logger.warning(f"BM25 search error for collection {collection}: {e}")
+            return {
+                "file_name": file_name,
+                "doc_type": payload.get("doc_type", "markdown"),
+                "title": payload.get("title", ""),
+                "heading": payload.get("heading", ""),
+                "heading_hierarchy": payload.get("heading_hierarchy", []),
+                "heading_level": payload.get("heading_level", 0),
+                "chunk_type": payload.get("chunk_type", "section"),
+                "has_code_blocks": payload.get("has_code_blocks", False),
+                "code_languages": payload.get("code_languages", [])
+            }
+        
+        def docs_result_processor(result):
+            # Truncate content for docs
+            if "content" in result:
+                result["content"] = _truncate_content(result["content"])
+            return result
+        
+        all_results = _perform_hybrid_search(
+            qdrant_client=qdrant_client,
+            embedding_model=model,
+            query=query,
+            query_embedding=query_embedding,
+            search_collections=search_collections,
+            n_results=n_results,
+            search_mode=search_mode,
+            collection_filter=filter_dict,
+            metadata_extractor=docs_metadata_extractor,
+            result_processor=docs_result_processor
+        )
+        
         
         # Apply enhanced ranking for hybrid search
         if all_results and search_mode == "hybrid":
@@ -3417,6 +3533,105 @@ def index_config(file_path: str, force_global: bool = False) -> Dict[str, Any]:
         
     except Exception as e:
         return {"error": str(e), "file_path": file_path}
+
+@mcp.tool()
+def rebuild_bm25_indices(collections: Optional[List[str]] = None) -> Dict[str, Any]:
+    """
+    Rebuild BM25 indices for specified collections or all collections.
+    
+    This is useful after server restart when BM25 indices are lost.
+    Note: The indices are built from chunks, not files. Each file is split
+    into multiple chunks during indexing.
+    
+    Args:
+        collections: Optional list of collection names to rebuild. If None, rebuilds all.
+    
+    Returns:
+        Status of rebuild operation with chunk counts (not file counts)
+    """
+    start_time = time.time()
+    console_logger.info("Starting BM25 index rebuild", extra={
+        "operation": "rebuild_bm25_indices",
+        "collections": collections
+    })
+    
+    try:
+        client = get_qdrant_client()
+        hybrid_searcher = get_hybrid_searcher()
+        
+        # Get collections to rebuild
+        if collections:
+            target_collections = collections
+        else:
+            # Get all collections
+            all_collections = client.get_collections().collections
+            target_collections = [c.name for c in all_collections]
+        
+        results = {
+            "rebuilt": [],
+            "failed": [],
+            "total_chunks": 0
+        }
+        
+        for collection_name in target_collections:
+            try:
+                console_logger.info(f"Rebuilding BM25 index for {collection_name}")
+                
+                # Use the build_from_qdrant method
+                success = hybrid_searcher.bm25_manager.build_from_qdrant(collection_name, client)
+                
+                if success:
+                    # Get chunk count (documents in BM25 are actually chunks)
+                    chunk_count = len(hybrid_searcher.bm25_manager.documents.get(collection_name, []))
+                    results["rebuilt"].append({
+                        "collection": collection_name,
+                        "chunks": chunk_count
+                    })
+                    results["total_chunks"] += chunk_count
+                else:
+                    results["failed"].append({
+                        "collection": collection_name,
+                        "reason": "No chunks found or build failed"
+                    })
+                    
+            except Exception as e:
+                results["failed"].append({
+                    "collection": collection_name,
+                    "reason": str(e)
+                })
+                console_logger.error(f"Failed to rebuild BM25 index for {collection_name}: {e}")
+        
+        duration_ms = (time.time() - start_time) * 1000
+        
+        console_logger.info("BM25 index rebuild completed", extra={
+            "operation": "rebuild_bm25_indices",
+            "duration_ms": duration_ms,
+            "rebuilt_count": len(results["rebuilt"]),
+            "failed_count": len(results["failed"]),
+            "total_chunks": results["total_chunks"]
+        })
+        
+        return {
+            "status": "success" if not results["failed"] else "partial",
+            "rebuilt": results["rebuilt"],
+            "failed": results["failed"],
+            "total_chunks": results["total_chunks"],
+            "duration_ms": duration_ms,
+            "message": f"Rebuilt {len(results['rebuilt'])} collections with {results['total_chunks']} total chunks"
+        }
+        
+    except Exception as e:
+        duration_ms = (time.time() - start_time) * 1000
+        console_logger.error(f"BM25 rebuild failed: {e}", extra={
+            "operation": "rebuild_bm25_indices",
+            "duration_ms": duration_ms,
+            "error": str(e)
+        })
+        return {
+            "status": "error",
+            "error": str(e),
+            "duration_ms": duration_ms
+        }
 
 @mcp.tool()
 def health_check() -> Dict[str, Any]:
@@ -4312,6 +4527,65 @@ def get_context_summary() -> str:
 
 
 # Run the server
+def initialize_bm25_indices():
+    """Initialize BM25 indices for all existing collections on startup"""
+    try:
+        console_logger.info("Initializing BM25 indices...")
+        client = get_qdrant_client()
+        hybrid_searcher = get_hybrid_searcher()
+        
+        # Get all collections
+        collections = client.get_collections().collections
+        
+        for collection in collections:
+            collection_name = collection.name
+            console_logger.info(f"Building BM25 index for {collection_name}...")
+            
+            # Fetch all documents from the collection
+            all_docs = []
+            offset = None
+            limit = 100
+            
+            while True:
+                points, next_offset = client.scroll(
+                    collection_name=collection_name,
+                    limit=limit,
+                    offset=offset,
+                    with_payload=True,
+                    with_vectors=False
+                )
+                
+                if not points:
+                    break
+                    
+                for point in points:
+                    doc = {
+                        "id": point.id,
+                        "content": point.payload.get("content", ""),
+                        "file_path": point.payload.get("file_path", ""),
+                        "chunk_index": point.payload.get("chunk_index", 0),
+                        "language": point.payload.get("language", ""),
+                        "doc_type": point.payload.get("doc_type", ""),
+                        "heading": point.payload.get("heading", ""),
+                        "chunk_type": point.payload.get("chunk_type", "")
+                    }
+                    all_docs.append(doc)
+                
+                offset = next_offset
+                if not offset:
+                    break
+            
+            # Update BM25 index
+            if all_docs:
+                hybrid_searcher.bm25_manager.update_index(collection_name, all_docs)
+                console_logger.info(f"  Indexed {len(all_docs)} documents for {collection_name}")
+            else:
+                console_logger.info(f"  No documents found in {collection_name}")
+                
+        console_logger.info("BM25 initialization complete")
+    except Exception as e:
+        console_logger.error(f"Failed to initialize BM25 indices: {e}")
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Qdrant RAG MCP Server")
     parser.add_argument("--watch", action="store_true", help="Enable file watching for auto-reindexing")

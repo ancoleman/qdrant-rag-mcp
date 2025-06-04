@@ -48,6 +48,27 @@
       "recency_weight": 0.4
     }
   },
+  "hybrid_search": {
+    "weights": {
+      "code": {
+        "vector": 0.5,
+        "bm25": 0.5
+      },
+      "documentation": {
+        "vector": 0.8,
+        "bm25": 0.2
+      },
+      "config": {
+        "vector": 0.6,
+        "bm25": 0.4
+      },
+      "general": {
+        "vector": 0.7,
+        "bm25": 0.3
+      }
+    },
+    "exact_match_bonus": 0.2
+  },
   "collections": {
     "code": "code_collection",
     "config": "config_collection",

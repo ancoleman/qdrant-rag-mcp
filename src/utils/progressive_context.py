@@ -103,9 +103,10 @@ class ProgressiveResult:
 class QueryIntentClassifier:
     """Classifies query intent to determine appropriate context level."""
     
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: Optional[Dict[str, Any]] = None, collection_type: Optional[str] = None):
         """Initialize the query intent classifier."""
         self.config = config or {}
+        self.collection_type = collection_type  # "code", "documentation", or None for general
         self.confidence_threshold = self.config.get("confidence_threshold", 0.7)
         self.fallback_level = self.config.get("fallback_level", "class")
         self.logger = get_project_logger()
@@ -116,7 +117,10 @@ class QueryIntentClassifier:
                 "keywords": [
                     "what does", "explain", "overview", "structure",
                     "architecture", "how does", "purpose of", "understand",
-                    "describe", "summary", "high level", "big picture"
+                    "describe", "summary", "high level", "big picture",
+                    # Documentation-specific patterns
+                    "changelog", "readme", "guide", "tutorial", "documentation",
+                    "setup", "installation", "configuration", "usage"
                 ],
                 "exploration_type": "understanding"
             },
@@ -124,14 +128,18 @@ class QueryIntentClassifier:
                 "keywords": [
                     "implementation", "bug in", "error in", "fix",
                     "line", "specific", "exact", "debug", "issue",
-                    "problem", "broken", "failing", "trace"
+                    "problem", "broken", "failing", "trace",
+                    # Code-specific detailed patterns
+                    "function", "method", "parameter", "return value"
                 ],
                 "exploration_type": "debugging"
             },
             "class": {
                 "keywords": [
                     "find", "where is", "show me", "locate",
-                    "search for", "looking for", "need", "want"
+                    "search for", "looking for", "need", "want",
+                    # Navigation patterns
+                    "class", "module", "component", "service"
                 ],
                 "exploration_type": "navigation"
             }
@@ -564,19 +572,49 @@ class ProgressiveContextManager:
         cross_project: bool = False,
         search_mode: str = "hybrid",
         include_dependencies: bool = False,
-        semantic_cache: bool = True
+        semantic_cache: bool = True,
+        collection_suffix: Optional[str] = None
     ) -> ProgressiveResult:
-        """Get context at specified level with expansion options."""
+        """
+        Get context at specified level with expansion options.
+        
+        Args:
+            query: Search query
+            level: Context level ("auto", "file", "class", "method", "full")
+            n_results: Number of results to return
+            cross_project: Whether to search across all projects
+            search_mode: Search mode ("vector", "keyword", "hybrid")
+            include_dependencies: Whether to include dependent files
+            semantic_cache: Whether to use semantic caching
+            collection_suffix: Optional suffix to filter collections (e.g., "_documentation", "_code")
+        
+        Returns:
+            ProgressiveResult with context at requested level
+        """
         # Classify query intent if level is auto
         query_intent = None
         if level == "auto":
-            query_intent = self.query_classifier.classify(query)
-            level = query_intent.level
-            self.logger.info(f"Auto-detected context level: {level}", extra={
-                "query": query[:50],
-                "level": level,
-                "confidence": query_intent.confidence
-            })
+            # For documentation searches, default to file level since docs don't have classes/methods
+            if collection_suffix == "_documentation":
+                level = "file"
+                query_intent = QueryIntent(
+                    level="file",
+                    type="understanding",
+                    confidence=0.9
+                )
+                self.logger.info(f"Auto-detected context level for docs: {level}", extra={
+                    "query": query[:50],
+                    "level": level,
+                    "collection_type": "documentation"
+                })
+            else:
+                query_intent = self.query_classifier.classify(query)
+                level = query_intent.level
+                self.logger.info(f"Auto-detected context level: {level}", extra={
+                    "query": query[:50],
+                    "level": level,
+                    "confidence": query_intent.confidence
+                })
         
         # Check semantic cache if enabled
         if semantic_cache:
@@ -587,7 +625,7 @@ class ProgressiveContextManager:
         
         # Perform search at requested level
         search_results = self._search_at_level(
-            query, level, n_results, cross_project, search_mode, include_dependencies
+            query, level, n_results, cross_project, search_mode, include_dependencies, collection_suffix
         )
         
         # Build hierarchical structure
@@ -630,7 +668,8 @@ class ProgressiveContextManager:
         n_results: int,
         cross_project: bool,
         search_mode: str,
-        include_dependencies: bool
+        include_dependencies: bool,
+        collection_suffix: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """Perform search and filter results based on context level."""
         # Generate query embedding
@@ -639,12 +678,27 @@ class ProgressiveContextManager:
         # Determine which collections to search
         all_collections = [c.name for c in self.qdrant_client.get_collections().collections]
         
+        # Apply collection suffix filter if specified
+        if collection_suffix:
+            all_collections = [c for c in all_collections if c.endswith(collection_suffix)]
+        
         if cross_project:
             search_collections = all_collections
         else:
             # Get current project collections
-            # This would need to be passed in or imported from the main module
-            search_collections = [c for c in all_collections if not c.startswith('global_')]
+            from qdrant_mcp_context_aware import get_current_project
+            current_project = get_current_project()
+            if current_project:
+                search_collections = [
+                    c for c in all_collections 
+                    if c.startswith(current_project['collection_prefix'])
+                ]
+            else:
+                # No project context - search global collections only
+                search_collections = [
+                    c for c in all_collections 
+                    if c.startswith('global_')
+                ]
         
         # Adjust n_results based on level to get enough data for summarization
         search_limit = n_results * 3 if level in ["file", "class"] else n_results
@@ -659,6 +713,8 @@ class ProgressiveContextManager:
                     # Get vector search results first
                     vector_results = []
                     vector_scores_map = {}
+                    result_objects_map = {}  # Store original result objects
+                    
                     search_results = self.qdrant_client.search(
                         collection_name=collection,
                         query_vector=query_embedding,
@@ -670,63 +726,85 @@ class ProgressiveContextManager:
                         score = float(result.score)
                         vector_results.append((doc_id, score))
                         vector_scores_map[doc_id] = score
+                        result_objects_map[doc_id] = result  # Store the original result object
                     
-                    # Get BM25 results
+                    # Get BM25 results (pass qdrant_client for on-demand building)
                     bm25_results = hybrid_searcher.bm25_manager.search(
                         collection_name=collection,
                         query=query,
-                        k=search_limit * 2
+                        k=search_limit * 2,
+                        qdrant_client=self.qdrant_client
                     )
                     bm25_scores_map = {doc_id: score for doc_id, score in bm25_results}
                     
-                    # Fuse results using linear combination for better score accuracy
-                    fused_results = hybrid_searcher.linear_combination(
+                    # Determine search type from collection suffix
+                    search_type = "code" if collection_suffix == "code" else "documentation" if collection_suffix == "documentation" else "general"
+                    vector_weight, bm25_weight = hybrid_searcher.get_weights_for_search_type(search_type)
+                    
+                    # Fuse results using linear combination with exact match bonus
+                    fused_results = hybrid_searcher.linear_combination_with_exact_match(
                         vector_results=vector_results,
                         bm25_results=bm25_results,
-                        vector_weight=0.7,
-                        bm25_weight=0.3
+                        query=query,
+                        result_objects_map=result_objects_map,
+                        vector_weight=vector_weight,
+                        bm25_weight=bm25_weight,
+                        exact_match_bonus=0.2
                     )
                     
-                    # Convert fused results back to Qdrant-like results
+                    # Use original result objects with updated scores
                     results = []
                     for fused_result in fused_results[:search_limit]:
                         doc_id = fused_result.content  # doc_id is stored in content field
-                        parts = doc_id.rsplit('_', 1)
-                        if len(parts) == 2:
-                            file_path = parts[0]
-                            chunk_index = int(parts[1])
-                            
-                            # Fetch full document from Qdrant
-                            from qdrant_client.models import Filter, FieldCondition, MatchValue
-                            filter_conditions = Filter(
-                                must=[
-                                    FieldCondition(key="file_path", match=MatchValue(value=file_path)),
-                                    FieldCondition(key="chunk_index", match=MatchValue(value=chunk_index))
-                                ]
-                            )
-                            
-                            fetch_results = self.qdrant_client.search(
-                                collection_name=collection,
-                                query_vector=[0.0] * len(query_embedding),  # Dummy vector
-                                query_filter=filter_conditions,
-                                limit=1
-                            )
-                            
-                            if fetch_results:
-                                result = fetch_results[0]
-                                # Override score with fused score
-                                result.score = fused_result.combined_score
-                                # Store individual scores in payload for transparency
-                                result.payload['vector_score'] = vector_scores_map.get(doc_id, 0.0)
-                                result.payload['bm25_score'] = bm25_scores_map.get(doc_id, 0.0)
-                                results.append(result)
+                        
+                        # Check if we have the original result object
+                        if doc_id in result_objects_map:
+                            result = result_objects_map[doc_id]
+                            # Override score with fused score
+                            result.score = fused_result.combined_score
+                            # Store individual scores in payload for transparency
+                            result.payload['vector_score'] = vector_scores_map.get(doc_id, 0.0)
+                            result.payload['bm25_score'] = bm25_scores_map.get(doc_id, 0.0)
+                            results.append(result)
+                        else:
+                            # This is a BM25-only result, we need to fetch it
+                            parts = doc_id.rsplit('_', 1)
+                            if len(parts) == 2:
+                                file_path = parts[0]
+                                chunk_index = int(parts[1])
+                                
+                                # Fetch full document from Qdrant
+                                from qdrant_client.models import Filter, FieldCondition, MatchValue
+                                filter_conditions = Filter(
+                                    must=[
+                                        FieldCondition(key="file_path", match=MatchValue(value=file_path)),
+                                        FieldCondition(key="chunk_index", match=MatchValue(value=chunk_index))
+                                    ]
+                                )
+                                
+                                fetch_results = self.qdrant_client.search(
+                                    collection_name=collection,
+                                    query_vector=query_embedding,  # Use actual query vector
+                                    query_filter=filter_conditions,
+                                    limit=1
+                                )
+                                
+                                if fetch_results:
+                                    result = fetch_results[0]
+                                    # Override score with fused score
+                                    result.score = fused_result.combined_score
+                                    # Store individual scores in payload for transparency
+                                    result.payload['vector_score'] = vector_scores_map.get(doc_id, 0.0)
+                                    result.payload['bm25_score'] = bm25_scores_map.get(doc_id, 0.0)
+                                    results.append(result)
                 
                 elif search_mode == "keyword":
                     # BM25 keyword search only
                     bm25_results = hybrid_searcher.bm25_manager.search(
                         collection_name=collection,
                         query=query,
-                        k=search_limit
+                        k=search_limit,
+                        qdrant_client=self.qdrant_client
                     )
                     
                     # Fetch full documents from Qdrant
@@ -747,7 +825,7 @@ class ProgressiveContextManager:
                             
                             fetch_results = self.qdrant_client.search(
                                 collection_name=collection,
-                                query_vector=[0.0] * len(query_embedding),
+                                query_vector=query_embedding,  # Use actual query vector
                                 query_filter=filter_conditions,
                                 limit=1
                             )

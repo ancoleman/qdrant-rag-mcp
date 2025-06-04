@@ -43,10 +43,12 @@ class ASTChunk:
 class PythonASTChunker:
     """AST-based chunker for Python code"""
     
-    def __init__(self, max_chunk_size: int = 2000, min_chunk_size: int = 100):
+    def __init__(self, max_chunk_size: int = 2000, min_chunk_size: int = 100, 
+                 keep_class_together: bool = True):
         self.max_chunk_size = max_chunk_size
         self.min_chunk_size = min_chunk_size
         self.chunk_index = 0
+        self.keep_class_together = keep_class_together  # New option for Phase 2
         
     def chunk_file(self, file_path: str) -> List[ASTChunk]:
         """Parse Python file and create hierarchical chunks"""
@@ -159,8 +161,12 @@ class PythonASTChunker:
         # Check if we should create separate chunks for methods
         class_content = ''.join(lines[node.lineno-1:node.end_lineno])
         
-        if len(class_content) <= self.max_chunk_size:
-            # Small class - keep as single chunk
+        # Phase 2 improvement: Try to keep class and its methods together
+        # even if slightly over the limit (up to 1.5x max_chunk_size)
+        keep_together_threshold = self.max_chunk_size * 1.5 if self.keep_class_together else self.max_chunk_size
+        
+        if len(class_content) <= keep_together_threshold:
+            # Keep class and methods together as single chunk
             chunk = ASTChunk(
                 content=class_content.strip(),
                 file_path=file_path,
@@ -179,40 +185,184 @@ class PythonASTChunker:
             self.chunk_index += 1
             chunks.append(chunk)
         else:
-            # Large class - split into class definition and methods
-            # First, create chunk for class signature and docstring
-            class_def_end = first_stmt_line - 1
-            
-            # Find the end of docstring if present
-            if node.body and isinstance(node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Constant):
-                class_def_end = node.body[0].end_lineno
-            
-            class_def_content = ''.join(lines[node.lineno-1:class_def_end])
-            
+            # Large class - use smart splitting strategy
+            if self.keep_class_together:
+                # Phase 2: Try to create smart chunks that include class definition + key methods
+                chunks.extend(self._smart_split_class(node, lines, file_path, class_hierarchy))
+            else:
+                # Original behavior: split into class definition and individual methods
+                # First, create chunk for class signature and docstring
+                class_def_end = first_stmt_line - 1
+                
+                # Find the end of docstring if present
+                if node.body and isinstance(node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Constant):
+                    class_def_end = node.body[0].end_lineno
+                
+                class_def_content = ''.join(lines[node.lineno-1:class_def_end])
+                
+                chunk = ASTChunk(
+                    content=class_def_content.strip() + "\n    ...",  # Indicate continuation
+                    file_path=file_path,
+                    chunk_index=self.chunk_index,
+                    line_start=node.lineno,
+                    line_end=class_def_end,
+                    chunk_type='class_definition',
+                    name=node.name,
+                    hierarchy=class_hierarchy,
+                    metadata={
+                        'bases': [self._get_name(base) for base in node.bases],
+                        'decorators': [self._get_name(dec) for dec in node.decorator_list],
+                        'has_methods': True
+                    }
+                )
+                self.chunk_index += 1
+                chunks.append(chunk)
+                
+                # Process each method separately
+                for item in node.body:
+                    if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        method_chunk = self._process_function(item, lines, file_path, class_hierarchy, is_method=True)
+                        if method_chunk:
+                            chunks.append(method_chunk)
+        
+        return chunks
+    
+    def _smart_split_class(self, node: ast.ClassDef, lines: List[str], file_path: str,
+                          hierarchy: List[str]) -> List[ASTChunk]:
+        """
+        Smart splitting strategy for large classes that keeps related methods together.
+        
+        Phase 2 improvement: Group __init__ with class definition, keep related methods together
+        """
+        chunks = []
+        class_hierarchy = hierarchy + [node.name]
+        
+        # Extract class definition and docstring
+        class_start = node.lineno
+        first_method_line = None
+        
+        # Find first method
+        for item in node.body:
+            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                first_method_line = item.lineno
+                break
+        
+        if not first_method_line:
+            # No methods, just return the whole class
+            content = ''.join(lines[node.lineno-1:node.end_lineno])
             chunk = ASTChunk(
-                content=class_def_content.strip() + "\n    ...",  # Indicate continuation
+                content=content.strip(),
                 file_path=file_path,
                 chunk_index=self.chunk_index,
                 line_start=node.lineno,
-                line_end=class_def_end,
-                chunk_type='class_definition',
+                line_end=node.end_lineno,
+                chunk_type='class',
                 name=node.name,
                 hierarchy=class_hierarchy,
                 metadata={
                     'bases': [self._get_name(base) for base in node.bases],
                     'decorators': [self._get_name(dec) for dec in node.decorator_list],
-                    'has_methods': True
+                    'method_count': 0
                 }
             )
             self.chunk_index += 1
-            chunks.append(chunk)
+            return [chunk]
+        
+        # Group methods into logical chunks
+        method_groups = []
+        current_group = {
+            'methods': [],
+            'start_line': node.lineno,
+            'end_line': None,
+            'size': 0,
+            'has_init': False
+        }
+        
+        # Include class definition in first group
+        class_def_lines = lines[node.lineno-1:first_method_line-1]
+        current_group['size'] = sum(len(line) for line in class_def_lines)
+        
+        for item in node.body:
+            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                method_content = ''.join(lines[item.lineno-1:item.end_lineno])
+                method_size = len(method_content)
+                
+                # Special handling for __init__ - always keep with class definition
+                if item.name == '__init__':
+                    current_group['methods'].append(item)
+                    current_group['has_init'] = True
+                    current_group['size'] += method_size
+                    current_group['end_line'] = item.end_lineno
+                # If adding this method would exceed limit and we have methods, start new group
+                elif current_group['methods'] and current_group['size'] + method_size > self.max_chunk_size:
+                    method_groups.append(current_group)
+                    current_group = {
+                        'methods': [item],
+                        'start_line': item.lineno,
+                        'end_line': item.end_lineno,
+                        'size': method_size,
+                        'has_init': False
+                    }
+                else:
+                    current_group['methods'].append(item)
+                    current_group['size'] += method_size
+                    current_group['end_line'] = item.end_lineno
+        
+        # Add the last group
+        if current_group['methods']:
+            method_groups.append(current_group)
+        
+        # Create chunks from groups
+        for i, group in enumerate(method_groups):
+            if i == 0:
+                # First chunk includes class definition
+                content = ''.join(lines[node.lineno-1:group['end_line']])
+                chunk_type = 'class_with_methods'
+                method_names = [m.name for m in group['methods']]
+                
+                chunk = ASTChunk(
+                    content=content.strip(),
+                    file_path=file_path,
+                    chunk_index=self.chunk_index,
+                    line_start=node.lineno,
+                    line_end=group['end_line'],
+                    chunk_type=chunk_type,
+                    name=node.name,
+                    hierarchy=class_hierarchy,
+                    metadata={
+                        'bases': [self._get_name(base) for base in node.bases],
+                        'decorators': [self._get_name(dec) for dec in node.decorator_list],
+                        'methods': method_names,
+                        'has_init': group['has_init'],
+                        'chunk_part': f"1/{len(method_groups)}"
+                    }
+                )
+            else:
+                # Subsequent chunks are method groups
+                content = ''.join(lines[group['start_line']-1:group['end_line']])
+                method_names = [m.name for m in group['methods']]
+                
+                # Add class context comment
+                content = f"# Methods from class {node.name}\n" + content
+                
+                chunk = ASTChunk(
+                    content=content.strip(),
+                    file_path=file_path,
+                    chunk_index=self.chunk_index,
+                    line_start=group['start_line'],
+                    line_end=group['end_line'],
+                    chunk_type='class_methods',
+                    name=f"{node.name}_methods_{i}",
+                    hierarchy=class_hierarchy + ['methods'],
+                    metadata={
+                        'class_name': node.name,
+                        'methods': method_names,
+                        'chunk_part': f"{i+1}/{len(method_groups)}"
+                    }
+                )
             
-            # Process each method separately
-            for item in node.body:
-                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    method_chunk = self._process_function(item, lines, file_path, class_hierarchy, is_method=True)
-                    if method_chunk:
-                        chunks.append(method_chunk)
+            self.chunk_index += 1
+            chunks.append(chunk)
         
         return chunks
     

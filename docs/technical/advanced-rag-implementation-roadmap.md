@@ -348,14 +348,27 @@ These provide the enhanced search capabilities needed to build on the GitHub int
 #### v0.6.0: Embedding Architecture Refactor
 - **Implementation**: 1 week
 - **Focus**: Multi-model infrastructure without breaking changes
-- **Deliverables**:
-  - Refactor embedding system to support multiple models
+- **Foundation Work Already Complete** (v0.3.2):
+  - ✅ Dynamic embedding dimension detection
+  - ✅ `ensure_collection()` accepts embedding_dimension parameter
+  - ✅ `_expand_search_context()` uses dynamic dimensions
+  - ✅ Each indexing function gets dimension from its model
+- **Remaining Deliverables**:
+  - Refactor embedding system to support multiple concurrent models
   - Add model metadata to collection storage
   - Create model registry and configuration system
+  - Implement per-collection-type model selection:
+    ```python
+    # Example architecture:
+    code_embedding_model = get_code_embedding_model()      # CodeBERT (768 dim)
+    doc_embedding_model = get_doc_embedding_model()        # all-mpnet-base-v2 (768 dim)
+    config_embedding_model = get_config_embedding_model()  # all-MiniLM-L6-v2 (384 dim)
+    ```
+  - Search-time model matching (query embedding must use same model as indexed content)
   - Backward compatibility layer for existing collections
   - Model memory management and lazy loading
-- **Benefits**: Foundation for specialized models
-- **Risk**: Low - pure infrastructure change
+- **Benefits**: Foundation for specialized models with different dimensions per content type
+- **Risk**: Low - infrastructure already dimension-flexible
 
 #### v0.6.1: Code-Specific Embeddings
 - **Implementation**: 1.5 weeks

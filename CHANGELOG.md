@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Dynamic Embedding Dimensions**: Fixed hardcoded vector dimensions that prevented using different embedding models
+  - `_expand_search_context()` now uses dynamic embedding dimensions instead of hardcoded 384
+  - `ensure_collection()` now accepts embedding_dimension parameter and creates collections with correct vector size
+  - All indexing functions (`index_code`, `index_documentation`, `index_config`) now pass model dimensions to ensure_collection
+  - This enables support for embedding models with different dimensions (e.g., all-mpnet-base-v2 with 768 dimensions)
+
+### Documentation
+
+- **Embedding Model Guide**: Added comprehensive "What to Expect: Changing Embedding Models" section
+  - Added to Complete Setup Guide with details on model downloads, logging, and caching
+  - Included step-by-step instructions for switching models and required reindexing
+  - Added common embedding models table with sizes and use cases
+  - Updated CLAUDE.md and README.md with references to the new documentation
+
+### Technical Debt
+
+- **Scoring Pipeline**: Created but not yet integrated into main search functions
+  - Implementation deferred to future release for proper testing and optimization
+
 ## [0.3.2] - 2025-06-03
 
 ### 🚀 Major Feature: Progressive Context Management

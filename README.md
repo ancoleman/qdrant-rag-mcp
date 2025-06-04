@@ -164,6 +164,7 @@ In your Claude Code configuration (`~/.claude-code/config.json`):
 
 ### Core Guides
 - **[Complete Setup & Usage Guide](docs/complete-setup-and-usage-guide.md)** 📚 - Comprehensive setup and usage instructions
+  - Includes: [Changing Embedding Models](docs/complete-setup-and-usage-guide.md#what-to-expect-changing-embedding-models) - What to expect when switching models
 - **[GitHub Integration Guide](docs/github-integration-guide.md)** 🤖 - Setup and use GitHub issue resolution (v0.3.0)
 - **[Context-Aware Guide](docs/context-aware-guide.md)** 🎯 - How the context-aware system works
 - **[MCP Scope Configuration Guide](docs/mcp-scope-configuration-guide.md)** 🔧 - Understanding local vs global configuration

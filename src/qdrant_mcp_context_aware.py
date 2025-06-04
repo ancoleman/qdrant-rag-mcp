@@ -337,7 +337,7 @@ def _truncate_content(content: str, max_length: int = 1500) -> str:
     # Truncate and add indicator
     return content[:max_length] + "\n... (truncated)"
 
-def _expand_search_context(results: List[Dict[str, Any]], qdrant_client, search_collections: List[str], context_chunks: int = 1) -> List[Dict[str, Any]]:
+def _expand_search_context(results: List[Dict[str, Any]], qdrant_client, search_collections: List[str], context_chunks: int = 1, embedding_dimension: int = 384) -> List[Dict[str, Any]]:
     """Expand search results with surrounding chunks for better context"""
     logger = get_logger()
     expanded_results = []
@@ -383,7 +383,7 @@ def _expand_search_context(results: List[Dict[str, Any]], qdrant_client, search_
                     
                     before_results = qdrant_client.search(
                         collection_name=collection,
-                        query_vector=[0.0] * 384,  # Dummy vector for filter-only search
+                        query_vector=[0.0] * embedding_dimension,  # Dummy vector for filter-only search
                         query_filter=before_filter,
                         limit=1
                     )
@@ -405,7 +405,7 @@ def _expand_search_context(results: List[Dict[str, Any]], qdrant_client, search_
                 
                 after_results = qdrant_client.search(
                     collection_name=collection,
-                    query_vector=[0.0] * 384,  # Dummy vector for filter-only search
+                    query_vector=[0.0] * embedding_dimension,  # Dummy vector for filter-only search
                     query_filter=after_filter,
                     limit=1
                 )
@@ -463,8 +463,13 @@ def _expand_search_context(results: List[Dict[str, Any]], qdrant_client, search_
     
     return expanded_results
 
-def ensure_collection(collection_name: str):
-    """Ensure a collection exists with retry logic"""
+def ensure_collection(collection_name: str, embedding_dimension: int = 384):
+    """Ensure a collection exists with retry logic
+    
+    Args:
+        collection_name: Name of the collection to create
+        embedding_dimension: Dimension of the embedding vectors (default: 384 for backward compatibility)
+    """
     client = get_qdrant_client()
     
     from qdrant_client.http.models import Distance, VectorParams
@@ -476,7 +481,7 @@ def ensure_collection(collection_name: str):
             client.create_collection(
                 collection_name=collection_name,
                 vectors_config=VectorParams(
-                    size=384,
+                    size=embedding_dimension,
                     distance=Distance.COSINE
                 )
             )
@@ -1138,7 +1143,10 @@ def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
             collection_name = "global_code"
         else:
             collection_name = get_collection_name(str(abs_path), "code")
-        ensure_collection(collection_name)
+        
+        # Get embedding dimension from the model
+        embedding_dimension = embedding_model.get_sentence_embedding_dimension()
+        ensure_collection(collection_name, embedding_dimension)
         
         # Index file
         chunks = code_indexer.index_file(str(abs_path))
@@ -1347,14 +1355,18 @@ def index_documentation(file_path: str, force_global: bool = False) -> Dict[str,
         except:
             file_hash = None  # No hash if file reading fails
         
+        # Get embedding model early to determine dimension
+        model = get_embedding_model()
+        embedding_dimension = model.get_sentence_embedding_dimension()
+        
         # Determine collection
         if force_global:
             collection_name = "global_documentation"
         else:
             collection_name = get_collection_name(str(abs_path), "documentation")
         
-        # Ensure collection exists
-        ensure_collection(collection_name)
+        # Ensure collection exists with correct dimension
+        ensure_collection(collection_name, embedding_dimension)
         
         # Index the file
         chunks = doc_indexer.index_file(str(abs_path))
@@ -1366,8 +1378,7 @@ def index_documentation(file_path: str, force_global: bool = False) -> Dict[str,
                 "details": "No documentation chunks could be extracted from the file"
             }
         
-        # Get embedding model and Qdrant client
-        model = get_embedding_model()
+        # Get Qdrant client
         qdrant_client = get_qdrant_client()
         
         # Prepare points for Qdrant
@@ -2579,7 +2590,9 @@ def search(
         
         # Expand context if requested
         if include_context and all_results:
-            all_results = _expand_search_context(all_results, qdrant_client, search_collections, context_chunks)
+            # Get embedding dimension from the model
+            embedding_dimension = embedding_model.get_sentence_embedding_dimension()
+            all_results = _expand_search_context(all_results, qdrant_client, search_collections, context_chunks, embedding_dimension)
         
         # Truncate content in results to prevent token limit issues
         for result in all_results:
@@ -2952,7 +2965,9 @@ def search_code(
                 formatted_results.append(formatted_result)
             
             # Expand context
-            expanded_results = _expand_search_context(formatted_results, qdrant_client, search_collections, context_chunks)
+            # Get embedding dimension from the model
+            embedding_dimension = embedding_model.get_sentence_embedding_dimension()
+            expanded_results = _expand_search_context(formatted_results, qdrant_client, search_collections, context_chunks, embedding_dimension)
             
             # Convert back to search_code format
             all_results = []
@@ -3317,7 +3332,9 @@ def search_docs(
                 formatted_results.append(formatted_result)
             
             # Expand context
-            expanded_results = _expand_search_context(formatted_results, qdrant_client, search_collections, context_chunks)
+            # Get embedding dimension from the model
+            embedding_dimension = model.get_sentence_embedding_dimension()
+            expanded_results = _expand_search_context(formatted_results, qdrant_client, search_collections, context_chunks, embedding_dimension)
             
             # Update results with expanded content
             for i, expanded in enumerate(expanded_results):
@@ -3436,7 +3453,10 @@ def index_config(file_path: str, force_global: bool = False) -> Dict[str, Any]:
             collection_name = "global_config"
         else:
             collection_name = get_collection_name(str(abs_path), "config")
-        ensure_collection(collection_name)
+        
+        # Get embedding dimension from the model
+        embedding_dimension = embedding_model.get_sentence_embedding_dimension()
+        ensure_collection(collection_name, embedding_dimension)
         
         # Index file
         chunks = config_indexer.index_file(str(abs_path))

@@ -290,6 +290,68 @@ QDRANT_PORT=6333
 SENTENCE_TRANSFORMERS_HOME=~/mcp-servers/qdrant-rag/data/models
 ```
 
+### What to Expect: Changing Embedding Models
+
+When you change the `EMBEDDING_MODEL` environment variable, here's what happens:
+
+#### Automatic Model Download
+- **First Time**: The new model will be automatically downloaded from HuggingFace
+- **Download Progress**: You'll see a progress bar in the console showing download status
+- **Cache Location**: Models are saved to `SENTENCE_TRANSFORMERS_HOME` directory
+- **Subsequent Uses**: Cached models load instantly without re-downloading
+
+#### Monitoring Model Downloads
+
+1. **Console Output** (when starting the server):
+   ```
+   INFO: Loading embedding model: all-mpnet-base-v2
+   Downloading: 100%|████████████| 438M/438M [00:45<00:00, 9.70MB/s]
+   INFO: Model loaded successfully. Dimension: 768
+   ```
+
+2. **View Logs**:
+   ```bash
+   # Real-time logs
+   ./scripts/qdrant-logs -f
+   
+   # Filter for model-related logs
+   ./scripts/qdrant-logs | grep -i "embedding\|model"
+   ```
+
+3. **Check Model Cache**:
+   ```bash
+   ls -la ~/mcp-servers/qdrant-rag/data/models/
+   # Shows downloaded models as directories
+   ```
+
+#### Important: Reindexing Required
+
+**Why?** Different models produce incompatible vector dimensions and semantic spaces.
+
+**Steps to switch models**:
+```bash
+# 1. Update .env file
+EMBEDDING_MODEL=all-mpnet-base-v2  # New model
+
+# 2. Clear existing collections
+curl -X DELETE http://localhost:6333/collections/code_collection
+curl -X DELETE http://localhost:6333/collections/config_collection
+curl -X DELETE http://localhost:6333/collections/documentation_collection
+
+# 3. Restart server (model downloads automatically)
+# 4. Reindex your content
+"Reindex this directory"
+```
+
+#### Common Embedding Models
+
+| Model | Size | Dimension | Use Case |
+|-------|------|-----------|----------|
+| `all-MiniLM-L6-v2` | ~90MB | 384 | Fast, general purpose (default) |
+| `all-MiniLM-L12-v2` | ~120MB | 384 | Better quality, slightly slower |
+| `all-mpnet-base-v2` | ~400MB | 768 | High quality, slower |
+| `microsoft/codebert-base` | ~450MB | 768 | Optimized for code (experimental) |
+
 ### Docker vs Local Mode
 
 | Feature | Docker Mode | Local Mode |

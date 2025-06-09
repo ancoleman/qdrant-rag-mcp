@@ -15,6 +15,7 @@ from dataclasses import dataclass, field, asdict
 from collections import defaultdict
 
 from utils.logging import get_project_logger
+from utils.memory_manager import MemoryComponent, get_memory_manager
 
 logger = get_project_logger()
 
@@ -78,11 +79,25 @@ def calculate_system_context_tokens() -> Dict[str, int]:
     return system_tokens
 
 
-class SessionContextTracker:
+class SessionContextTracker(MemoryComponent):
     """Tracks all context-consuming operations in a session."""
     
     def __init__(self, session_id: Optional[str] = None):
         """Initialize a new session tracker."""
+        # Get memory limits from config
+        memory_manager = get_memory_manager()
+        memory_config = memory_manager.config
+        component_limits = memory_config.get('component_limits', {}).get('context_tracking', {})
+        
+        # Initialize parent MemoryComponent
+        super().__init__(
+            name="context_tracking",
+            max_memory_mb=float(component_limits.get('max_memory_mb', 100))
+        )
+        
+        # Register with memory manager
+        memory_manager.register_component("context_tracking", self)
+        
         self.session_id = session_id or str(uuid.uuid4())
         self.session_start = datetime.now()
         self.context_events: List[ContextEvent] = []
@@ -91,6 +106,12 @@ class SessionContextTracker:
         self.todos_tracked: List[Dict[str, Any]] = []
         self.indexed_directories: List[str] = []
         self.current_project: Optional[Dict[str, Any]] = None
+        
+        # Get memory limits from config
+        self.max_files_tracked = int(component_limits.get('max_files', 100))
+        self.max_timeline_events = int(component_limits.get('max_timeline_events', 500))
+        self.max_search_results = 50  # Not in config, keeping default
+        self.max_content_preview = 1000  # chars per file
         
         # Track token usage by category
         self.token_usage = defaultdict(int)
@@ -150,18 +171,32 @@ class SessionContextTracker:
             tokens_estimate=tokens_estimate
         )
         
+        # Limit number of timeline events
+        if len(self.context_events) >= self.max_timeline_events:
+            # Remove oldest events
+            self.context_events = self.context_events[-(self.max_timeline_events-1):]
+        
         self.context_events.append(event)
         self.total_tokens_estimate += tokens_estimate
         self.token_usage["files"] += tokens_estimate
+        
+        # Limit number of files tracked
+        if len(self.files_read) >= self.max_files_tracked:
+            # Remove oldest file (first key in dict)
+            oldest_key = next(iter(self.files_read))
+            del self.files_read[oldest_key]
         
         logger.debug(f"Tracked file read: {file_path} (~{tokens_estimate} tokens)")
     
     def track_search(self, query: str, results: List[Dict[str, Any]], search_type: str = "general"):
         """Track search operations and results."""
+        # Limit number of results tracked to save memory
+        tracked_results = results[:10]  # Only track top 10 results
+        
         # Estimate tokens for search results
         # Only count the content that Claude actually sees, not all the metadata
         content_length = 0
-        for result in results:
+        for result in tracked_results:
             # Count the main content
             content_length += len(result.get("content", ""))
             # Count expanded content if present
@@ -175,13 +210,27 @@ class SessionContextTracker:
         # Convert character count to token estimate (4 chars ≈ 1 token)
         tokens_estimate = content_length // 4
         
+        # Create lightweight search info (don't store full results)
         search_info = {
             "query": query,
             "search_type": search_type,
             "results_count": len(results),
             "timestamp": datetime.now().isoformat(),
-            "tokens_estimate": tokens_estimate
+            "tokens_estimate": tokens_estimate,
+            "top_results": [
+                {
+                    "file_path": r.get("file_path", ""),
+                    "score": r.get("score", 0),
+                    "type": r.get("chunk_type", "")
+                }
+                for r in tracked_results
+            ]
         }
+        
+        # Limit total searches tracked
+        if len(self.searches_performed) >= self.max_search_results:
+            # Remove oldest searches
+            self.searches_performed = self.searches_performed[-(self.max_search_results-1):]
         
         self.searches_performed.append(search_info)
         
@@ -196,6 +245,11 @@ class SessionContextTracker:
             },
             tokens_estimate=tokens_estimate
         )
+        
+        # Limit number of timeline events
+        if len(self.context_events) >= self.max_timeline_events:
+            # Remove oldest events
+            self.context_events = self.context_events[-(self.max_timeline_events-1):]
         
         self.context_events.append(event)
         self.total_tokens_estimate += tokens_estimate
@@ -221,6 +275,11 @@ class SessionContextTracker:
             tokens_estimate=tokens_estimate
         )
         
+        # Limit number of timeline events
+        if len(self.context_events) >= self.max_timeline_events:
+            # Remove oldest events
+            self.context_events = self.context_events[-(self.max_timeline_events-1):]
+        
         self.context_events.append(event)
         self.total_tokens_estimate += tokens_estimate
         self.token_usage["tools"] += tokens_estimate
@@ -241,6 +300,11 @@ class SessionContextTracker:
             },
             tokens_estimate=0  # Indexing doesn't consume context tokens
         )
+        
+        # Limit number of timeline events
+        if len(self.context_events) >= self.max_timeline_events:
+            # Remove oldest events
+            self.context_events = self.context_events[-(self.max_timeline_events-1):]
         
         self.context_events.append(event)
         logger.debug(f"Tracked index operation: {directory} ({file_count} files)")
@@ -437,3 +501,59 @@ def get_context_indicator(tracker: SessionContextTracker) -> str:
     tokens_k = tracker.total_tokens_estimate // 1000
     
     return f"[Context: {tokens_k}k/200k tokens | {files} files | {searches} searches]"
+
+
+# Add MemoryComponent methods to SessionContextTracker
+SessionContextTracker.get_memory_usage = lambda self: self._estimate_memory_usage()
+SessionContextTracker.get_item_count = lambda self: len(self.context_events) + len(self.files_read) + len(self.searches_performed)
+
+def _estimate_memory_usage(self) -> float:
+    """Estimate memory usage in MB"""
+    import sys
+    
+    # Rough estimation of memory usage
+    memory_mb = 0.0
+    
+    # Files read
+    for file_info in self.files_read.values():
+        memory_mb += sys.getsizeof(file_info) / (1024**2)
+    
+    # Events
+    for event in self.context_events:
+        memory_mb += sys.getsizeof(event) / (1024**2)
+    
+    # Searches
+    for search in self.searches_performed:
+        memory_mb += sys.getsizeof(search) / (1024**2)
+    
+    return memory_mb
+
+def _cleanup(self, aggressive: bool = False) -> int:
+    """Perform cleanup and return number of items removed"""
+    removed = 0
+    
+    if aggressive:
+        # Remove oldest 50% of events
+        if len(self.context_events) > 10:
+            to_remove = len(self.context_events) // 2
+            self.context_events = self.context_events[-to_remove:]
+            removed += to_remove
+        
+        # Remove oldest 50% of searches
+        if len(self.searches_performed) > 10:
+            to_remove = len(self.searches_performed) // 2
+            self.searches_performed = self.searches_performed[-to_remove:]
+            removed += to_remove
+    else:
+        # Remove oldest 20% of events
+        if len(self.context_events) > 50:
+            to_remove = len(self.context_events) // 5
+            self.context_events = self.context_events[-to_remove:]
+            removed += to_remove
+    
+    self.mark_cleanup()
+    return removed
+
+# Bind methods to class
+SessionContextTracker._estimate_memory_usage = _estimate_memory_usage
+SessionContextTracker.cleanup = _cleanup

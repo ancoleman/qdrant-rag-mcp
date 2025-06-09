@@ -14,6 +14,7 @@ uvicorn>=0.34.2,<1.0.0
 httpx>=0.27.0,<1.0.0
 pyyaml>=6.0.1,<7.0.0
 requests>=2.32.3,<3.0.0  # Used in scripts
+psutil>=5.9.0,<6.0.0  # System and process monitoring
 
 # MCP framework
 mcp>=1.8.1,<2.0.0  # Model Context Protocol SDK

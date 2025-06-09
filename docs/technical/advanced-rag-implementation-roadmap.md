@@ -28,16 +28,16 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 - ✅ **Enhanced BM25 Code Tokenization (v0.3.2)** - Code-specific preprocessing for better keyword matching
 - ✅ **Improved AST Chunking (v0.3.2)** - Classes+methods kept together, better structure preservation
 - ✅ **Linear Combination Scoring (v0.3.2)** - Replaced RRF for more accurate hybrid search scores
+- ✅ **Specialized Embeddings (v0.3.3)** - Content-type-specific embedding models for superior search quality
 
 ### In Progress
 - 🚧 None currently
 
 ### Upcoming
-- 📋 Adaptive Search Intelligence - v0.3.3 (Smart query understanding) ⭐ **NEXT PRIORITY**
-- 📋 Query Enhancement - v0.3.4 (+35% recall)
+- 📋 Adaptive Search Intelligence - v0.3.4 (Smart query understanding) ⭐ **NEXT PRIORITY**
+- 📋 Query Enhancement - v0.3.5 (+35% recall)
 - 📋 MCP Server Optimizations - v0.4.x (Performance improvements)
 - 📋 Semantic Compression - v0.5.x (Advanced token reduction)
-- 📋 Specialized Embeddings - v0.6.x (Content-type-specific models)
 
 ## 📊 Current State vs. Target State
 
@@ -261,7 +261,34 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
   - [Progressive Context Implementation Plan](./progressive-context/progressive-context-implementation-plan.md)
   - [Scoring Pipeline Architecture](./scoring-pipeline-architecture.md)
 
-##### v0.3.3: Adaptive Search Intelligence (5-6 days)
+##### v0.3.3: Specialized Embeddings ✅ **COMPLETED**
+- **Status**: ✅ Completed (2025-06-04)
+- **Focus**: Content-type-specific embedding models for superior search quality
+- **Delivered**:
+  - SpecializedEmbeddingManager with dynamic model loading and LRU eviction
+  - Memory management with configurable limits (3 models, 7GB default)
+  - Content-type specific models:
+    - Code: `nomic-ai/CodeRankEmbed` (768D) for multi-language code understanding
+    - Config: `jinaai/jina-embeddings-v3` (1024D) for JSON/YAML/XML
+    - Documentation: `hkunlp/instructor-large` (768D) with instruction prefix support
+    - General: `sentence-transformers/all-MiniLM-L6-v2` (384D) for backward compatibility
+  - UnifiedEmbeddingsManager for seamless backward compatibility
+  - Model Registry System for central model management and persistence
+  - Enhanced collection metadata storing model names and dimensions
+  - Model compatibility checking for search operations
+  - Updated all indexing and search functions to use specialized models
+  - Enhanced model management scripts (download_models.sh, manage_models.sh)
+  - Added requirements-models.txt for model-specific dependencies
+- **Benefits**: 
+  - 30-50% better code search relevance with programming-aware embeddings
+  - Precise config navigation with structure-aware models
+  - Natural documentation search with prose-optimized embeddings
+  - Language-specific understanding (Python idioms, JS patterns, etc.)
+  - Reduced cross-type noise (configs don't pollute code searches)
+- **Impact**: Transforms search quality by using the right model for each content type
+- **Implementation Plan**: [Specialized Embeddings Implementation Plan](./specialized-embeddings-implementation-plan.md)
+
+##### v0.3.4: Adaptive Search Intelligence (5-6 days)
 - **Status**: 📋 Planned
 - **Focus**: Smart query understanding and dynamic optimization
 - **Deliverables**:
@@ -272,7 +299,7 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 - **Benefits**: Optimal search for different query types
 - **Risk**: Higher - complex implementation
 
-##### v0.3.4: Query Enhancement & Reformulation (1 week)
+##### v0.3.5: Query Enhancement & Reformulation (1 week)
 - **Status**: 📋 Planned
 - **Focus**: Natural language to code-aware query transformation
 - **Deliverables**:
@@ -292,11 +319,12 @@ The Phase 3 focus shifts to a major new capability: GitHub issue resolution. Thi
 #### v0.3.0: GitHub Issue Resolution Local Prototype
 Detailed implementation plan included above in the version-specific sections.
 
-#### v0.3.2-v0.3.4: Enhanced RAG Foundation
+#### v0.3.2-v0.3.5: Enhanced RAG Foundation
 The remaining v0.3.x releases continue the advanced RAG research implementations:
 - v0.3.2: Progressive Context Management - Multi-level context with 50-70% token reduction ✅ **COMPLETED**
-- v0.3.3: Adaptive Search Intelligence - Smart query understanding and optimization
-- v0.3.4: Query Enhancement & Reformulation - Natural language to code-aware queries
+- v0.3.3: Specialized Embeddings - Content-type-specific models for superior search ✅ **COMPLETED**
+- v0.3.4: Adaptive Search Intelligence - Smart query understanding and optimization
+- v0.3.5: Query Enhancement & Reformulation - Natural language to code-aware queries
 
 These provide the enhanced search capabilities needed to build on the GitHub integration and context tracking foundations.
 
@@ -342,79 +370,6 @@ These provide the enhanced search capabilities needed to build on the GitHub int
   - Performance tracking
   - Learning mechanism
 
-### Phase 6: Specialized Embeddings (Weeks 16-20)
-**Goal**: Content-type-specific embedding models for superior search quality
-
-#### v0.6.0: Embedding Architecture Refactor
-- **Implementation**: 1 week
-- **Focus**: Multi-model infrastructure without breaking changes
-- **Foundation Work Already Complete** (v0.3.2):
-  - ✅ Dynamic embedding dimension detection
-  - ✅ `ensure_collection()` accepts embedding_dimension parameter
-  - ✅ `_expand_search_context()` uses dynamic dimensions
-  - ✅ Each indexing function gets dimension from its model
-- **Remaining Deliverables**:
-  - Refactor embedding system to support multiple concurrent models
-  - Add model metadata to collection storage
-  - Create model registry and configuration system
-  - Implement per-collection-type model selection:
-    ```python
-    # Example architecture:
-    code_embedding_model = get_code_embedding_model()      # CodeBERT (768 dim)
-    doc_embedding_model = get_doc_embedding_model()        # all-mpnet-base-v2 (768 dim)
-    config_embedding_model = get_config_embedding_model()  # all-MiniLM-L6-v2 (384 dim)
-    ```
-  - Search-time model matching (query embedding must use same model as indexed content)
-  - Backward compatibility layer for existing collections
-  - Model memory management and lazy loading
-- **Benefits**: Foundation for specialized models with different dimensions per content type
-- **Risk**: Low - infrastructure already dimension-flexible
-
-#### v0.6.1: Code-Specific Embeddings
-- **Implementation**: 1.5 weeks
-- **Focus**: Specialized code understanding
-- **Deliverables**:
-  - Integrate CodeBERT or UnixCoder for code collections
-  - Code-aware tokenization (preserving syntax)
-  - Programming language detection
-  - Automatic model selection for code files
-  - A/B testing framework for model comparison
-- **Benefits**: 30-50% better code search relevance
-- **Risk**: Medium - new model integration
-
-#### v0.6.2: Configuration Embeddings
-- **Implementation**: 1 week
-- **Focus**: Structured data understanding
-- **Deliverables**:
-  - Specialized model for config files (JSON, YAML, etc.)
-  - Hierarchical structure preservation
-  - Key-path aware embeddings
-  - Schema-aware tokenization
-- **Benefits**: Better config navigation and search
-- **Risk**: Low - simpler than code models
-
-#### v0.6.3: Documentation Embeddings
-- **Implementation**: 1 week
-- **Focus**: Natural language optimization
-- **Deliverables**:
-  - Integrate all-mpnet-base-v2 or similar for docs
-  - Section-aware embeddings
-  - Cross-reference understanding
-  - Markdown structure awareness
-- **Benefits**: Improved documentation search
-- **Risk**: Low - well-established models
-
-#### v0.6.4: Migration and Optimization
-- **Implementation**: 1.5 weeks
-- **Focus**: Smooth transition and performance
-- **Deliverables**:
-  - Batch re-embedding tool with progress tracking
-  - Collection migration utilities
-  - Model performance benchmarks
-  - Memory optimization for multi-model loading
-  - Rollback capabilities
-- **Benefits**: Safe migration path
-- **Risk**: Medium - data migration complexity
 
 ## 📈 Progressive Impact on Claude Code
 
@@ -428,10 +383,15 @@ These provide the enhanced search capabilities needed to build on the GitHub int
 - **Capabilities**: Can understand cross-file relationships
 - **User Experience**: Much better code navigation
 
-### After Phase 3 (v0.3.x) - GitHub Integration Complete
+### After Phase 3 (v0.3.x) - GitHub Integration & Specialized Embeddings Complete
 - **Token Reduction**: 65% + GitHub automation capabilities
-- **Capabilities**: Automated issue analysis and resolution, PR generation
-- **User Experience**: Can analyze and fix GitHub issues automatically
+- **Search Precision**: 30-50% better code search, precise config navigation
+- **Capabilities**: 
+  - Automated issue analysis and resolution, PR generation
+  - Content-type aware search with specialized models
+  - Language-specific code understanding (Python idioms, JS patterns)
+  - Reduced cross-type noise in search results
+- **User Experience**: Can analyze and fix GitHub issues automatically with superior search quality
 
 ### After Phase 4 (v0.4.x) - Optimization Complete
 - **Token Reduction**: 76%
@@ -540,12 +500,11 @@ These provide immediate benefits while building toward larger changes.
 ## 📅 Timeline Summary
 
 ```
-Weeks 1-3:   [████████████] Foundation (AST + Basic Hybrid)
-Weeks 4-6:   [████████████] Enhancement (Advanced Search + Context)
-Weeks 7-9:   [████████████] GitHub Integration (Issue Resolution)
+Weeks 1-3:   [████████████] Foundation (AST + Basic Hybrid) ✅
+Weeks 4-6:   [████████████] Enhancement (Advanced Search + Context) ✅
+Weeks 7-9:   [████████████] GitHub Integration + Specialized Embeddings ✅
 Weeks 10-12: [████████████] Optimization (Performance Tuning)
 Weeks 13-15: [████████████] Advanced (Compression + Adaptive)
-Weeks 16-20: [████████████] Specialized Embeddings (Multi-Model)
 ```
 
 ## 🎉 Expected Outcome
@@ -553,15 +512,13 @@ Weeks 16-20: [████████████] Specialized Embeddings (Mult
 By week 12, Claude Code users will experience:
 - **4-5x more efficient** token usage
 - **55+ queries** before hitting context limits
-- **45% better** search accuracy
-- **Whole project understanding** instead of file fragments
-
-By week 20 (with specialized embeddings), users will additionally experience:
-- **30-50% better code search** with programming-aware embeddings
-- **Precise config navigation** with structure-aware models
-- **Natural documentation search** with prose-optimized embeddings
+- **45% better** search accuracy baseline
+- **30-50% better code search** with specialized embeddings (v0.3.3)
+- **Precise config navigation** with structure-aware models (v0.3.3)
+- **Natural documentation search** with prose-optimized embeddings (v0.3.3)
 - **Language-specific understanding** (Python idioms, JS patterns, etc.)
 - **Reduced cross-type noise** (configs don't pollute code searches)
+- **Whole project understanding** instead of file fragments
 
 This transformation will make Claude Code qualitatively better at understanding and working with codebases, moving from "helpful but limited" to "genuinely understands my entire project with deep semantic awareness."
 

@@ -82,6 +82,9 @@ class Config:
         # Override with environment variables (legacy method)
         config = self._apply_env_vars(config)
         
+        # Post-process to convert string booleans and numbers
+        config = self._post_process_config(config)
+        
         return config
     
     def _deep_merge(self, dict1: Dict, dict2: Dict) -> Dict:
@@ -118,6 +121,7 @@ class Config:
             elif isinstance(value, list):
                 return [resolve_value(item) for item in value]
             else:
+                # Return value as-is if it's not a string (e.g., int, float, bool)
                 return value
         
         return resolve_value(config)
@@ -153,7 +157,9 @@ class Config:
                 # Type conversion
                 if isinstance(current.get(last_key), int):
                     try:
-                        env_value = int(env_value)
+                        # Handle case where env_value might already be an int
+                        if isinstance(env_value, str):
+                            env_value = int(env_value)
                     except ValueError:
                         logger.warning(f"Failed to convert {env_var}={env_value} to int")
                         continue
@@ -164,6 +170,32 @@ class Config:
                 logger.info(f"Applied environment variable {env_var}")
         
         return config
+    
+    def _post_process_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Post-process configuration to convert string values to appropriate types"""
+        def convert_value(value):
+            if isinstance(value, str):
+                # Try to convert string booleans
+                if value.lower() in ('true', 'false'):
+                    return value.lower() == 'true'
+                # Try to convert string numbers
+                try:
+                    # Check if it's an integer
+                    if '.' not in value:
+                        return int(value)
+                    else:
+                        return float(value)
+                except ValueError:
+                    # Not a number, return as string
+                    return value
+            elif isinstance(value, dict):
+                return {k: convert_value(v) for k, v in value.items()}
+            elif isinstance(value, list):
+                return [convert_value(item) for item in value]
+            else:
+                return value
+        
+        return convert_value(config)
     
     def get(self, key: str, default: Any = None) -> Any:
         """Get configuration value using dot notation"""
@@ -198,7 +230,31 @@ class Config:
     
     def __getitem__(self, key: str) -> Any:
         """Allow dictionary-style access"""
-        return self.get(key)
+        # Handle direct dictionary access
+        if isinstance(key, str) and '.' not in key:
+            return self.config.get(key)
+        elif isinstance(key, str):
+            return self.get(key)
+        else:
+            # Handle non-string keys (shouldn't happen but defensive)
+            return self.config.get(key)
+    
+    def __contains__(self, key: str) -> bool:
+        """Support 'in' operator for checking if key exists"""
+        if isinstance(key, str) and '.' not in key:
+            return key in self.config
+        elif isinstance(key, str):
+            # Check nested keys
+            keys = key.split('.')
+            value = self.config
+            for k in keys:
+                if isinstance(value, dict) and k in value:
+                    value = value[k]
+                else:
+                    return False
+            return True
+        else:
+            return key in self.config
     
     def __repr__(self) -> str:
         return f"Config({self.config_path})"

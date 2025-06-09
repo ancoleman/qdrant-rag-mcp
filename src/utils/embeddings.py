@@ -4,6 +4,9 @@ Embeddings utility module for Qdrant MCP RAG Server
 
 Handles embedding model management, caching, and optimization
 for different platforms (especially macOS with MPS).
+
+This module now supports both single-model mode (legacy) and
+specialized embeddings mode for content-type specific models.
 """
 
 import os
@@ -16,6 +19,14 @@ import numpy as np
 from functools import lru_cache
 
 logger = logging.getLogger(__name__)
+
+# Import specialized embeddings if available
+try:
+    from .specialized_embeddings import SpecializedEmbeddingManager, get_specialized_embedding_manager
+    SPECIALIZED_EMBEDDINGS_AVAILABLE = True
+except ImportError:
+    SPECIALIZED_EMBEDDINGS_AVAILABLE = False
+    logger.debug("Specialized embeddings not available, using single model mode")
 
 
 class EmbeddingsManager:
@@ -323,25 +334,159 @@ class EmbeddingsManager:
         }
 
 
-# Global embeddings manager instance
+# Global instances
 _embeddings_manager = None
+_use_specialized = None
 
 
-def get_embeddings_manager(config: Optional[Dict[str, Any]] = None) -> EmbeddingsManager:
-    """Get global embeddings manager instance"""
-    global _embeddings_manager
+def should_use_specialized_embeddings(config: Optional[Dict[str, Any]] = None) -> bool:
+    """Check if specialized embeddings should be used"""
+    global _use_specialized
     
-    if _embeddings_manager is None:
-        if config is None:
-            config = {}
+    if _use_specialized is None:
+        # Check environment variable first
+        if os.getenv('QDRANT_SPECIALIZED_EMBEDDINGS_ENABLED', '').lower() == 'false':
+            _use_specialized = False
+        # Check config
+        elif config and 'specialized_embeddings' in config:
+            _use_specialized = config['specialized_embeddings'].get('enabled', True)
+        else:
+            # Default to True if available
+            _use_specialized = SPECIALIZED_EMBEDDINGS_AVAILABLE
+    
+    return _use_specialized and SPECIALIZED_EMBEDDINGS_AVAILABLE
+
+
+class UnifiedEmbeddingsManager:
+    """Unified manager that wraps both single and specialized embedding modes"""
+    
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        self.config = config or {}
+        self.use_specialized = should_use_specialized_embeddings(config)
         
-        _embeddings_manager = EmbeddingsManager(
-            model_name=config.get("model", "all-MiniLM-L6-v2"),
-            cache_dir=config.get("cache_dir"),
-            device=config.get("device"),
-            batch_size=config.get("batch_size", 32),
-            normalize_embeddings=config.get("normalize_embeddings", True),
-            show_progress_bar=config.get("show_progress_bar", True)
-        )
+        if self.use_specialized:
+            # Use specialized embeddings
+            specialized_config = self.config.get('specialized_embeddings', {})
+            self.manager = get_specialized_embedding_manager(specialized_config)
+            logger.info("Using specialized embeddings mode")
+        else:
+            # Use single model mode
+            embeddings_config = self.config.get('embeddings', {})
+            self.manager = EmbeddingsManager(
+                model_name=embeddings_config.get("model", "all-MiniLM-L6-v2"),
+                cache_dir=embeddings_config.get("cache_dir"),
+                device=embeddings_config.get("device"),
+                batch_size=embeddings_config.get("batch_size", 32),
+                normalize_embeddings=embeddings_config.get("normalize_embeddings", True),
+                show_progress_bar=embeddings_config.get("show_progress_bar", True)
+            )
+            logger.info(f"Using single model mode: {self.manager.model_name}")
     
-    return _embeddings_manager
+    def encode(self, texts: Union[str, List[str]], 
+               content_type: Optional[str] = None,
+               **kwargs) -> np.ndarray:
+        """
+        Encode texts with appropriate model
+        
+        Args:
+            texts: Texts to encode
+            content_type: Content type for specialized embeddings
+            **kwargs: Additional arguments for encoding
+        """
+        if self.use_specialized:
+            # Use specialized manager
+            # Default to "general" content type if not specified for backward compatibility
+            if content_type is None:
+                content_type = "general"
+            return self.manager.encode(texts, content_type=content_type, **kwargs)
+        else:
+            # Use single model manager
+            if hasattr(self.manager, 'encode_batch'):
+                # Handle batch encoding for legacy manager
+                if isinstance(texts, str):
+                    texts = [texts]
+                return np.array(self.manager.encode_batch(texts))
+            else:
+                return self.manager.encode(texts, **kwargs)
+    
+    def get_dimension(self, content_type: Optional[str] = None) -> int:
+        """Get embedding dimension"""
+        if self.use_specialized:
+            # Default to "general" content type if not specified
+            if content_type is None:
+                content_type = "general"
+            return self.manager.get_dimension(content_type)
+        else:
+            return self.manager.dimension
+    
+    def get_model_name(self, content_type: Optional[str] = None) -> str:
+        """Get model name"""
+        if self.use_specialized:
+            # Default to "general" content type if not specified
+            if content_type is None:
+                content_type = "general"
+            return self.manager.get_model_name(content_type)
+        else:
+            return self.manager.model_name
+    
+    def get_model_info(self, content_type: Optional[str] = None) -> Dict[str, Any]:
+        """Get model information"""
+        if self.use_specialized:
+            if content_type:
+                return self.manager.get_model_info(content_type)
+            else:
+                return self.manager.get_all_models_info()
+        else:
+            return self.manager.get_model_info()
+    
+    # Backward compatibility methods
+    def get_sentence_embedding_dimension(self) -> int:
+        """Backward compatibility method for getting embedding dimension"""
+        return self.get_dimension()
+    
+    @property
+    def dimension(self) -> int:
+        """Property for backward compatibility"""
+        return self.get_dimension()
+    
+    @property
+    def model_name(self) -> str:
+        """Property for backward compatibility"""
+        return self.get_model_name()
+
+
+# Global unified manager
+_unified_manager = None
+
+
+def get_embeddings_manager(config: Optional[Dict[str, Any]] = None) -> Union[EmbeddingsManager, UnifiedEmbeddingsManager]:
+    """
+    Get global embeddings manager instance
+    
+    Returns either UnifiedEmbeddingsManager (if specialized embeddings enabled)
+    or legacy EmbeddingsManager for backward compatibility
+    """
+    global _embeddings_manager, _unified_manager
+    
+    # Check if we should use specialized embeddings
+    if should_use_specialized_embeddings(config):
+        if _unified_manager is None:
+            _unified_manager = UnifiedEmbeddingsManager(config)
+        return _unified_manager
+    else:
+        # Legacy single model mode
+        if _embeddings_manager is None:
+            if config is None:
+                config = {}
+            
+            embeddings_config = config.get('embeddings', config)
+            _embeddings_manager = EmbeddingsManager(
+                model_name=embeddings_config.get("model", "all-MiniLM-L6-v2"),
+                cache_dir=embeddings_config.get("cache_dir"),
+                device=embeddings_config.get("device"),
+                batch_size=embeddings_config.get("batch_size", 32),
+                normalize_embeddings=embeddings_config.get("normalize_embeddings", True),
+                show_progress_bar=embeddings_config.get("show_progress_bar", True)
+            )
+        
+        return _embeddings_manager

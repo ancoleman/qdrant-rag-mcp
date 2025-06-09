@@ -17,6 +17,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from utils.logging import get_project_logger
 from utils.hybrid_search import get_hybrid_searcher
 from utils.enhanced_ranker import get_enhanced_ranker
+from utils.memory_manager import LRUMemoryCache, get_memory_manager
 
 
 # Data structures
@@ -191,20 +192,46 @@ class QueryIntentClassifier:
         )
 
 
-class SemanticCache:
+class SemanticCache(LRUMemoryCache):
     """Caches query results with semantic similarity matching."""
     
     def __init__(self, config: Optional[Dict[str, Any]] = None, embedding_model=None):
         """Initialize the semantic cache."""
-        self.config = config or {}
-        self.similarity_threshold = self.config.get("similarity_threshold", 0.85)
-        self.max_cache_size = self.config.get("max_cache_size", 1000)
-        self.ttl_seconds = self.config.get("ttl_seconds", 3600)
-        self.persistence_enabled = self.config.get("persistence_enabled", True)
-        self.persistence_path = self.config.get("persistence_path", "~/.mcp-servers/qdrant-rag/progressive_cache")
+        # Get config from server config if not provided
+        if config is None:
+            from config import get_config
+            server_config = get_config()
+            progressive_config = server_config.get('progressive_context', {})
+            config = progressive_config.get('cache', {})
         
-        self.cache = OrderedDict()
-        self.embeddings_cache = {}
+        self.config = config
+        
+        # Get limits from memory management config
+        memory_config = get_memory_manager().config
+        component_limits = memory_config.get('component_limits', {}).get('progressive_cache', {})
+        
+        max_memory = float(component_limits.get('max_memory_mb', config.get('max_memory_mb', 200)))
+        max_items = int(component_limits.get('max_items', config.get('max_cache_size', 100)))
+        
+        # Initialize parent LRUMemoryCache
+        super().__init__(
+            name="progressive_semantic_cache",
+            max_memory_mb=max_memory,
+            max_items=max_items
+        )
+        
+        # Register with memory manager
+        memory_manager = get_memory_manager()
+        memory_manager.register_component("progressive_cache", self)
+        
+        # Semantic cache specific settings
+        self.similarity_threshold = float(config.get("similarity_threshold", 0.85))
+        self.ttl_seconds = int(config.get("ttl_seconds", 1800))
+        self.persistence_enabled = config.get("persistence_enabled", True)
+        self.persistence_path = config.get("persistence_path", "~/.mcp-servers/qdrant-rag/progressive_cache")
+        
+        # Embeddings cache for semantic matching
+        self.embeddings_cache = OrderedDict()
         self.embedding_model = embedding_model
         self.logger = get_project_logger()
         
@@ -232,15 +259,35 @@ class SemanticCache:
         
         # Generate embedding
         model = self._get_embedding_model()
-        embedding = model.encode(text)
+        
+        # Determine content type from the cache key format (level:query)
+        content_type = 'general'
+        if text.startswith('file:') or text.startswith('class:') or text.startswith('method:'):
+            # Extract potential collection suffix hints from the query
+            if '_code' in text or 'function' in text.lower() or 'class' in text.lower():
+                content_type = 'code'
+            elif '_config' in text or 'config' in text.lower() or 'yaml' in text.lower() or 'json' in text.lower():
+                content_type = 'config'
+            elif '_documentation' in text or 'doc' in text.lower() or 'readme' in text.lower():
+                content_type = 'documentation'
+        
+        # Use appropriate content type for encoding
+        if hasattr(model, 'encode') and callable(getattr(model, 'encode')):
+            try:
+                embedding = model.encode(text, content_type=content_type)
+            except TypeError:
+                # Fallback if the model doesn't support content_type parameter
+                embedding = model.encode(text)
+        else:
+            embedding = model.encode(text)
         
         # Cache the embedding
         self.embeddings_cache[text_hash] = embedding
         
-        # Limit embeddings cache size
-        if len(self.embeddings_cache) > self.max_cache_size * 2:
-            # Remove oldest half
-            items_to_remove = list(self.embeddings_cache.keys())[:self.max_cache_size]
+        # Limit embeddings cache size (more aggressive limit)
+        if len(self.embeddings_cache) > self.max_cache_size:
+            # Remove oldest quarter
+            items_to_remove = list(self.embeddings_cache.keys())[:len(self.embeddings_cache)//4]
             for key in items_to_remove:
                 del self.embeddings_cache[key]
         
@@ -250,6 +297,65 @@ class SemanticCache:
         """Check if a cache entry is expired."""
         return time.time() - timestamp > self.ttl_seconds
     
+    def get_memory_usage(self) -> float:
+        """Override parent to include embeddings cache memory"""
+        # Get base cache memory from parent
+        base_memory = super().get_memory_usage()
+        
+        # Add embeddings cache memory (768 or 1024 dims * 4 bytes * count)
+        avg_embedding_size = 768 * 4 / (1024**2)  # ~3KB per embedding
+        embeddings_size = len(self.embeddings_cache) * avg_embedding_size
+        
+        return base_memory + embeddings_size
+    
+    def _cleanup_expired(self):
+        """Remove expired entries from cache"""
+        expired_keys = []
+        
+        with self.lock:
+            for key, value in self.cache.items():
+                if isinstance(value, tuple) and len(value) >= 3:
+                    _, _, timestamp = value
+                    if self._is_expired(timestamp):
+                        expired_keys.append(key)
+        
+        # Remove expired entries
+        for key in expired_keys:
+            del self.cache[key]
+            if key in self.memory_estimates:
+                del self.memory_estimates[key]
+        
+        if expired_keys:
+            self.logger.debug(f"Cleaned up {len(expired_keys)} expired cache entries")
+    
+    def cleanup(self, aggressive: bool = False) -> int:
+        """Override parent cleanup to handle embeddings cache and TTL"""
+        removed = 0
+        
+        # First clean up expired entries
+        self._cleanup_expired()
+        
+        # Then do standard LRU cleanup
+        removed = super().cleanup(aggressive)
+        
+        # Also clean embeddings cache
+        if aggressive and len(self.embeddings_cache) > 20:
+            # Remove half of embeddings
+            items_to_remove = len(self.embeddings_cache) // 2
+            keys_to_remove = list(self.embeddings_cache.keys())[:items_to_remove]
+            for key in keys_to_remove:
+                del self.embeddings_cache[key]
+            removed += items_to_remove
+        elif len(self.embeddings_cache) > 50:
+            # Remove 20% of embeddings
+            items_to_remove = len(self.embeddings_cache) // 5
+            keys_to_remove = list(self.embeddings_cache.keys())[:items_to_remove]
+            for key in keys_to_remove:
+                del self.embeddings_cache[key]
+            removed += items_to_remove
+        
+        return removed
+    
     def get_similar(self, query: str, level: str) -> Optional[ProgressiveResult]:
         """Find semantically similar cached queries."""
         # Create cache key that includes level
@@ -258,29 +364,39 @@ class SemanticCache:
         
         best_match = None
         best_similarity = 0.0
+        best_key = None
         
-        for cached_key, (result, embedding, timestamp) in self.cache.items():
-            # Skip expired entries
-            if self._is_expired(timestamp):
-                continue
-            
-            # Only match same level
-            if not cached_key.startswith(f"{level}:"):
-                continue
-            
-            # Calculate similarity
-            similarity = cosine_similarity(
-                query_embedding.reshape(1, -1),
-                embedding.reshape(1, -1)
-            )[0, 0]
-            
-            if similarity >= self.similarity_threshold and similarity > best_similarity:
-                best_match = result
-                best_similarity = similarity
+        with self.lock:
+            for cached_key in list(self.cache.keys()):
+                # Get the stored data
+                cache_data = self.cache[cached_key]
+                if not isinstance(cache_data, tuple) or len(cache_data) < 3:
+                    continue
+                    
+                result, embedding, timestamp = cache_data
+                
+                # Skip expired entries
+                if self._is_expired(timestamp):
+                    continue
+                
+                # Only match same level
+                if not cached_key.startswith(f"{level}:"):
+                    continue
+                
+                # Calculate similarity
+                similarity = cosine_similarity(
+                    query_embedding.reshape(1, -1),
+                    embedding.reshape(1, -1)
+                )[0, 0]
+                
+                if similarity >= self.similarity_threshold and similarity > best_similarity:
+                    best_match = result
+                    best_similarity = similarity
+                    best_key = cached_key
         
-        if best_match:
-            # Update access time by moving to end
-            self.cache.move_to_end(cached_key)
+        if best_match and best_key:
+            # Update access time using parent's get method
+            _ = self.get(best_key)  # This moves it to end
             self.logger.info(f"Cache hit for query with similarity {best_similarity:.3f}", extra={
                 "query": query[:50],
                 "level": level,
@@ -298,14 +414,20 @@ class SemanticCache:
         cache_key = f"{level}:{query}"
         embedding = self._get_embedding(cache_key)
         
-        # Add to cache
-        self.cache[cache_key] = (result, embedding, time.time())
+        # Calculate memory estimate based on result size
+        import sys
+        memory_estimate_mb = (
+            sys.getsizeof(result.results) / (1024**2) +
+            sys.getsizeof(result.summary) / (1024**2) +
+            0.001  # Small overhead for other fields
+        )
         
-        # Enforce cache size limit
-        if len(self.cache) > self.max_cache_size:
-            # Remove oldest entries
-            for _ in range(len(self.cache) - self.max_cache_size):
-                self.cache.popitem(last=False)
+        # Store using parent's put method with tuple value
+        cache_value = (result, embedding, time.time())
+        self.put(cache_key, cache_value, memory_estimate_mb)
+        
+        # Store embedding separately
+        self.embeddings_cache[cache_key] = embedding
         
         # Persist if enabled
         if self.persistence_enabled:
@@ -314,7 +436,7 @@ class SemanticCache:
         self.logger.debug(f"Cached query result", extra={
             "query": query[:50],
             "level": level,
-            "cache_size": len(self.cache)
+            "cache_size": self.get_item_count()
         })
     
     def _load_cache(self):
@@ -599,7 +721,7 @@ class ProgressiveContextManager:
                 level = "file"
                 query_intent = QueryIntent(
                     level="file",
-                    type="understanding",
+                    exploration_type="understanding",
                     confidence=0.9
                 )
                 self.logger.info(f"Auto-detected context level for docs: {level}", extra={
@@ -672,8 +794,26 @@ class ProgressiveContextManager:
         collection_suffix: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """Perform search and filter results based on context level."""
-        # Generate query embedding
-        query_embedding = self.embeddings.encode(query).tolist()
+        # Determine content type based on collection suffix
+        content_type = 'general'
+        if collection_suffix == '_code':
+            content_type = 'code'
+        elif collection_suffix == '_config':
+            content_type = 'config'
+        elif collection_suffix == '_documentation':
+            content_type = 'documentation'
+        
+        # Generate query embedding with appropriate content type
+        query_embedding_array = self.embeddings.encode(query, content_type=content_type)
+        # Handle both 1D and 2D arrays - if 2D with single row, extract it
+        if hasattr(query_embedding_array, 'ndim'):
+            if query_embedding_array.ndim == 2 and query_embedding_array.shape[0] == 1:
+                query_embedding = query_embedding_array[0].tolist()
+            else:
+                query_embedding = query_embedding_array.tolist()
+        else:
+            # Fallback for non-numpy arrays
+            query_embedding = query_embedding_array if isinstance(query_embedding_array, list) else query_embedding_array.tolist()
         
         # Determine which collections to search
         all_collections = [c.name for c in self.qdrant_client.get_collections().collections]

@@ -1,6 +1,6 @@
 [project]
 name = "qdrant-rag-mcp"
-version = "0.3.2"
+version = "0.3.3"
 description = "Qdrant RAG MCP Server"
 requires-python = ">=3.12"
 dependencies = [
@@ -22,6 +22,7 @@ dependencies = [
     "requests>=2.32.3,<3.0.0",
     "pygithub>=2.6.1,<3.0.0",
     "gitpython>=3.1.44,<4.0.0",
+    "psutil>=5.9.0,<6.0.0",
 ]
 
 [build-system]
@@ -48,4 +49,9 @@ performance = [
     "orjson>=3.10.18,<4.0.0",  # Faster JSON parsing
     "numpy>=2.1.0,<3.0.0",     # NumPy 2.x for Python 3.12
     "torch>=2.4.0,<3.0.0"      # GPU acceleration
+]
+models = [
+    "einops>=0.8.0",                # Required for nomic-ai/CodeRankEmbed and jinaai/jina-embeddings-v3
+    "InstructorEmbedding>=1.0.0",   # Required for hkunlp/instructor-large
+    "huggingface-hub[hf_xet]"       # Better download performance for models
 ]

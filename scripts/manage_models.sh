@@ -9,22 +9,66 @@ BLUE='\033[0;34m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-CACHE_DIR="${SENTENCE_TRANSFORMERS_HOME:-~/Library/Caches/qdrant-mcp/models}"
+# Set cache directory - handle potential comments in env vars
+TEMP_HOME="${SENTENCE_TRANSFORMERS_HOME:-~/Library/Caches/qdrant-mcp/models}"
+# Remove any comments from the path
+CACHE_DIR=$(echo "$TEMP_HOME" | sed 's/#.*//' | xargs)
 CACHE_DIR="${CACHE_DIR/#\~/$HOME}"
 
-# Map of directory names to model names
-declare -A model_map=(
-    ["models--sentence-transformers--all-MiniLM-L6-v2"]="all-MiniLM-L6-v2"
-    ["models--sentence-transformers--all-MiniLM-L12-v2"]="all-MiniLM-L12-v2"
-    ["models--sentence-transformers--all-mpnet-base-v2"]="all-mpnet-base-v2"
-    ["models--sentence-transformers--all-distilroberta-v1"]="all-distilroberta-v1"
-    ["models--sentence-transformers--multi-qa-MiniLM-L6-cos-v1"]="multi-qa-MiniLM-L6-cos-v1"
-    ["models--microsoft--codebert-base"]="microsoft/codebert-base"
-    ["models--microsoft--unixcoder-base"]="microsoft/unixcoder-base"
-    ["models--Salesforce--codet5-small"]="Salesforce/codet5-small"
-    ["models--intfloat--e5-large-v2"]="intfloat/e5-large-v2"
-    ["models--BAAI--bge-large-en-v1.5"]="BAAI/bge-large-en-v1.5"
-)
+# If we're in the project directory, use local data/models
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+if [ -d "$PROJECT_ROOT/data/models" ]; then
+    CACHE_DIR="$PROJECT_ROOT/data/models"
+fi
+
+# Function to get model name from directory
+get_model_name() {
+    local dir_name=$1
+    case "$dir_name" in
+        # General purpose models
+        "models--sentence-transformers--all-MiniLM-L6-v2")
+            echo "sentence-transformers/all-MiniLM-L6-v2" ;;
+        "models--sentence-transformers--all-MiniLM-L12-v2")
+            echo "sentence-transformers/all-MiniLM-L12-v2" ;;
+        "models--sentence-transformers--all-mpnet-base-v2")
+            echo "sentence-transformers/all-mpnet-base-v2" ;;
+        "models--sentence-transformers--all-distilroberta-v1")
+            echo "sentence-transformers/all-distilroberta-v1" ;;
+        "models--sentence-transformers--multi-qa-MiniLM-L6-cos-v1")
+            echo "sentence-transformers/multi-qa-MiniLM-L6-cos-v1" ;;
+        
+        # Specialized embeddings models (Phase 2)
+        "models--nomic-ai--CodeRankEmbed")
+            echo "nomic-ai/CodeRankEmbed" ;;
+        "models--jinaai--jina-embeddings-v3")
+            echo "jinaai/jina-embeddings-v3" ;;
+        "models--jinaai--jina-embeddings-v2-base-en")
+            echo "jinaai/jina-embeddings-v2-base-en" ;;
+        "models--hkunlp--instructor-large")
+            echo "hkunlp/instructor-large" ;;
+        
+        # Code models
+        "models--microsoft--codebert-base")
+            echo "microsoft/codebert-base" ;;
+        "models--microsoft--unixcoder-base")
+            echo "microsoft/unixcoder-base" ;;
+        "models--Salesforce--codet5-small")
+            echo "Salesforce/codet5-small" ;;
+        
+        # Large models
+        "models--intfloat--e5-large-v2")
+            echo "intfloat/e5-large-v2" ;;
+        "models--BAAI--bge-large-en-v1.5")
+            echo "BAAI/bge-large-en-v1.5" ;;
+        
+        # Default: try to derive from directory name
+        *)
+            local model="${dir_name#models--}"
+            echo "${model//--//}"
+            ;;
+    esac
+}
 
 usage() {
     echo -e "${BLUE}Usage:${NC}"
@@ -46,21 +90,46 @@ list_models() {
         exit 1
     fi
     
-    echo "Models found:"
+    # Load specialized embeddings config
+    if [ -f .env ]; then
+        source <(grep -v '^#' .env | grep -v '^$')
+    fi
+    
+    echo -e "${GREEN}Specialized Embeddings Configuration:${NC}"
+    echo -e "  Code: ${QDRANT_CODE_EMBEDDING_MODEL:-nomic-ai/CodeRankEmbed}"
+    echo -e "  Config: ${QDRANT_CONFIG_EMBEDDING_MODEL:-jinaai/jina-embeddings-v3}"
+    echo -e "  Documentation: ${QDRANT_DOC_EMBEDDING_MODEL:-hkunlp/instructor-large}"
+    echo -e "  General: ${QDRANT_GENERAL_EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}"
+    echo ""
+    
+    echo "Downloaded models:"
     i=1
     declare -a available_models=()
     
     for dir in "$CACHE_DIR"/models--*; do
-        if [ -d "$dir/snapshots" ]; then
+        if [ -d "$dir" ]; then
             dir_name=$(basename "$dir")
             
-            if [ -n "${model_map[$dir_name]}" ]; then
-                model_name="${model_map[$dir_name]}"
-                size=$(du -sh "$dir" | cut -f1)
-                echo -e "  ${GREEN}$i.${NC} $model_name ($size)"
-                available_models+=("$model_name")
-                ((i++))
+            # Get model name using the function
+            model_name=$(get_model_name "$dir_name")
+            
+            size=$(du -sh "$dir" | cut -f1)
+            
+            # Check if this is a configured specialized model
+            role=""
+            if [[ "$model_name" == "${QDRANT_CODE_EMBEDDING_MODEL:-nomic-ai/CodeRankEmbed}" ]]; then
+                role=" ${BLUE}[CODE]${NC}"
+            elif [[ "$model_name" == "${QDRANT_CONFIG_EMBEDDING_MODEL:-jinaai/jina-embeddings-v3}" ]]; then
+                role=" ${BLUE}[CONFIG]${NC}"
+            elif [[ "$model_name" == "${QDRANT_DOC_EMBEDDING_MODEL:-hkunlp/instructor-large}" ]]; then
+                role=" ${BLUE}[DOCS]${NC}"
+            elif [[ "$model_name" == "${QDRANT_GENERAL_EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}" ]]; then
+                role=" ${BLUE}[GENERAL]${NC}"
             fi
+            
+            echo -e "  ${GREEN}$i.${NC} $model_name ($size)$role"
+            available_models+=("$model_name")
+            ((i++))
         fi
     done
     

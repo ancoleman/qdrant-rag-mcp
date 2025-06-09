@@ -56,3 +56,9 @@ htmlcov/
 # Claude project file
 CLAUDE.md
 progressive_cache/
+
+# Model registry (should be in ~/.mcp-servers/qdrant-rag/)
+model_registry.json
+
+# Temporary quickfix directory
+quickfix/

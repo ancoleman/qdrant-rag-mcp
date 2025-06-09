@@ -16,9 +16,24 @@ import uvicorn
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+# Load environment variables and set HuggingFace cache BEFORE imports
+from pathlib import Path
+from dotenv import load_dotenv
+env_path = Path(__file__).parent.parent / ".env"
+if env_path.exists():
+    load_dotenv(env_path)
+
+# Ensure HuggingFace uses our custom cache directory
+if 'SENTENCE_TRANSFORMERS_HOME' in os.environ:
+    cache_dir = os.path.expanduser(os.environ['SENTENCE_TRANSFORMERS_HOME'])
+    if not os.environ.get('HF_HOME'):
+        os.environ['HF_HOME'] = cache_dir
+    if not os.environ.get('HF_HUB_CACHE'):
+        os.environ['HF_HUB_CACHE'] = cache_dir
 from qdrant_mcp_context_aware import (
     index_code, index_config, index_documentation, index_directory,
-    search, search_code, search_docs, reindex_directory,
+    search, search_code, search_config, search_docs, reindex_directory,
     detect_changes, get_file_chunks, get_context, switch_project, health_check,
     # GitHub integration functions (v0.3.0)
     github_list_repositories, github_switch_repository, github_fetch_issues,
@@ -38,7 +53,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Qdrant RAG Server HTTP API", 
-    version="0.3.0",
+    version="0.3.3",
     lifespan=lifespan
 )
 
@@ -85,10 +100,17 @@ class SearchCodeRequest(BaseModel):
 
 class SearchConfigRequest(BaseModel):
     query: str
-    n_results: Optional[int] = 5
     file_type: Optional[str] = None
-    path: Optional[str] = None
-    depth: Optional[int] = None
+    n_results: Optional[int] = 5
+    cross_project: Optional[bool] = False
+    search_mode: Optional[str] = "hybrid"
+    include_context: Optional[bool] = True
+    context_chunks: Optional[int] = 1
+    # Progressive context parameters (v0.3.2)
+    context_level: Optional[str] = "auto"
+    progressive_mode: Optional[bool] = None
+    include_expansion_options: Optional[bool] = True
+    semantic_cache: Optional[bool] = True
 
 class IndexDocumentationRequest(BaseModel):
     file_path: str
@@ -281,11 +303,18 @@ async def search_code_endpoint(request: SearchCodeRequest):
 async def search_config_endpoint(request: SearchConfigRequest):
     """Search in config collection with filtering"""
     try:
-        # Note: search_config is not a current MCP tool, using general search
-        result = search(
+        result = search_config(
             query=request.query,
+            file_type=request.file_type,
             n_results=request.n_results,
-            search_mode="hybrid"
+            cross_project=request.cross_project,
+            search_mode=request.search_mode,
+            include_context=request.include_context,
+            context_chunks=request.context_chunks,
+            context_level=request.context_level,
+            progressive_mode=request.progressive_mode,
+            include_expansion_options=request.include_expansion_options,
+            semantic_cache=request.semantic_cache
         )
         
         if "error" in result:
@@ -627,6 +656,44 @@ async def github_health_endpoint():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# Apple Silicon optimization endpoints
+@app.get("/apple_silicon_status")
+async def apple_silicon_status_endpoint():
+    """Get Apple Silicon optimization status and memory information"""
+    try:
+        # Import the functions from the MCP server
+        from qdrant_mcp_context_aware import get_apple_silicon_status
+        result = get_apple_silicon_status()
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class CleanupRequest(BaseModel):
+    level: str = "standard"
+
+
+@app.post("/apple_silicon_cleanup")
+async def apple_silicon_cleanup_endpoint(request: CleanupRequest):
+    """Manually trigger Apple Silicon memory cleanup"""
+    try:
+        # Import the function from the MCP server
+        from qdrant_mcp_context_aware import trigger_apple_silicon_cleanup
+        result = trigger_apple_silicon_cleanup(level=request.level)
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8081)

@@ -251,8 +251,7 @@
     "cache": {
       "enabled": true,
       "similarity_threshold": 0.85,
-      "max_cache_size": 1000,
-      "ttl_seconds": 3600,
+      "ttl_seconds": 1800,
       "persistence_enabled": true,
       "persistence_path": "~/.mcp-servers/qdrant-rag/progressive_cache"
     },
@@ -279,6 +278,74 @@
       "enabled": true,
       "confidence_threshold": 0.7,
       "fallback_level": "class"
+    }
+  },
+  "specialized_embeddings": {
+    "enabled": "${QDRANT_SPECIALIZED_EMBEDDINGS_ENABLED:-true}",
+    "models": {
+      "code": {
+        "primary": "${QDRANT_CODE_EMBEDDING_MODEL:-nomic-ai/CodeRankEmbed}",
+        "fallback": "${QDRANT_CODE_EMBEDDING_FALLBACK:-microsoft/codebert-base}",
+        "dimension": 768,
+        "max_tokens": 8192,
+        "description": "Optimized for code understanding across multiple languages",
+        "requires_query_prefix": true,
+        "query_prefix": "${QDRANT_CODE_QUERY_PREFIX:-}"
+      },
+      "config": {
+        "primary": "${QDRANT_CONFIG_EMBEDDING_MODEL:-jinaai/jina-embeddings-v3}",
+        "fallback": "${QDRANT_CONFIG_EMBEDDING_FALLBACK:-jinaai/jina-embeddings-v2-base-en}",
+        "dimension": 1024,
+        "max_tokens": 8192,
+        "description": "Specialized for configuration files (JSON, YAML, etc.)"
+      },
+      "documentation": {
+        "primary": "${QDRANT_DOC_EMBEDDING_MODEL:-hkunlp/instructor-large}",
+        "fallback": "${QDRANT_DOC_EMBEDDING_FALLBACK:-sentence-transformers/all-mpnet-base-v2}",
+        "dimension": 768,
+        "max_tokens": 512,
+        "instruction_prefix": "${QDRANT_DOC_INSTRUCTION_PREFIX:-Represent the technical documentation for retrieval:}",
+        "description": "Optimized for technical documentation with instruction support"
+      },
+      "general": {
+        "primary": "${QDRANT_GENERAL_EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}",
+        "fallback": null,
+        "dimension": 384,
+        "max_tokens": 256,
+        "description": "General purpose embeddings and backward compatibility"
+      }
+    },
+    "memory": {
+      "cache_dir": "${QDRANT_MODEL_CACHE_DIR:-~/.cache/qdrant-mcp/models}"
+    },
+    "performance": {
+      "batch_size": "${QDRANT_EMBEDDING_BATCH_SIZE:-32}",
+      "device": "${QDRANT_EMBEDDING_DEVICE:-auto}",
+      "normalize_embeddings": true,
+      "show_progress_bar": false
+    }
+  },
+  "memory_management": {
+    "enabled": "${QDRANT_MEMORY_MANAGEMENT_ENABLED:-true}",
+    "total_memory_limit_mb": "${QDRANT_TOTAL_MEMORY_LIMIT_MB:-8000}",
+    "cleanup_threshold_mb": "${QDRANT_CLEANUP_THRESHOLD_MB:-6000}",
+    "aggressive_threshold_mb": "${QDRANT_AGGRESSIVE_THRESHOLD_MB:-7000}",
+    "cleanup_interval_seconds": "${QDRANT_CLEANUP_INTERVAL_SECONDS:-180}",
+    "gc_interval_seconds": "${QDRANT_GC_INTERVAL_SECONDS:-300}",
+    "component_limits": {
+      "specialized_embeddings": {
+        "max_memory_mb": "${QDRANT_EMBEDDINGS_MAX_MEMORY_MB:-4000}",
+        "max_items": "${QDRANT_EMBEDDINGS_MAX_MODELS:-3}"
+      },
+      "progressive_cache": {
+        "max_memory_mb": "${QDRANT_PROGRESSIVE_CACHE_MAX_MEMORY_MB:-200}",
+        "max_items": "${QDRANT_PROGRESSIVE_CACHE_MAX_ITEMS:-100}"
+      },
+      "context_tracking": {
+        "max_memory_mb": "${QDRANT_CONTEXT_TRACKING_MAX_MEMORY_MB:-100}",
+        "max_files": "${QDRANT_CONTEXT_TRACKING_MAX_FILES:-100}",
+        "max_timeline_events": "${QDRANT_CONTEXT_TRACKING_MAX_EVENTS:-500}"
+      }
     }
   }
 }

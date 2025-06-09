@@ -1,0 +1,11 @@
+# Additional requirements for specialized embedding models
+# Install with: pip install -r requirements-models.txt
+
+# Required for nomic-ai/CodeRankEmbed and jinaai/jina-embeddings-v3
+einops>=0.8.0
+
+# Required for hkunlp/instructor-large
+InstructorEmbedding>=1.0.0
+
+# Optional but recommended for better download performance
+huggingface-hub[hf_xet]

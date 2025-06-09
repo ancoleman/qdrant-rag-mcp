@@ -11,6 +11,7 @@ import threading
 import time
 import argparse
 import fnmatch
+import gc
 from typing import Dict, List, Optional, Any, Set, Tuple, Callable
 from pathlib import Path
 import logging
@@ -23,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     from . import __version__
 except ImportError:
-    __version__ = "0.3.2"  # Fallback version
+    __version__ = "0.3.3"  # Fallback version
 
 # Load environment variables from the MCP server directory
 from dotenv import load_dotenv
@@ -31,6 +32,15 @@ mcp_server_dir = Path(__file__).parent.parent
 env_path = mcp_server_dir / ".env"
 if env_path.exists():
     load_dotenv(env_path)
+
+# Ensure HuggingFace uses our custom cache directory
+# This must be set before any HF imports to avoid cache mismatches
+if 'SENTENCE_TRANSFORMERS_HOME' in os.environ:
+    cache_dir = os.path.expanduser(os.environ['SENTENCE_TRANSFORMERS_HOME'])
+    if not os.environ.get('HF_HOME'):
+        os.environ['HF_HOME'] = cache_dir
+    if not os.environ.get('HF_HUB_CACHE'):
+        os.environ['HF_HUB_CACHE'] = cache_dir
 
 # MCP imports
 from mcp.server.fastmcp import FastMCP
@@ -52,6 +62,10 @@ from config import get_config
 from utils.progressive_context import get_progressive_manager
 # Import context tracking
 from utils.context_tracking import SessionContextTracker, SessionStore, check_context_usage
+# Import model registry
+from utils.model_registry import get_model_registry
+# Import memory manager
+from utils.memory_manager import get_memory_manager
 
 # Configure basic console logging for startup messages
 logging.basicConfig(
@@ -93,6 +107,7 @@ class SearchError(Exception):
 # Global variables for lazy initialization
 _qdrant_client = None
 _embedding_model = None
+_embeddings_manager = None  # Unified embeddings manager (v0.3.3)
 _code_indexer = None
 _config_indexer = None
 _documentation_indexer = None
@@ -346,6 +361,9 @@ def _expand_search_context(results: List[Dict[str, Any]], qdrant_client, search_
     # Limit context chunks to reasonable amount
     context_chunks = min(context_chunks, 3)
     
+    # Cache collection dimensions to avoid repeated API calls
+    collection_dimensions = {}
+    
     for result in results:
         # Create a group of related chunks
         chunk_group = {
@@ -368,6 +386,28 @@ def _expand_search_context(results: List[Dict[str, Any]], qdrant_client, search_
         chunk_key = f"{file_path}:{chunk_index}"
         seen_chunks.add(chunk_key)
         
+        # Get the actual dimension for this collection
+        if collection not in collection_dimensions:
+            try:
+                collection_info = qdrant_client.get_collection(collection)
+                # Get dimension from vector config
+                if hasattr(collection_info.config.params, 'vectors'):
+                    if isinstance(collection_info.config.params.vectors, dict):
+                        # Named vectors - get first one
+                        first_vector_config = next(iter(collection_info.config.params.vectors.values()))
+                        collection_dimensions[collection] = first_vector_config.size
+                    else:
+                        # Single vector config
+                        collection_dimensions[collection] = collection_info.config.params.vectors.size
+                else:
+                    # Fallback to default
+                    collection_dimensions[collection] = embedding_dimension
+            except Exception as e:
+                logger.debug(f"Failed to get collection dimension for {collection}: {e}")
+                collection_dimensions[collection] = embedding_dimension
+        
+        actual_dimension = collection_dimensions[collection]
+        
         # Fetch surrounding chunks
         try:
             # Get chunks before
@@ -383,7 +423,7 @@ def _expand_search_context(results: List[Dict[str, Any]], qdrant_client, search_
                     
                     before_results = qdrant_client.search(
                         collection_name=collection,
-                        query_vector=[0.0] * embedding_dimension,  # Dummy vector for filter-only search
+                        query_vector=[0.0] * actual_dimension,  # Dummy vector for filter-only search
                         query_filter=before_filter,
                         limit=1
                     )
@@ -405,7 +445,7 @@ def _expand_search_context(results: List[Dict[str, Any]], qdrant_client, search_
                 
                 after_results = qdrant_client.search(
                     collection_name=collection,
-                    query_vector=[0.0] * embedding_dimension,  # Dummy vector for filter-only search
+                    query_vector=[0.0] * actual_dimension,  # Dummy vector for filter-only search
                     query_filter=after_filter,
                     limit=1
                 )
@@ -463,31 +503,252 @@ def _expand_search_context(results: List[Dict[str, Any]], qdrant_client, search_
     
     return expanded_results
 
-def ensure_collection(collection_name: str, embedding_dimension: int = 384):
-    """Ensure a collection exists with retry logic
+def ensure_collection(collection_name: str, embedding_dimension: Optional[int] = None, 
+                     embedding_model_name: Optional[str] = None,
+                     content_type: str = "general"):
+    """Ensure a collection exists with retry logic and model metadata
     
     Args:
         collection_name: Name of the collection to create
-        embedding_dimension: Dimension of the embedding vectors (default: 384 for backward compatibility)
+        embedding_dimension: Dimension of the embedding vectors (auto-detected if None)
+        embedding_model_name: Name of the embedding model used (auto-detected if None)
+        content_type: Type of content (code, config, documentation, general)
     """
     client = get_qdrant_client()
     
     from qdrant_client.http.models import Distance, VectorParams
+    from utils.model_registry import get_model_registry
+    from utils.embeddings import get_embeddings_manager
     
     def check_and_create():
         existing = [c.name for c in client.get_collections().collections]
         
         if collection_name not in existing:
+            config = get_config()
+            embeddings_manager = get_embeddings_manager(config)
+            
+            # Determine model name and dimension based on manager type
+            if hasattr(embeddings_manager, 'use_specialized') and embeddings_manager.use_specialized:
+                # Using specialized embeddings
+                actual_model_name = embeddings_manager.get_model_name(content_type)
+                actual_dimension = embeddings_manager.get_dimension(content_type)
+            else:
+                # Using single model mode
+                actual_model_name = embeddings_manager.model_name
+                actual_dimension = embeddings_manager.dimension
+            
+            # Use provided values if specified, otherwise use detected values
+            final_model_name = embedding_model_name or actual_model_name
+            final_dimension = embedding_dimension or actual_dimension
+            
+            # Create collection with vectors config
             client.create_collection(
                 collection_name=collection_name,
                 vectors_config=VectorParams(
-                    size=embedding_dimension,
+                    size=final_dimension,
                     distance=Distance.COSINE
                 )
             )
+            
+            # Store model metadata in a special point
+            metadata_point_id = hashlib.md5(f"{collection_name}_metadata".encode()).hexdigest()
+            
+            # Create metadata payload
+            metadata_payload = {
+                "type": "collection_metadata",
+                "embedding_model": final_model_name,
+                "embedding_dimension": final_dimension,
+                "content_type": content_type,
+                "created_at": datetime.now().isoformat(),
+                "mcp_version": __version__,
+                "specialized_embeddings": hasattr(embeddings_manager, 'use_specialized') and embeddings_manager.use_specialized
+            }
+            
+            # Store metadata as a special point with zero vector
+            from qdrant_client.http.models import PointStruct
+            metadata_point = PointStruct(
+                id=metadata_point_id,
+                vector=[0.0] * final_dimension,  # Dummy vector
+                payload=metadata_payload
+            )
+            
+            try:
+                client.upsert(
+                    collection_name=collection_name,
+                    points=[metadata_point]
+                )
+                
+                # Register with model registry
+                registry = get_model_registry()
+                registry.register_collection(collection_name, final_model_name, content_type)
+                
+                logger = get_logger()
+                logger.info(f"Created collection {collection_name} with model {final_model_name} "
+                           f"(dimension: {final_dimension}, type: {content_type})")
+                
+            except Exception as e:
+                logger = get_logger()
+                logger.warning(f"Failed to store metadata for collection {collection_name}: {e}")
     
     # Use retry logic for collection operations
     retry_operation(check_and_create)
+
+def get_collection_metadata(collection_name: str) -> Optional[Dict[str, Any]]:
+    """Retrieve metadata for a collection
+    
+    Args:
+        collection_name: Name of the collection
+        
+    Returns:
+        Dictionary with collection metadata or None if not found
+    """
+    client = get_qdrant_client()
+    
+    try:
+        # Check if collection exists
+        existing = [c.name for c in client.get_collections().collections]
+        if collection_name not in existing:
+            return None
+        
+        # Try to retrieve metadata point
+        metadata_point_id = hashlib.md5(f"{collection_name}_metadata".encode()).hexdigest()
+        
+        try:
+            points = client.retrieve(
+                collection_name=collection_name,
+                ids=[metadata_point_id],
+                with_payload=True,
+                with_vectors=False
+            )
+            
+            if points and len(points) > 0:
+                return points[0].payload
+            
+        except Exception:
+            # Metadata point doesn't exist (legacy collection)
+            pass
+        
+        # Fall back to model registry
+        from utils.model_registry import get_model_registry
+        registry = get_model_registry()
+        collection_info = registry.get_collection_info(collection_name)
+        
+        if collection_info:
+            return {
+                "embedding_model": collection_info['model'],
+                "content_type": collection_info.get('content_type', 'general'),
+                "specialized_embeddings": False  # Legacy collections use single model
+            }
+        
+        # No metadata found - assume defaults
+        return {
+            "embedding_model": os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2"),
+            "embedding_dimension": 384,  # Default dimension
+            "content_type": "general",
+            "specialized_embeddings": False
+        }
+        
+    except Exception as e:
+        logger = get_logger()
+        logger.warning(f"Failed to retrieve metadata for collection {collection_name}: {e}")
+        return None
+
+def check_model_compatibility(collection_name: str, query_model_name: Optional[str] = None) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
+    """Check if a query model is compatible with a collection's indexed model
+    
+    Args:
+        collection_name: Name of the collection to check
+        query_model_name: Model name to use for querying (None = current default)
+        
+    Returns:
+        Tuple of (is_compatible, recommended_model, metadata)
+        - is_compatible: Whether the models are compatible
+        - recommended_model: The model name that should be used
+        - metadata: Collection metadata if available
+    """
+    # Get collection metadata
+    metadata = get_collection_metadata(collection_name)
+    if not metadata:
+        # No metadata - assume compatible with warning
+        logger = get_logger()
+        logger.warning(f"No metadata found for collection {collection_name}, assuming model compatibility")
+        return True, query_model_name, None
+    
+    collection_model = metadata.get("embedding_model")
+    collection_dimension = metadata.get("embedding_dimension")
+    
+    # If no query model specified, use the collection's model
+    if not query_model_name:
+        return True, collection_model, metadata
+    
+    # Check if models match exactly
+    if query_model_name == collection_model:
+        return True, query_model_name, metadata
+    
+    # Check dimensions for compatibility
+    registry = get_model_registry()
+    
+    query_dimension = registry.get_model_dimension(query_model_name)
+    
+    if collection_dimension and query_dimension != collection_dimension:
+        logger = get_logger()
+        logger.warning(f"Model dimension mismatch for collection {collection_name}: "
+                      f"collection uses {collection_model} ({collection_dimension}D), "
+                      f"query uses {query_model_name} ({query_dimension}D)")
+        return False, collection_model, metadata
+    
+    # Models have same dimensions - might be compatible but warn
+    logger = get_logger()
+    logger.info(f"Using different but potentially compatible model for {collection_name}: "
+                f"indexed with {collection_model}, querying with {query_model_name}")
+    return True, query_model_name, metadata
+
+def get_query_embedding_for_collection(query: str, collection_name: str, embeddings_manager=None) -> List[float]:
+    """Generate query embedding using the appropriate model for a collection
+    
+    Args:
+        query: Query text to embed
+        collection_name: Collection to search
+        embeddings_manager: Optional embeddings manager instance
+        
+    Returns:
+        Query embedding as list of floats
+    """
+    if embeddings_manager is None:
+        embeddings_manager = get_embeddings_manager_instance()
+    
+    # Get collection metadata to determine the right model
+    metadata = get_collection_metadata(collection_name)
+    
+    if metadata and metadata.get("specialized_embeddings"):
+        # Collection was indexed with specialized embeddings
+        content_type = metadata.get("content_type", "general")
+        embedding_model = metadata.get("embedding_model")
+        
+        # Check if we're using the same specialized model
+        current_model = embeddings_manager.get_model_name(content_type)
+        if current_model != embedding_model:
+            logger = get_logger()
+            logger.warning(f"Model mismatch for collection {collection_name}: "
+                          f"indexed with {embedding_model}, current is {current_model}")
+        
+        # Use the appropriate content type
+        return embeddings_manager.encode(query, content_type=content_type).tolist()
+    else:
+        # Legacy collection or no metadata - use general embedding
+        return embeddings_manager.encode(query, content_type="general").tolist()
+
+def get_embeddings_manager_instance():
+    """Get or create the global embeddings manager instance
+    
+    Returns the UnifiedEmbeddingsManager which supports both single and specialized modes
+    """
+    global _embeddings_manager
+    if _embeddings_manager is None:
+        from utils.embeddings import get_embeddings_manager
+        config = get_config()
+        _embeddings_manager = get_embeddings_manager(config)
+    return _embeddings_manager
 
 def get_qdrant_client():
     """Get or create Qdrant client with connection validation"""
@@ -511,19 +772,15 @@ def get_qdrant_client():
     return _qdrant_client
 
 def get_embedding_model():
-    """Get or create embedding model"""
-    global _embedding_model
-    if _embedding_model is None:
-        from sentence_transformers import SentenceTransformer
-        
-        model_name = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
-        cache_dir = os.path.expanduser(
-            os.getenv("SENTENCE_TRANSFORMERS_HOME", str(mcp_server_dir / "data" / "models"))
-        )
-        
-        _embedding_model = SentenceTransformer(model_name, cache_folder=cache_dir)
+    """DEPRECATED: Use get_embeddings_manager() instead
     
-    return _embedding_model
+    This function is kept for backward compatibility but now returns
+    a wrapper around the unified embeddings manager.
+    """
+    # Get the unified embeddings manager
+    from utils.embeddings import get_embeddings_manager
+    config = get_config()
+    return get_embeddings_manager(config)
 
 def get_code_indexer():
     """Get or create code indexer"""
@@ -1127,7 +1384,7 @@ def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
         
         # Get services
         code_indexer = get_code_indexer()
-        embedding_model = get_embedding_model()
+        embeddings_manager = get_embeddings_manager_instance()
         qdrant_client = get_qdrant_client()
         
         # Get file modification time and hash
@@ -1144,9 +1401,12 @@ def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
         else:
             collection_name = get_collection_name(str(abs_path), "code")
         
-        # Get embedding dimension from the model
-        embedding_dimension = embedding_model.get_sentence_embedding_dimension()
-        ensure_collection(collection_name, embedding_dimension)
+        # Get embedding dimension for code content type
+        embedding_dimension = embeddings_manager.get_dimension("code") if hasattr(embeddings_manager, 'get_dimension') else None
+        model_name = embeddings_manager.get_model_name("code") if hasattr(embeddings_manager, 'get_model_name') else None
+        
+        # Ensure collection exists with code content type
+        ensure_collection(collection_name, embedding_dimension, model_name, content_type="code")
         
         # Index file
         chunks = code_indexer.index_file(str(abs_path))
@@ -1164,8 +1424,15 @@ def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
             except ValueError:
                 pass
         
+        # Process chunks one by one to avoid batch processing issues with specialized embeddings
         for chunk in chunks:
-            embedding = embedding_model.encode(chunk.content).tolist()
+            # Use embeddings manager with code content type
+            embedding_array = embeddings_manager.encode(chunk.content, content_type="code")
+            # Handle both 1D and 2D arrays - if 2D with single row, extract it
+            if embedding_array.ndim == 2 and embedding_array.shape[0] == 1:
+                embedding = embedding_array[0].tolist()
+            else:
+                embedding = embedding_array.tolist()
             
             # Generate unique chunk ID
             chunk_id = hashlib.md5(f"{abs_path}_{chunk.chunk_index}".encode()).hexdigest()
@@ -1355,9 +1622,12 @@ def index_documentation(file_path: str, force_global: bool = False) -> Dict[str,
         except:
             file_hash = None  # No hash if file reading fails
         
-        # Get embedding model early to determine dimension
-        model = get_embedding_model()
-        embedding_dimension = model.get_sentence_embedding_dimension()
+        # Get embeddings manager early to determine dimension
+        embeddings_manager = get_embeddings_manager_instance()
+        
+        # Get embedding dimension for documentation content type
+        embedding_dimension = embeddings_manager.get_dimension("documentation") if hasattr(embeddings_manager, 'get_dimension') else None
+        model_name = embeddings_manager.get_model_name("documentation") if hasattr(embeddings_manager, 'get_model_name') else None
         
         # Determine collection
         if force_global:
@@ -1365,8 +1635,8 @@ def index_documentation(file_path: str, force_global: bool = False) -> Dict[str,
         else:
             collection_name = get_collection_name(str(abs_path), "documentation")
         
-        # Ensure collection exists with correct dimension
-        ensure_collection(collection_name, embedding_dimension)
+        # Ensure collection exists with documentation content type
+        ensure_collection(collection_name, embedding_dimension, model_name, content_type="documentation")
         
         # Index the file
         chunks = doc_indexer.index_file(str(abs_path))
@@ -1383,14 +1653,21 @@ def index_documentation(file_path: str, force_global: bool = False) -> Dict[str,
         
         # Prepare points for Qdrant
         points = []
+        
+        # Process chunks one by one to avoid batch processing issues with specialized embeddings
         for chunk in chunks:
             # Create unique ID for chunk
             chunk_id = hashlib.md5(
                 f"{str(abs_path)}_{chunk['metadata']['chunk_index']}".encode()
             ).hexdigest()
             
-            # Generate embedding
-            embedding = model.encode(chunk['content']).tolist()
+            # Generate embedding using documentation content type
+            embedding_array = embeddings_manager.encode(chunk['content'], content_type="documentation")
+            # Handle both 1D and 2D arrays - if 2D with single row, extract it
+            if embedding_array.ndim == 2 and embedding_array.shape[0] == 1:
+                embedding = embedding_array[0].tolist()
+            else:
+                embedding = embedding_array.tolist()
             
             # Prepare payload
             payload = {
@@ -1412,7 +1689,7 @@ def index_documentation(file_path: str, force_global: bool = False) -> Dict[str,
                 "file_hash": file_hash,
                 "collection": collection_name
             }
-            
+                    
             # Add frontmatter if present
             if 'frontmatter' in chunk['metadata'] and chunk['metadata']['frontmatter']:
                 payload['frontmatter'] = chunk['metadata']['frontmatter']
@@ -1714,39 +1991,82 @@ def index_directory(directory: str = None, patterns: List[str] = None, recursive
                     except Exception as e:
                         errors.append({"file": str(file_path), "error": str(e)})
         
-        # Now process files with progress reporting
+        # Group files by type to minimize model switching
+        code_files = []
+        config_files = []
+        doc_files = []
+        
+        for file_path in files_to_process:
+            ext = file_path.suffix.lower()
+            if ext in ['.json', '.yaml', '.yml', '.xml', '.toml', '.ini']:
+                config_files.append(file_path)
+            elif ext in ['.md', '.markdown', '.rst', '.txt', '.mdx']:
+                doc_files.append(file_path)
+            else:
+                code_files.append(file_path)
+        
+        # Now process files grouped by type
         total_files = len(files_to_process)
         if total_files > 0:
             logger = get_logger()
             console_logger.info(f"Starting to index {total_files} files from {directory}")
+            console_logger.info(f"Files by type: {len(code_files)} code, {len(config_files)} config, {len(doc_files)} docs")
             
             # Report initial progress
             report_progress(0, total_files)
             
-            for idx, file_path in enumerate(files_to_process):
-                try:
-                    # Determine file type
-                    ext = file_path.suffix.lower()
-                    if ext in ['.json', '.yaml', '.yml', '.xml', '.toml', '.ini']:
-                        result = index_config(str(file_path))
-                    elif ext in ['.md', '.markdown', '.rst', '.txt']:
-                        result = index_documentation(str(file_path))
-                    else:
-                        result = index_code(str(file_path))
+            files_processed = 0
+            
+            # Process each file type in order to minimize model switching
+            file_groups = [
+                ("code", code_files, index_code),
+                ("config", config_files, index_config),
+                ("documentation", doc_files, index_documentation)
+            ]
+            
+            for group_name, file_list, index_func in file_groups:
+                if not file_list:
+                    continue
+                
+                console_logger.info(f"Indexing {len(file_list)} {group_name} files...")
+                
+                # Clear memory before switching to a new file type
+                if files_processed > 0:
+                    embeddings_manager = get_embeddings_manager_instance()
+                    if hasattr(embeddings_manager, 'use_specialized') and embeddings_manager.use_specialized:
+                        import gc
+                        gc.collect()
+                        logger.debug(f"Cleared memory before processing {group_name} files")
+                
+                for idx, file_path in enumerate(file_list):
+                    try:
+                        # Periodic memory cleanup every 50 files when using specialized embeddings
+                        if files_processed > 0 and files_processed % 50 == 0:
+                            embeddings_manager = get_embeddings_manager_instance()
+                            if hasattr(embeddings_manager, 'use_specialized') and embeddings_manager.use_specialized:
+                                # Run garbage collection
+                                import gc
+                                gc.collect()
+                                logger.debug(f"Performed memory cleanup after {files_processed} files")
+                        
+                        result = index_func(str(file_path))
+                        
+                        if "error" not in result:
+                            indexed_files.append(result.get("file_path", str(file_path)))
+                            if "collection" in result:
+                                collections_used.add(result["collection"])
+                        else:
+                            errors.append({"file": str(file_path), "error": result["error"]})
+                        
+                        files_processed += 1
+                        
+                        # Report progress every 10 files or at the end
+                        if files_processed % 10 == 0 or files_processed == total_files:
+                            report_progress(files_processed, total_files, str(file_path.name))
                     
-                    if "error" not in result:
-                        indexed_files.append(result.get("file_path", str(file_path)))
-                        if "collection" in result:
-                            collections_used.add(result["collection"])
-                    else:
-                        errors.append({"file": str(file_path), "error": result["error"]})
-                    
-                    # Report progress every 10 files or at the end
-                    if (idx + 1) % 10 == 0 or (idx + 1) == total_files:
-                        report_progress(idx + 1, total_files, str(file_path.name))
-                    
-                except Exception as e:
-                    errors.append({"file": str(file_path), "error": str(e)})
+                    except Exception as e:
+                        errors.append({"file": str(file_path), "error": str(e)})
+                        files_processed += 1
         
         # Build/rebuild BM25 indices for all affected collections after indexing
         if indexed_files and collections_used:
@@ -2357,11 +2677,11 @@ def search(
     if progressive_mode and progressive_enabled:
         try:
             # Get progressive context manager
-            embedding_model = get_embedding_model()
+            embeddings_manager = get_embeddings_manager_instance()
             qdrant_client = get_qdrant_client()
             progressive_manager = get_progressive_manager(
                 qdrant_client, 
-                embedding_model,
+                embeddings_manager,
                 config.get("progressive_context", {})
             )
             
@@ -2435,11 +2755,16 @@ def search(
     
     # Regular search implementation (existing code)
     try:
-        embedding_model = get_embedding_model()
+        embeddings_manager = get_embeddings_manager_instance()
         qdrant_client = get_qdrant_client()
         
-        # Generate query embedding
-        query_embedding = embedding_model.encode(query).tolist()
+        # Generate query embedding using general content type for cross-collection search
+        query_embedding_array = embeddings_manager.encode(query, content_type="general")
+        # Handle both 1D and 2D arrays - if 2D with single row, extract it
+        if query_embedding_array.ndim == 2 and query_embedding_array.shape[0] == 1:
+            query_embedding = query_embedding_array[0].tolist()
+        else:
+            query_embedding = query_embedding_array.tolist()
         
         # Determine which collections to search
         all_collections = [c.name for c in qdrant_client.get_collections().collections]
@@ -2476,7 +2801,7 @@ def search(
         
         all_results = _perform_hybrid_search(
             qdrant_client=qdrant_client,
-            embedding_model=embedding_model,
+            embedding_model=embeddings_manager,
             query=query,
             query_embedding=query_embedding,
             search_collections=search_collections,
@@ -2590,8 +2915,8 @@ def search(
         
         # Expand context if requested
         if include_context and all_results:
-            # Get embedding dimension from the model
-            embedding_dimension = embedding_model.get_sentence_embedding_dimension()
+            # Get embedding dimension from the embeddings manager
+            embedding_dimension = embeddings_manager.get_sentence_embedding_dimension()
             all_results = _expand_search_context(all_results, qdrant_client, search_collections, context_chunks, embedding_dimension)
         
         # Truncate content in results to prevent token limit issues
@@ -2694,11 +3019,11 @@ def search_code(
             from utils.progressive_context import get_progressive_manager
             
             # Get services
-            embedding_model = get_embedding_model()
+            embeddings_manager = get_embeddings_manager_instance()
             qdrant_client = get_qdrant_client()
             progressive_manager = get_progressive_manager(
                 qdrant_client, 
-                embedding_model,
+                embeddings_manager,
                 config.get("progressive_context", {})
             )
             
@@ -2780,11 +3105,16 @@ def search_code(
     
     # Regular search implementation (existing code)
     try:
-        embedding_model = get_embedding_model()
+        embeddings_manager = get_embeddings_manager_instance()
         qdrant_client = get_qdrant_client()
         
-        # Generate query embedding
-        query_embedding = embedding_model.encode(query).tolist()
+        # Generate query embedding using code content type
+        query_embedding_array = embeddings_manager.encode(query, content_type="code")
+        # Handle both 1D and 2D arrays - if 2D with single row, extract it
+        if query_embedding_array.ndim == 2 and query_embedding_array.shape[0] == 1:
+            query_embedding = query_embedding_array[0].tolist()
+        else:
+            query_embedding = query_embedding_array.tolist()
         
         # Determine collections
         all_collections = [c.name for c in qdrant_client.get_collections().collections]
@@ -2825,7 +3155,7 @@ def search_code(
         
         all_results = _perform_hybrid_search(
             qdrant_client=qdrant_client,
-            embedding_model=embedding_model,
+            embedding_model=embeddings_manager,
             query=query,
             query_embedding=query_embedding,
             search_collections=search_collections,
@@ -2965,8 +3295,8 @@ def search_code(
                 formatted_results.append(formatted_result)
             
             # Expand context
-            # Get embedding dimension from the model
-            embedding_dimension = embedding_model.get_sentence_embedding_dimension()
+            # Get embedding dimension from the embeddings manager
+            embedding_dimension = embeddings_manager.get_sentence_embedding_dimension()
             expanded_results = _expand_search_context(formatted_results, qdrant_client, search_collections, context_chunks, embedding_dimension)
             
             # Convert back to search_code format
@@ -3072,11 +3402,11 @@ def search_docs(
             from utils.progressive_context import get_progressive_manager
             
             # Get services
-            embedding_model = get_embedding_model()
+            embeddings_manager = get_embeddings_manager_instance()
             qdrant_client = get_qdrant_client()
             progressive_manager = get_progressive_manager(
                 qdrant_client, 
-                embedding_model,
+                embeddings_manager,
                 config.get("progressive_context", {})
             )
             
@@ -3177,7 +3507,7 @@ def search_docs(
     
     try:
         qdrant_client = get_qdrant_client()
-        model = get_embedding_model()
+        embeddings_manager = get_embeddings_manager_instance()
         
         # Get current project info
         current_project = get_current_project()
@@ -3204,8 +3534,13 @@ def search_docs(
                 "message": "No documentation collections found to search"
             }
         
-        # Generate query embedding for vector search
-        query_embedding = model.encode(query).tolist()
+        # Generate query embedding for vector search using documentation content type
+        query_embedding_array = embeddings_manager.encode(query, content_type="documentation")
+        # Handle both 1D and 2D arrays - if 2D with single row, extract it
+        if query_embedding_array.ndim == 2 and query_embedding_array.shape[0] == 1:
+            query_embedding = query_embedding_array[0].tolist()
+        else:
+            query_embedding = query_embedding_array.tolist()
         
         # Build filter if doc_type specified
         filter_dict = None
@@ -3242,7 +3577,7 @@ def search_docs(
         
         all_results = _perform_hybrid_search(
             qdrant_client=qdrant_client,
-            embedding_model=model,
+            embedding_model=embeddings_manager,
             query=query,
             query_embedding=query_embedding,
             search_collections=search_collections,
@@ -3332,8 +3667,8 @@ def search_docs(
                 formatted_results.append(formatted_result)
             
             # Expand context
-            # Get embedding dimension from the model
-            embedding_dimension = model.get_sentence_embedding_dimension()
+            # Get embedding dimension from the embeddings manager
+            embedding_dimension = embeddings_manager.get_dimension("documentation") if hasattr(embeddings_manager, 'get_dimension') else 384
             expanded_results = _expand_search_context(formatted_results, qdrant_client, search_collections, context_chunks, embedding_dimension)
             
             # Update results with expanded content
@@ -3392,6 +3727,343 @@ def search_docs(
         }
 
 @mcp.tool()
+def search_config(
+    query: str, 
+    file_type: Optional[str] = None, 
+    n_results: int = 5, 
+    cross_project: bool = False, 
+    search_mode: str = "hybrid", 
+    include_context: bool = True, 
+    context_chunks: int = 1,
+    # New progressive context parameters
+    context_level: str = "auto",
+    progressive_mode: Optional[bool] = None,
+    include_expansion_options: bool = True,
+    semantic_cache: bool = True
+) -> Dict[str, Any]:
+    """
+    Search specifically in configuration files
+    
+    Args:
+        query: Search query
+        file_type: Filter by config file type (e.g., 'json', 'yaml', 'toml', 'xml', 'ini')
+        n_results: Number of results
+        cross_project: If True, search across all projects
+        search_mode: Search mode - "vector", "keyword", or "hybrid" (default: "hybrid")
+        include_context: If True, include surrounding chunks for more context
+        context_chunks: Number of chunks before/after to include (default: 1, max: 3)
+        context_level: Granularity level ("auto", "file", "class", "method", "full") - new in v0.3.2
+        progressive_mode: Enable progressive features (None = auto-detect) - new in v0.3.2
+        include_expansion_options: Include drill-down options - new in v0.3.2
+        semantic_cache: Use semantic similarity caching - new in v0.3.2
+    """
+    logger = get_logger()
+    start_time = time.time()
+    
+    # Check if progressive context is enabled
+    config = get_config()
+    progressive_enabled = config.get("progressive_context", {}).get("enabled", False)
+    
+    if progressive_mode is None:
+        # Auto-detect based on context_level
+        progressive_mode = progressive_enabled and context_level != "full"
+    
+    # If progressive mode is requested and enabled, use progressive context manager
+    if progressive_mode and progressive_enabled:
+        try:
+            # Import here to avoid circular imports
+            from utils.progressive_context import get_progressive_manager
+            
+            # Get services
+            embeddings_manager = get_embeddings_manager_instance()
+            qdrant_client = get_qdrant_client()
+            progressive_manager = get_progressive_manager(
+                qdrant_client, 
+                embeddings_manager,
+                config.get("progressive_context", {})
+            )
+            
+            # Use progressive context for config search
+            progressive_result = progressive_manager.get_progressive_context(
+                query=query,
+                level=context_level,
+                n_results=n_results,
+                cross_project=cross_project,
+                search_mode=search_mode,
+                include_dependencies=False,  # Not applicable for config
+                semantic_cache=semantic_cache,
+                collection_suffix="_config"  # Only search config collections
+            )
+            
+            # Filter results by file type if specified
+            if file_type:
+                progressive_result.results = [
+                    r for r in progressive_result.results 
+                    if r.get("file_type", "").lower() == file_type.lower() or r.get("file_path", "").endswith(f".{file_type}")
+                ]
+            
+            # Convert to standard response format with progressive metadata
+            response = {
+                "results": progressive_result.results,
+                "query": query,
+                "file_type_filter": file_type,
+                "total": len(progressive_result.results),
+                "search_mode": search_mode,
+                "project_context": get_current_project()["name"] if get_current_project() else None,
+                "search_scope": "all projects" if cross_project else "current project"
+            }
+            
+            # Add progressive metadata
+            if include_expansion_options or progressive_result.level != "full":
+                response["progressive"] = {
+                    "level_used": progressive_result.level,
+                    "token_estimate": progressive_result.token_estimate,
+                    "token_reduction": progressive_result.token_reduction_percent,
+                    "expansion_options": [
+                        {
+                            "type": opt.target_level,
+                            "path": opt.target_path,
+                            "estimated_tokens": opt.estimated_tokens,
+                            "relevance": opt.relevance_score
+                        }
+                        for opt in progressive_result.expansion_options
+                    ] if include_expansion_options else [],
+                    "cache_hit": progressive_result.from_cache,
+                    "query_intent": {
+                        "type": progressive_result.query_intent.exploration_type,
+                        "confidence": progressive_result.query_intent.confidence
+                    } if progressive_result.query_intent else None
+                }
+            
+            # Track in context tracking
+            tracker = get_context_tracker()
+            if tracker:
+                tracker.track_search(query, response["results"], search_type="config_progressive")
+            
+            # Log completion
+            console_logger.info(f"Progressive config search completed", extra={
+                "operation": "search_config_progressive",
+                "duration": time.time() - start_time,
+                "results_count": len(response["results"]),
+                "level": progressive_result.level,
+                "cache_hit": progressive_result.from_cache,
+                "file_type_filter": file_type
+            })
+            
+            return response
+            
+        except Exception as e:
+            # Log error but fall back to regular search
+            console_logger.warning(f"Progressive config search failed, falling back to regular search: {e}", extra={
+                "operation": "search_config_progressive_fallback",
+                "error": str(e)
+            })
+            # Continue with regular search below
+    
+    # Input validation
+    if not query or not isinstance(query, str):
+        return {
+            "error": "Invalid query",
+            "error_code": "INVALID_INPUT",
+            "details": "Query must be a non-empty string"
+        }
+    
+    # Sanitize query
+    query = query.strip()
+    if len(query) > 1000:
+        query = query[:1000]
+    
+    n_results = max(1, min(50, n_results))
+    search_mode = search_mode.lower()
+    if search_mode not in ["vector", "keyword", "hybrid"]:
+        search_mode = "hybrid"
+    
+    console_logger.info(f"Starting config search: {query[:50]}...", extra={
+        "operation": "search_config",
+        "query_length": len(query),
+        "n_results": n_results,
+        "cross_project": cross_project,
+        "search_mode": search_mode,
+        "file_type_filter": file_type
+    })
+    
+    try:
+        # Get collections to search
+        search_collections = []
+        current_project = get_current_project()
+        embeddings_manager = get_embeddings_manager_instance()
+        qdrant_client = get_qdrant_client()
+        
+        if cross_project:
+            # Search all config collections
+            all_collections = qdrant_client.get_collections().collections
+            search_collections = [
+                c.name for c in all_collections 
+                if "_config" in c.name
+            ]
+        else:
+            # Search only current project's config collection
+            if current_project:
+                collection_name = f"project_{current_project['name']}_config"
+                # Check if collection exists
+                all_collections = qdrant_client.get_collections().collections
+                existing_collections = [c.name for c in all_collections]
+                if collection_name in existing_collections:
+                    search_collections = [collection_name]
+        
+        if not search_collections:
+            return {
+                "results": [],
+                "query": query,
+                "total": 0,
+                "search_mode": search_mode,
+                "project_context": current_project["name"] if current_project else "no project",
+                "search_scope": "all projects" if cross_project else "current project",
+                "file_type_filter": file_type,
+                "message": "No config collections found to search"
+            }
+        
+        # Generate query embedding for vector search using config content type
+        query_embedding_array = embeddings_manager.encode(query, content_type="config")
+        # Handle both 1D and 2D arrays - if 2D with single row, extract it
+        if query_embedding_array.ndim == 2 and query_embedding_array.shape[0] == 1:
+            query_embedding = query_embedding_array[0].tolist()
+        else:
+            query_embedding = query_embedding_array.tolist()
+        
+        # Get config settings
+        config_settings = get_config()
+        
+        # Define metadata extraction for config files
+        def extract_config_metadata(payload):
+            return {
+                "file_type": payload.get("file_type", ""),
+                "path": payload.get("path", ""),
+                "value": payload.get("value", "")
+            }
+        
+        # Define result processing
+        def process_config_result(result):
+            result["type"] = "config"
+            return result
+        
+        # Perform search across collections
+        all_results = _perform_hybrid_search(
+            qdrant_client=qdrant_client,
+            embedding_model=embeddings_manager,
+            query=query,
+            query_embedding=query_embedding,
+            search_collections=search_collections,
+            n_results=n_results * 2,  # Get more results for filtering
+            search_mode=search_mode,
+            collection_filter=None,  # No specific filter for config search
+            result_processor=process_config_result,
+            metadata_extractor=extract_config_metadata
+        )
+        
+        # Filter by file type if specified
+        if file_type:
+            all_results = [
+                r for r in all_results 
+                if r.get("file_type", "").lower() == file_type.lower() or 
+                   r.get("file_path", "").endswith(f".{file_type}")
+            ]
+        
+        # Apply enhanced ranking
+        if all_results and search_mode == "hybrid":
+            # For config files, we don't need dependency graph
+            dependency_graph = {}
+            
+            # Get query context
+            query_context = {}
+            if current_project and "root_path" in current_project:
+                pass
+            
+            # Apply enhanced ranking
+            ranking_config = config_settings.get_section("search").get("enhanced_ranking", {})
+            enhanced_ranker = get_enhanced_ranker(ranking_config)
+            all_results = enhanced_ranker.rank_results(
+                results=all_results,
+                query_context=query_context,
+                dependency_graph=dependency_graph
+            )
+            
+            # Use enhanced score as primary score
+            for result in all_results:
+                if "enhanced_score" in result:
+                    result["score"] = result["enhanced_score"]
+        else:
+            # For non-hybrid modes, just sort by existing score
+            all_results.sort(key=lambda x: x["score"], reverse=True)
+        
+        # Limit to requested number of results
+        all_results = all_results[:n_results]
+        
+        # Expand context if requested
+        if include_context and all_results:
+            # Get embedding dimension from the embeddings manager
+            if hasattr(embeddings_manager, 'get_dimension'):
+                embedding_dimension = embeddings_manager.get_dimension("config")
+            elif hasattr(embeddings_manager, 'get_sentence_embedding_dimension'):
+                embedding_dimension = embeddings_manager.get_sentence_embedding_dimension()
+            else:
+                embedding_dimension = None
+            all_results = _expand_search_context(all_results, qdrant_client, search_collections, context_chunks, embedding_dimension)
+        
+        # Truncate content in results to prevent token limit issues
+        for result in all_results:
+            if "content" in result:
+                result["content"] = _truncate_content(result["content"], max_length=1500)
+            if "expanded_content" in result:
+                result["expanded_content"] = _truncate_content(result["expanded_content"], max_length=2000)
+        
+        # Track the search in context
+        tracker = get_context_tracker()
+        tracker.track_search(query, all_results, search_type="config")
+        
+        duration_ms = (time.time() - start_time) * 1000
+        console_logger.info(f"Completed config search: {query[:50]}...", extra={
+            "operation": "search_config",
+            "query_length": len(query),
+            "duration_ms": duration_ms,
+            "results_found": len(all_results),
+            "collections_searched": len(search_collections),
+            "search_mode": search_mode,
+            "file_type_filter": file_type,
+            "status": "success"
+        })
+        
+        return {
+            "results": all_results,
+            "query": query,
+            "file_type_filter": file_type,
+            "total": len(all_results),
+            "search_mode": search_mode,
+            "project_context": current_project["name"] if current_project else None,
+            "search_scope": "all projects" if cross_project else "current project"
+        }
+        
+    except Exception as e:
+        duration_ms = (time.time() - start_time) * 1000
+        console_logger.error(f"Config search failed", extra={
+            "operation": "search_config",
+            "query": query,
+            "duration_ms": duration_ms,
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "status": "error"
+        })
+        return {
+            "results": [],
+            "query": query,
+            "error": str(e),
+            "error_code": "SEARCH_ERROR",
+            "total": 0,
+            "search_mode": search_mode,
+            "message": f"Config search failed: {str(e)}"
+        }
+
+@mcp.tool()
 def switch_project(project_path: str) -> Dict[str, Any]:
     """Switch to a different project context"""
     try:
@@ -3445,7 +4117,7 @@ def index_config(file_path: str, force_global: bool = False) -> Dict[str, Any]:
         
         # Get services
         config_indexer = get_config_indexer()
-        embedding_model = get_embedding_model()
+        embeddings_manager = get_embeddings_manager_instance()
         qdrant_client = get_qdrant_client()
         
         # Determine collection
@@ -3454,9 +4126,12 @@ def index_config(file_path: str, force_global: bool = False) -> Dict[str, Any]:
         else:
             collection_name = get_collection_name(str(abs_path), "config")
         
-        # Get embedding dimension from the model
-        embedding_dimension = embedding_model.get_sentence_embedding_dimension()
-        ensure_collection(collection_name, embedding_dimension)
+        # Get embedding dimension for config content type
+        embedding_dimension = embeddings_manager.get_dimension("config") if hasattr(embeddings_manager, 'get_dimension') else None
+        model_name = embeddings_manager.get_model_name("config") if hasattr(embeddings_manager, 'get_model_name') else None
+        
+        # Ensure collection exists with config content type
+        ensure_collection(collection_name, embedding_dimension, model_name, content_type="config")
         
         # Index file
         chunks = config_indexer.index_file(str(abs_path))
@@ -3474,8 +4149,16 @@ def index_config(file_path: str, force_global: bool = False) -> Dict[str, Any]:
             except ValueError:
                 pass
         
-        for chunk in chunks:
-            embedding = embedding_model.encode(chunk.content).tolist()
+        # Process chunks one by one to avoid batch processing issues with specialized embeddings
+        for idx, chunk in enumerate(chunks):
+            # Use embeddings manager with config content type
+            embedding_array = embeddings_manager.encode(chunk.content, content_type="config")
+            
+            # Handle both 1D and 2D arrays - if 2D with single row, extract it
+            if embedding_array.ndim == 2 and embedding_array.shape[0] == 1:
+                embedding = embedding_array[0].tolist()
+            else:
+                embedding = embedding_array.tolist()
             
             # Generate unique chunk ID
             chunk_id = hashlib.md5(f"{abs_path}_{chunk.chunk_index}".encode()).hexdigest()
@@ -3654,6 +4337,110 @@ def rebuild_bm25_indices(collections: Optional[List[str]] = None) -> Dict[str, A
         }
 
 @mcp.tool()
+def get_memory_status() -> Dict[str, Any]:
+    """
+    Get detailed memory status of the MCP server.
+    
+    Returns current memory usage, component breakdown, and cleanup statistics.
+    """
+    try:
+        memory_manager = get_memory_manager()
+        memory_report = memory_manager.get_memory_report()
+        
+        # Format for easy reading
+        return {
+            "timestamp": memory_report["timestamp"],
+            "process": {
+                "rss_mb": round(memory_report["system"].get("process_rss_mb", 0), 1),
+                "vms_mb": round(memory_report["system"].get("process_vms_mb", 0), 1),
+                "percent_of_limit": round(
+                    (memory_report["system"].get("process_rss_mb", 0) / 
+                     memory_report["limits"]["total_mb"]) * 100, 1
+                )
+            },
+            "components": {
+                name: {
+                    "memory_mb": round(stats.get("memory_mb", 0), 1),
+                    "items": stats.get("items_count", 0),
+                    "last_cleanup": stats.get("last_cleanup"),
+                    "cleanup_count": stats.get("cleanup_count", 0)
+                }
+                for name, stats in memory_report["components"].items()
+                if "error" not in stats
+            },
+            "system": {
+                "available_mb": round(memory_report["system"].get("system_available_mb", 0), 1),
+                "system_percent": round(memory_report["system"].get("system_percent", 0), 1)
+            },
+            "limits": memory_report["limits"],
+            "status": "critical" if memory_report["system"].get("process_rss_mb", 0) > memory_report["limits"]["aggressive_threshold_mb"]
+                     else "high" if memory_report["system"].get("process_rss_mb", 0) > memory_report["limits"]["cleanup_threshold_mb"]
+                     else "normal"
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+@mcp.tool()
+def trigger_memory_cleanup(aggressive: bool = False) -> Dict[str, Any]:
+    """
+    Manually trigger memory cleanup.
+    
+    Args:
+        aggressive: If True, performs aggressive cleanup (removes more items)
+        
+    Returns:
+        Cleanup results and new memory status
+    """
+    try:
+        memory_manager = get_memory_manager()
+        
+        # Get memory before cleanup
+        before_report = memory_manager.get_memory_report()
+        before_mb = before_report["system"].get("process_rss_mb", 0)
+        
+        # Trigger cleanup on all components
+        total_removed = 0
+        component_results = {}
+        
+        for name, component in memory_manager.registry.components.items():
+            try:
+                removed = component.cleanup(aggressive=aggressive)
+                component_results[name] = {
+                    "removed_items": removed,
+                    "status": "success"
+                }
+                total_removed += removed
+            except Exception as e:
+                component_results[name] = {
+                    "removed_items": 0,
+                    "status": "error",
+                    "error": str(e)
+                }
+        
+        # Force garbage collection
+        import gc
+        gc.collect()
+        gc.collect()  # Run twice
+        
+        # Get memory after cleanup
+        after_report = memory_manager.get_memory_report()
+        after_mb = after_report["system"].get("process_rss_mb", 0)
+        
+        return {
+            "cleanup_type": "aggressive" if aggressive else "normal",
+            "total_items_removed": total_removed,
+            "component_results": component_results,
+            "memory_freed_mb": round(before_mb - after_mb, 1),
+            "memory_before_mb": round(before_mb, 1),
+            "memory_after_mb": round(after_mb, 1),
+            "current_status": "critical" if after_mb > after_report["limits"]["aggressive_threshold_mb"]
+                           else "high" if after_mb > after_report["limits"]["cleanup_threshold_mb"]
+                           else "normal"
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+@mcp.tool()
 def health_check() -> Dict[str, Any]:
     """
     Check the health status of all services.
@@ -3780,6 +4567,46 @@ def health_check() -> Dict[str, Any]:
             "error": str(e)
         }
     
+    # Check memory manager status
+    try:
+        memory_manager = get_memory_manager()
+        memory_report = memory_manager.get_memory_report()
+        
+        process_mb = memory_report["system"].get("process_rss_mb", 0)
+        memory_limits = memory_report["limits"]
+        
+        # Determine memory health
+        memory_status = "healthy"
+        if process_mb > memory_limits["aggressive_threshold_mb"]:
+            memory_status = "critical"
+            health_status["status"] = "warning"
+        elif process_mb > memory_limits["cleanup_threshold_mb"]:
+            memory_status = "high"
+        
+        health_status["services"]["memory_manager"] = {
+            "status": memory_status,
+            "process_memory_mb": round(process_mb, 1),
+            "component_memory_mb": round(memory_report["component_total_mb"], 1),
+            "components": {
+                name: {
+                    "memory_mb": round(stats.get("memory_mb", 0), 1),
+                    "items": stats.get("items_count", 0)
+                }
+                for name, stats in memory_report["components"].items()
+                if "error" not in stats
+            },
+            "thresholds": {
+                "cleanup_mb": memory_limits["cleanup_threshold_mb"],
+                "aggressive_mb": memory_limits["aggressive_threshold_mb"],
+                "total_limit_mb": memory_limits["total_mb"]
+            }
+        }
+    except Exception as e:
+        health_status["services"]["memory_manager"] = {
+            "status": "unknown",
+            "error": str(e)
+        }
+    
     # Log health check result
     console_logger.info(
         f"Health check completed: {health_status['status']}",
@@ -3787,7 +4614,8 @@ def health_check() -> Dict[str, Any]:
             "operation": "health_check",
             "status": health_status["status"],
             "qdrant_status": health_status["services"].get("qdrant", {}).get("status", "unknown"),
-            "model_status": health_status["services"].get("embedding_model", {}).get("status", "unknown")
+            "model_status": health_status["services"].get("embedding_model", {}).get("status", "unknown"),
+            "memory_status": health_status["services"].get("memory_manager", {}).get("status", "unknown")
         }
     )
     
@@ -4546,6 +5374,109 @@ def get_context_summary() -> str:
     return "\n".join(lines)
 
 
+@mcp.tool()
+def get_apple_silicon_status() -> Dict[str, Any]:
+    """
+    Get Apple Silicon optimization status and memory information
+    
+    Returns information about:
+    - Whether running on Apple Silicon
+    - MPS availability
+    - Memory pressure status
+    - Current memory limits
+    """
+    try:
+        memory_manager = get_memory_manager()
+        
+        # Get basic Apple Silicon status
+        status = memory_manager.get_apple_silicon_memory_status()
+        
+        # Add current memory limits
+        status['memory_limits'] = {
+            'total_mb': memory_manager.total_memory_limit_mb,
+            'cleanup_threshold_mb': memory_manager.cleanup_threshold_mb,
+            'aggressive_threshold_mb': memory_manager.aggressive_threshold_mb
+        }
+        
+        # Add embeddings manager status if available
+        try:
+            embeddings_manager = get_embeddings_manager_instance()
+            status['embeddings'] = {
+                'device': embeddings_manager.device,
+                'max_models_in_memory': embeddings_manager.max_models_in_memory,
+                'memory_limit_gb': embeddings_manager.memory_limit_gb,
+                'models_loaded': len(embeddings_manager.loaded_models),
+                'total_memory_used_gb': embeddings_manager.total_memory_used_gb
+            }
+        except:
+            pass
+        
+        # Add system memory info
+        import psutil
+        memory = psutil.virtual_memory()
+        status['system_memory'] = {
+            'total_gb': memory.total / (1024**3),
+            'available_gb': memory.available / (1024**3),
+            'percent_used': memory.percent
+        }
+        
+        return status
+        
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@mcp.tool()
+def trigger_apple_silicon_cleanup(level: str = "standard") -> Dict[str, Any]:
+    """
+    Manually trigger Apple Silicon memory cleanup
+    
+    Args:
+        level: Cleanup level - "standard" or "aggressive"
+        
+    Returns:
+        Cleanup results including before/after memory status
+    """
+    try:
+        memory_manager = get_memory_manager()
+        
+        if not memory_manager.is_apple_silicon:
+            return {"error": "Not running on Apple Silicon"}
+        
+        # Get before status
+        import psutil
+        before_memory = psutil.virtual_memory()
+        before_process = psutil.Process().memory_info()
+        
+        # Perform cleanup
+        memory_manager.perform_apple_silicon_cleanup(level)
+        
+        # Get after status
+        after_memory = psutil.virtual_memory()
+        after_process = psutil.Process().memory_info()
+        
+        return {
+            "cleanup_level": level,
+            "before": {
+                "available_gb": before_memory.available / (1024**3),
+                "process_gb": before_process.rss / (1024**3),
+                "system_percent": before_memory.percent
+            },
+            "after": {
+                "available_gb": after_memory.available / (1024**3),
+                "process_gb": after_process.rss / (1024**3),
+                "system_percent": after_memory.percent
+            },
+            "memory_freed": {
+                "system_gb": (after_memory.available - before_memory.available) / (1024**3),
+                "process_gb": (before_process.rss - after_process.rss) / (1024**3)
+            }
+        }
+        
+    except Exception as e:
+        return {"error": str(e)}
+
+
 # Run the server
 def initialize_bm25_indices():
     """Initialize BM25 indices for all existing collections on startup"""
@@ -4614,6 +5545,25 @@ if __name__ == "__main__":
     parser.add_argument("--initial-index", action="store_true", help="Perform initial index on startup")
     parser.add_argument("--client-cwd", help="Client's working directory (overrides MCP_CLIENT_CWD env var)")
     args = parser.parse_args()
+    
+    # Initialize memory manager early
+    console_logger.info("🧠 Initializing memory manager...")
+    memory_manager = get_memory_manager()
+    memory_manager.start()
+    
+    # Check for Apple Silicon
+    if memory_manager.is_apple_silicon:
+        console_logger.info("🍎 Apple Silicon detected - memory optimizations enabled")
+        console_logger.info(f"   Memory limits: {memory_manager.total_memory_limit_mb}MB total, "
+                          f"{memory_manager.cleanup_threshold_mb}MB cleanup threshold")
+        
+        # Set MPS environment variables if not already set
+        if not os.environ.get('PYTORCH_ENABLE_MPS_FALLBACK'):
+            os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
+        if not os.environ.get('PYTORCH_MPS_HIGH_WATERMARK_RATIO'):
+            os.environ['PYTORCH_MPS_HIGH_WATERMARK_RATIO'] = '0.0'
+        if not os.environ.get('PYTORCH_MPS_LOW_WATERMARK_RATIO'):
+            os.environ['PYTORCH_MPS_LOW_WATERMARK_RATIO'] = '0.0'
     
     # Set client working directory if provided via command line
     if args.client_cwd:

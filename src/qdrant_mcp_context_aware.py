@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     from . import __version__
 except ImportError:
-    __version__ = "0.3.3"  # Fallback version
+    __version__ = "0.3.3.post2"  # Fallback version
 
 # Load environment variables from the MCP server directory
 from dotenv import load_dotenv
@@ -2379,6 +2379,11 @@ def _perform_hybrid_search(
                 )
                 
                 for result in results:
+                    # Ensure payload is a dictionary
+                    if not isinstance(result.payload, dict):
+                        logger.error(f"Invalid payload type in vector search: {type(result.payload)} - {result.payload}")
+                        continue
+                    
                     base_result = {
                         "score": float(result.score),
                         "vector_score": float(result.score),  # Always include vector_score
@@ -2438,6 +2443,12 @@ def _perform_hybrid_search(
                         
                         if search_result:
                             payload = search_result[0].payload
+                            
+                            # Ensure payload is a dictionary
+                            if not isinstance(payload, dict):
+                                logger.error(f"Invalid payload type in keyword search: {type(payload)} - {payload}")
+                                continue
+                            
                             base_result = {
                                 "score": score,
                                 "collection": collection,
@@ -2472,7 +2483,20 @@ def _perform_hybrid_search(
                 )
                 
                 for result in search_results:
-                    doc_id = f"{result.payload['file_path']}_{result.payload.get('chunk_index', 0)}"
+                    # Ensure payload is a dictionary
+                    if not isinstance(result.payload, dict):
+                        logger.error(f"Invalid payload type: {type(result.payload)} - {result.payload}")
+                        continue
+                    
+                    # Safely access payload fields
+                    file_path = result.payload.get('file_path', '')
+                    chunk_index = result.payload.get('chunk_index', 0)
+                    
+                    if not file_path:
+                        logger.warning("Search result missing file_path")
+                        continue
+                    
+                    doc_id = f"{file_path}_{chunk_index}"
                     score = float(result.score)
                     vector_results.append((doc_id, score))
                     vector_scores_map[doc_id] = score
@@ -2484,6 +2508,11 @@ def _perform_hybrid_search(
                     logger.warning("Hybrid searcher not available, falling back to vector search")
                     # Just use vector results
                     for result in search_results[:n_results]:
+                        # Ensure payload is a dictionary
+                        if not isinstance(result.payload, dict):
+                            logger.error(f"Invalid payload type in hybrid fallback: {type(result.payload)} - {result.payload}")
+                            continue
+                        
                         base_result = {
                             "score": float(result.score),
                             "collection": collection,
@@ -2533,6 +2562,12 @@ def _perform_hybrid_search(
                         # Use the original result object
                         original_result = result_objects_map[doc_id]
                         payload = original_result.payload
+                        
+                        # Ensure payload is a dictionary
+                        if not isinstance(payload, dict):
+                            logger.error(f"Invalid payload type in hybrid search: {type(payload)} - {payload}")
+                            continue
+                        
                         base_result = {
                             "score": result.combined_score,
                             "vector_score": vector_scores_map.get(doc_id, None),
@@ -2568,6 +2603,12 @@ def _perform_hybrid_search(
                             
                             if search_result:
                                 payload = search_result[0].payload
+                                
+                                # Ensure payload is a dictionary
+                                if not isinstance(payload, dict):
+                                    logger.error(f"Invalid payload type in BM25 fetch: {type(payload)} - {payload}")
+                                    continue
+                                
                                 base_result = {
                                     "score": result.combined_score,
                                     "vector_score": vector_scores_map.get(doc_id, None),
@@ -2957,16 +2998,31 @@ def search(
         return result
         
     except Exception as e:
+        import traceback
         duration_ms = (time.time() - start_time) * 1000
+        tb_str = traceback.format_exc()
         console_logger.error(f"Failed search: {query[:50]}... - {str(e)}", extra={
             "operation": "search",
             "query_length": len(query),
             "duration_ms": duration_ms,
             "error": str(e),
             "error_type": type(e).__name__,
-            "status": "error"
+            "status": "error",
+            "traceback": tb_str
         })
-        return {"error": str(e), "query": query}
+        return {
+            "results": [],
+            "query": query,
+            "error": str(e),
+            "error_code": "SEARCH_ERROR",
+            "total": 0,
+            "message": f"Search failed: {str(e)}",
+            "debug_info": {
+                "error_type": type(e).__name__,
+                "error_location": tb_str.split('\n')[-3:-1] if '\n' in tb_str else tb_str,
+                "full_traceback": tb_str
+            }
+        }
 
 @mcp.tool()
 def search_code(
@@ -3351,7 +3407,28 @@ def search_code(
         }
         
     except Exception as e:
-        return {"error": str(e), "query": query}
+        import traceback
+        tb_str = traceback.format_exc()
+        console_logger.error(f"Code search failed", extra={
+            "operation": "search_code",
+            "query": query,
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "traceback": tb_str
+        })
+        return {
+            "results": [],
+            "query": query,
+            "error": str(e),
+            "error_code": "SEARCH_ERROR",
+            "total": 0,
+            "message": f"Code search failed: {str(e)}",
+            "debug_info": {
+                "error_type": type(e).__name__,
+                "error_location": tb_str.split('\n')[-3:-1] if '\n' in tb_str else tb_str,
+                "full_traceback": tb_str
+            }
+        }
 
 @mcp.tool()
 def search_docs(
@@ -3707,14 +3784,17 @@ def search_docs(
         }
         
     except Exception as e:
+        import traceback
         duration_ms = (time.time() - start_time) * 1000
+        tb_str = traceback.format_exc()
         console_logger.error(f"Documentation search failed", extra={
             "operation": "search_docs",
             "query": query,
             "duration_ms": duration_ms,
             "error": str(e),
             "error_type": type(e).__name__,
-            "status": "error"
+            "status": "error",
+            "traceback": tb_str
         })
         return {
             "results": [],
@@ -3723,7 +3803,12 @@ def search_docs(
             "error_code": "SEARCH_ERROR",
             "total": 0,
             "search_mode": search_mode,
-            "message": f"Documentation search failed: {str(e)}"
+            "message": f"Documentation search failed: {str(e)}",
+            "debug_info": {
+                "error_type": type(e).__name__,
+                "error_location": tb_str.split('\n')[-3:-1] if '\n' in tb_str else tb_str,
+                "full_traceback": tb_str
+            }
         }
 
 @mcp.tool()

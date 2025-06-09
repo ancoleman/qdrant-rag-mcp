@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3.post2] - 2025-06-11
+
+### Fixed
+
+- **Context Tracking Configuration Error**: Fixed "'float' object has no attribute 'get'" error in context tracking initialization
+  - Added proper type checking for component_limits configuration
+  - Handles both dict and numeric values for memory limits
+  - Prevents crashes when config format varies
+
+## [0.3.3.post1] - 2025-06-11
+
+### Fixed
+
+- **Critical Search Error**: Fixed "'float' object has no attribute 'get'" error in all search modes
+  - Added payload type validation before accessing dictionary methods
+  - Implemented safe error handling to skip corrupted payloads
+  - Fixed in vector, keyword, and hybrid search paths
+  - Ensures search operations continue even with corrupted data
+
 ## [0.3.3] - 2025-06-09
 
 ### 🚀 Major Feature: Specialized Embeddings with Memory Management
@@ -91,15 +110,26 @@ Implemented content-type specific embedding models with comprehensive memory man
   - Fixed dimension mismatch errors (expected 768, got 384) during batch processing
   - Reverted to one-by-one processing for all indexing functions to maintain model consistency
   - Fixed memory exhaustion issues causing system freezes on Apple Silicon (15-16GB usage)
+  - **Additional fixes for intermittent failures with large files**:
+    - Models now marked as active immediately to prevent race condition eviction
+    - Enhanced LRU eviction with model protection during loading
+    - Added periodic memory pressure monitoring during encoding (every 10 chunks)
+    - Improved cleanup with proper finally blocks and error handling
   
 - **Batch Processing Dimension Mismatch**: 
   - Root cause: Batch processing caused embeddings manager to lose track of specialized models
   - Solution: Process chunks individually to ensure correct model is used throughout
+  - **Enhanced with active model tracking**: Models cannot be evicted while encoding
   
 - **Apple Silicon Memory Management**:
   - Added psutil dependency for system memory monitoring
   - Fixed memory pressure detection and cleanup on MPS devices
   - Implemented conservative memory limits based on total system RAM
+  - **Reduced safety margins**: 1.5x for CodeRankEmbed (was 2.5x) to prevent premature eviction
+  - **Dynamic memory pressure handling**: 
+    - Critical (<1.5GB): Evict models + aggressive cleanup
+    - Low (<2.5GB): Standard cleanup
+    - Protects current model from eviction during processing
   
 - **Environment Variable Parsing**: Fixed `.env` path comments creating invalid directories
 - **Model Directory Detection**: Scripts now correctly find models in `data/models/`
@@ -114,6 +144,11 @@ Implemented content-type specific embedding models with comprehensive memory man
   - LRU eviction when model count or memory limit exceeded
   - Real-time memory tracking with psutil
   - Memory pressure callbacks trigger cleanup at thresholds
+  - **Enhanced Model Protection**:
+    - Active model tracking prevents eviction during use
+    - Race condition prevention with immediate active marking
+    - Protected model parameter during memory checks
+    - Periodic memory pressure monitoring (every 10 chunks)
   
 - **Apple Silicon Detection**:
   - Uses `sysctl -n hw.optional.arm64` to detect ARM64 architecture
@@ -188,6 +223,7 @@ Implemented content-type specific embedding models with comprehensive memory man
 - **Performance Trade-off**: One-by-one processing is slower but necessary for stability
 - **Memory Usage**: CodeRankEmbed requires significant memory even with optimizations
 - **First Load**: Initial model loading may take 30-60 seconds
+- **Large File Processing**: Files with >50 chunks may require retries on memory-constrained systems
 
 
 ## [0.3.2] - 2025-06-03

@@ -1703,7 +1703,7 @@ wheels = [
 
 [[package]]
 name = "qdrant-rag-mcp"
-version = "0.3.3"
+version = "0.3.3.post2"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },

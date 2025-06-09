@@ -9,7 +9,7 @@ import os
 import logging
 from collections import OrderedDict
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Union, Tuple
+from typing import Dict, Any, Optional, List, Union, Tuple, Set
 from datetime import datetime
 import torch
 import numpy as np
@@ -127,6 +127,9 @@ class SpecializedEmbeddingManager(MemoryComponent):
         self.memory_usage: Dict[str, float] = {}
         self.total_memory_used_gb = 0.0
         
+        # Active model tracking to prevent eviction during use
+        self.active_models: Set[str] = set()
+        
         # Model usage statistics
         self.usage_stats: Dict[str, Dict[str, int]] = {
             model_type: {'loads': 0, 'encodings': 0, 'errors': 0}
@@ -238,11 +241,14 @@ class SpecializedEmbeddingManager(MemoryComponent):
             
             # More conservative safety margin for Apple Silicon
             if memory_manager.is_apple_silicon and self.device == "mps":
-                # For CodeRankEmbed on Apple Silicon, use 2.5x safety margin
-                safety_margin = 2.5 if 'CodeRankEmbed' in model_name else 2.0
+                # CRITICAL FIX: Reduce safety margins to prevent eviction during indexing
+                # For CodeRankEmbed on Apple Silicon, use 1.5x safety margin (was 2.5x)
+                # This prevents the model from being evicted when processing large files
+                safety_margin = 1.5 if 'CodeRankEmbed' in model_name else 1.8
                 
                 # Also check if we should trigger cleanup first
-                if available_memory_gb < 3.0:  # Less than 3GB available
+                # Increased threshold to 2.0GB (was 3.0GB) to allow more headroom
+                if available_memory_gb < 2.0:  # Less than 2GB available
                     logger.info("Low memory on Apple Silicon, triggering cleanup before model load")
                     memory_manager.perform_apple_silicon_cleanup("aggressive")
                     # Re-check after cleanup
@@ -263,13 +269,62 @@ class SpecializedEmbeddingManager(MemoryComponent):
             return False
         return True
     
-    def _evict_lru_model(self):
-        """Evict the least recently used model"""
+    def _check_memory_pressure(self, model_name: str = None):
+        """Check current memory pressure and trigger cleanup if needed
+        
+        Args:
+            model_name: Current model to protect from eviction
+        """
+        memory_manager = get_memory_manager()
+        
+        try:
+            import psutil
+            available_gb = psutil.virtual_memory().available / (1024**3)
+            
+            # Critical threshold for Apple Silicon
+            if memory_manager.is_apple_silicon and self.device == "mps":
+                if available_gb < 1.5:  # Very low memory
+                    logger.warning(f"Critical memory pressure: {available_gb:.1f}GB available")
+                    # Try to evict models first
+                    if len(self.loaded_models) > 1:
+                        self._evict_lru_model(protect_model=model_name)
+                    # Then trigger aggressive cleanup
+                    memory_manager.perform_apple_silicon_cleanup("aggressive")
+                elif available_gb < 2.5:  # Low memory
+                    logger.debug(f"Low memory: {available_gb:.1f}GB available, triggering standard cleanup")
+                    memory_manager.perform_apple_silicon_cleanup("standard")
+            else:
+                # Standard memory pressure check
+                if available_gb < 2.0:
+                    logger.warning(f"Low memory: {available_gb:.1f}GB available")
+                    if len(self.loaded_models) > 1:
+                        self._evict_lru_model(protect_model=model_name)
+        except ImportError:
+            # psutil not available, skip memory pressure check
+            pass
+    
+    def _evict_lru_model(self, protect_model=None):
+        """Evict the least recently used model
+        
+        Args:
+            protect_model: Model name to protect from eviction (e.g., during loading)
+        """
         if not self.loaded_models:
             return
         
-        # Get the least recently used model (first in OrderedDict)
-        lru_model_name, lru_model = self.loaded_models.popitem(last=False)
+        # Build list of eviction candidates (excluding active and protected models)
+        candidates = []
+        for model_name in self.loaded_models:
+            if model_name not in self.active_models and model_name != protect_model:
+                candidates.append(model_name)
+        
+        if not candidates:
+            logger.warning("Cannot evict any models - all are currently active or protected")
+            return
+        
+        # Evict the first candidate (which is the least recently used due to OrderedDict)
+        lru_model_name = candidates[0]
+        lru_model = self.loaded_models.pop(lru_model_name)
         
         # Update memory tracking
         if lru_model_name in self.memory_usage:
@@ -318,20 +373,22 @@ class SpecializedEmbeddingManager(MemoryComponent):
             logger.debug(f"Using cached model {model_name}")
             return self.loaded_models[model_name], model_config
         
-        # Check memory constraints
-        if len(self.loaded_models) >= self.max_models_in_memory:
-            self._evict_lru_model()
+        # Mark model as active immediately to prevent eviction during loading
+        self.active_models.add(model_name)
         
-        if not self._check_memory_before_loading(model_name):
-            # Try to free up memory by evicting models
-            while self.loaded_models and not self._check_memory_before_loading(model_name):
-                self._evict_lru_model()
-        
-        # Create cache directory if it doesn't exist
-        Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
-        
-        # Load the model
         try:
+            # Check memory constraints
+            if len(self.loaded_models) >= self.max_models_in_memory:
+                self._evict_lru_model(protect_model=model_name)
+            
+            if not self._check_memory_before_loading(model_name):
+                # Try to free up memory by evicting models
+                while self.loaded_models and not self._check_memory_before_loading(model_name):
+                    self._evict_lru_model(protect_model=model_name)
+            
+            # Create cache directory if it doesn't exist
+            Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
+            
             logger.info(f"Loading embedding model: {model_name} for {content_type}")
             
             # Ensure HuggingFace uses our cache directory for modules
@@ -365,33 +422,34 @@ class SpecializedEmbeddingManager(MemoryComponent):
             fallback_name = model_config.get('fallback')
             if fallback_name and fallback_name != model_name:
                 logger.info(f"Attempting to load fallback model: {fallback_name}")
-                model_config = model_config.copy()
-                model_config['name'] = fallback_name
+                # Update the model config to use fallback
+                original_model_name = self.model_configs[content_type]['name']
+                self.model_configs[content_type]['name'] = fallback_name
                 
                 try:
-                    # Load fallback model with MPS optimization
-                    model = self._load_model_with_mps_optimization(fallback_name, content_type)
-                    
-                    # Track memory usage
-                    estimated_memory = self._estimate_model_memory(fallback_name)
-                    self.memory_usage[fallback_name] = estimated_memory
-                    self.total_memory_used_gb += estimated_memory
-                    
-                    # Cache the model
-                    self.loaded_models[fallback_name] = model
-                    
-                    logger.info(f"Successfully loaded fallback {fallback_name}")
-                    return model, model_config
+                    # Recursively call load_model to ensure proper memory management
+                    # This will handle cache checks, memory limits, and eviction
+                    model, updated_config = self.load_model(content_type)
+                    return model, updated_config
                     
                 except Exception as fallback_e:
                     logger.error(f"Failed to load fallback {fallback_name}: {fallback_e}")
+                    # Restore original model name if fallback fails
+                    self.model_configs[content_type]['name'] = original_model_name
             
             # Last resort: fall back to general model
             if content_type != 'general':
                 logger.warning(f"Falling back to general model for {content_type}")
+                # Remove from active set before recursive call
+                self.active_models.discard(model_name)
                 return self.load_model('general')
             
             raise RuntimeError(f"Unable to load any embedding model for {content_type}")
+        finally:
+            # Always remove model from active set if loading failed
+            # (successful loads keep it active until encode completes)
+            if model_name not in self.loaded_models:
+                self.active_models.discard(model_name)
     
     def _load_model_with_mps_optimization(self, model_name: str, content_type: str) -> SentenceTransformer:
         """Load model with Apple Silicon MPS optimizations"""
@@ -406,9 +464,10 @@ class SpecializedEmbeddingManager(MemoryComponent):
             available_memory_gb = psutil.virtual_memory().available / (1024**3)
             estimated_memory = self._estimate_model_memory(model_name)
             
-            # For CodeRankEmbed on Apple Silicon, be extra conservative
+            # For CodeRankEmbed on Apple Silicon, be conservative but not too restrictive
             if 'CodeRankEmbed' in model_name:
-                safety_multiplier = 2.5  # More conservative for Apple Silicon
+                # CRITICAL FIX: Use same safety multiplier as _check_memory_before_loading
+                safety_multiplier = 1.5  # Reduced from 2.5 to prevent eviction
                 if available_memory_gb < estimated_memory * safety_multiplier:
                     # Aggressive cleanup before loading CodeRankEmbed
                     logger.info(f"Low memory for {model_name} on Apple Silicon, performing cleanup")
@@ -416,7 +475,8 @@ class SpecializedEmbeddingManager(MemoryComponent):
                     
                     # Re-check after cleanup
                     available_memory_gb = psutil.virtual_memory().available / (1024**3)
-                    if available_memory_gb < estimated_memory * 2.0:
+                    # Also use consistent threshold here
+                    if available_memory_gb < estimated_memory * 1.5:
                         logger.warning(f"Insufficient memory for {model_name} on MPS, attempting CPU fallback")
                         return self._load_model_cpu_fallback(model_name, content_type)
             
@@ -491,13 +551,9 @@ class SpecializedEmbeddingManager(MemoryComponent):
     
     def _load_model_cpu_fallback(self, model_name: str, content_type: str) -> SentenceTransformer:
         """Fallback to CPU loading when MPS memory is insufficient"""
-        logger.warning(f"Loading {model_name} on CPU due to memory constraints")
+        logger.warning(f"Loading {model_name} for {content_type} on CPU due to memory constraints")
         
-        original_device = self.device
         try:
-            # Temporarily switch to CPU
-            self.device = "cpu"
-            
             # Some models require trust_remote_code
             trust_remote_code = model_name in [
                 'nomic-ai/CodeRankEmbed',
@@ -553,59 +609,73 @@ class SpecializedEmbeddingManager(MemoryComponent):
         
         # Load appropriate model
         model, model_config = self.load_model(content_type)
+        model_name = model_config['name']
         
-        # Update usage statistics
-        self.usage_stats[content_type]['encodings'] += len(texts)
-        
-        # Apply instruction prefix for documentation if using instructor model
-        if content_type == 'documentation' and 'instructor' in model_config['name']:
-            instruction = model_config.get('instruction_prefix', '')
-            if instruction:
-                texts = [f"{instruction} {text}" for text in texts]
-        
-        # Apply query prefix for models that require it
-        # This provides flexibility while maintaining backward compatibility:
-        # 1. Check if model requires a query prefix (via config flag)
-        # 2. Use custom prefix if configured (via env var or config)
-        # 3. Fall back to known model-specific prefixes
-        # 4. This ensures CodeRankEmbed continues to work correctly with its required prefix
-        if len(texts) == 1 and model_config.get('requires_query_prefix', False):
-            # This is likely a query, not a document
-            # First check if a custom prefix is configured
-            if model_config.get('query_prefix'):
-                texts = [f"{model_config['query_prefix']} {texts[0]}"]
-            # Fallback to known model-specific prefixes
-            elif 'CodeRankEmbed' in model_config['name']:
-                # CodeRankEmbed requires this specific prefix as per their documentation
-                texts = [f"Represent this query for searching relevant code: {texts[0]}"]
-            # Add more model-specific prefixes here as needed
-            # elif 'SomeOtherModel' in model_config['name']:
-            #     texts = [f"Their specific prefix: {texts[0]}"]
-        
-        # Truncate texts if they exceed max tokens
-        max_tokens = model_config.get('max_tokens', 512)
-        # Rough estimate: 1 token ≈ 4 characters
-        max_chars = max_tokens * 4
-        truncated_texts = []
-        for text in texts:
-            if len(text) > max_chars:
-                truncated_texts.append(text[:max_chars] + "...")
-                logger.debug(f"Truncated text from {len(text)} to {max_chars} chars")
-            else:
-                truncated_texts.append(text)
+        # Mark model as active to prevent eviction during encoding
+        self.active_models.add(model_name)
         
         try:
+            # Update usage statistics
+            self.usage_stats[content_type]['encodings'] += len(texts)
+            
+            # Apply instruction prefix for documentation if using instructor model
+            if content_type == 'documentation' and 'instructor' in model_config['name']:
+                instruction = model_config.get('instruction_prefix', '')
+                if instruction:
+                    texts = [f"{instruction} {text}" for text in texts]
+            
+            # Apply query prefix for models that require it
+            # This provides flexibility while maintaining backward compatibility:
+            # 1. Check if model requires a query prefix (via config flag)
+            # 2. Use custom prefix if configured (via env var or config)
+            # 3. Fall back to known model-specific prefixes
+            # 4. This ensures CodeRankEmbed continues to work correctly with its required prefix
+            if len(texts) == 1 and model_config.get('requires_query_prefix', False):
+                # This is likely a query, not a document
+                # First check if a custom prefix is configured
+                if model_config.get('query_prefix'):
+                    texts = [f"{model_config['query_prefix']} {texts[0]}"]
+                # Fallback to known model-specific prefixes
+                elif 'CodeRankEmbed' in model_config['name']:
+                    # CodeRankEmbed requires this specific prefix as per their documentation
+                    texts = [f"Represent this query for searching relevant code: {texts[0]}"]
+                # Add more model-specific prefixes here as needed
+                # elif 'SomeOtherModel' in model_config['name']:
+                #     texts = [f"Their specific prefix: {texts[0]}"]
+            
+            # Truncate texts if they exceed max tokens
+            max_tokens = model_config.get('max_tokens', 512)
+            # Rough estimate: 1 token ≈ 4 characters
+            max_chars = max_tokens * 4
+            truncated_texts = []
+            for text in texts:
+                if len(text) > max_chars:
+                    truncated_texts.append(text[:max_chars] + "...")
+                    logger.debug(f"Truncated text from {len(text)} to {max_chars} chars")
+                else:
+                    truncated_texts.append(text)
             # Special handling for CodeRankEmbed - it's memory intensive
             if 'CodeRankEmbed' in model_config['name']:
                 # Use smaller batch size for CodeRankEmbed
                 actual_batch_size = min(batch_size, 4)
                 logger.debug(f"Using reduced batch size {actual_batch_size} for CodeRankEmbed (requested: {batch_size})")
                 
+                # Log when processing large files with CodeRankEmbed
+                if len(truncated_texts) > 20:
+                    logger.info(f"Processing large file with CodeRankEmbed: {len(truncated_texts)} chunks")
+                
                 # If we have many texts, process in smaller chunks to avoid memory issues
                 if len(truncated_texts) > actual_batch_size:
                     all_embeddings = []
+                    chunks_processed = 0
+                    
                     for i in range(0, len(truncated_texts), actual_batch_size):
                         batch_texts = truncated_texts[i:i+actual_batch_size]
+                        
+                        # Check memory pressure before each batch (especially for large files)
+                        if chunks_processed % 10 == 0:  # Check every 10 chunks
+                            self._check_memory_pressure(model_name)
+                        
                         batch_embeddings = model.encode(
                             batch_texts,
                             batch_size=actual_batch_size,
@@ -615,22 +685,16 @@ class SpecializedEmbeddingManager(MemoryComponent):
                             convert_to_tensor=False
                         )
                         all_embeddings.append(batch_embeddings)
+                        chunks_processed += len(batch_texts)
                         
                         # Force cleanup after each sub-batch for CodeRankEmbed
                         if self.device == "mps":
                             memory_manager = get_memory_manager()
                             if memory_manager.is_apple_silicon:
-                                # Check memory pressure after each batch
-                                import psutil
-                                available_gb = psutil.virtual_memory().available / (1024**3)
-                                if available_gb < 2.0:  # Critical threshold
-                                    logger.debug(f"Low memory during encoding: {available_gb:.1f}GB, triggering cleanup")
-                                    memory_manager.perform_apple_silicon_cleanup("aggressive")
-                                else:
-                                    # Standard MPS cleanup
-                                    import torch
-                                    if hasattr(torch.mps, 'empty_cache'):
-                                        torch.mps.empty_cache()
+                                # Standard MPS cleanup
+                                import torch
+                                if hasattr(torch.mps, 'empty_cache'):
+                                    torch.mps.empty_cache()
                     
                     embeddings = np.vstack(all_embeddings)
                 else:
@@ -675,6 +739,9 @@ class SpecializedEmbeddingManager(MemoryComponent):
                 return self.encode(texts, 'general', batch_size, show_progress_bar, normalize_embeddings)
             
             raise
+        finally:
+            # Always remove model from active set when done
+            self.active_models.discard(model_name)
     
     def get_dimension(self, content_type: str = 'general') -> int:
         """Get the embedding dimension for a content type"""

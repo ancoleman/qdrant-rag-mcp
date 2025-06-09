@@ -87,12 +87,27 @@ class SessionContextTracker(MemoryComponent):
         # Get memory limits from config
         memory_manager = get_memory_manager()
         memory_config = memory_manager.config
-        component_limits = memory_config.get('component_limits', {}).get('context_tracking', {})
+        
+        # Safely get component limits
+        component_limits_config = memory_config.get('component_limits', {})
+        context_tracking_config = {}  # Default to empty dict
+        
+        if isinstance(component_limits_config, dict):
+            context_tracking_config = component_limits_config.get('context_tracking', {})
+            # Handle both dict and numeric values
+            if isinstance(context_tracking_config, dict):
+                max_memory_mb = float(context_tracking_config.get('max_memory_mb', 100))
+            else:
+                # If it's a number, use it directly
+                max_memory_mb = float(context_tracking_config) if context_tracking_config else 100.0
+                context_tracking_config = {}  # Reset to dict for later use
+        else:
+            max_memory_mb = 100.0
         
         # Initialize parent MemoryComponent
         super().__init__(
             name="context_tracking",
-            max_memory_mb=float(component_limits.get('max_memory_mb', 100))
+            max_memory_mb=max_memory_mb
         )
         
         # Register with memory manager
@@ -107,9 +122,13 @@ class SessionContextTracker(MemoryComponent):
         self.indexed_directories: List[str] = []
         self.current_project: Optional[Dict[str, Any]] = None
         
-        # Get memory limits from config
-        self.max_files_tracked = int(component_limits.get('max_files', 100))
-        self.max_timeline_events = int(component_limits.get('max_timeline_events', 500))
+        # Get additional limits from config
+        if isinstance(context_tracking_config, dict):
+            self.max_files_tracked = int(context_tracking_config.get('max_files', 100))
+            self.max_timeline_events = int(context_tracking_config.get('max_timeline_events', 500))
+        else:
+            self.max_files_tracked = 100
+            self.max_timeline_events = 500
         self.max_search_results = 50  # Not in config, keeping default
         self.max_content_preview = 1000  # chars per file
         

@@ -6,11 +6,12 @@ A context-aware Model Context Protocol (MCP) server that provides semantic searc
 
 ## 🌟 Features
 
-### 🆕 GitHub Integration (v0.3.0)
+### 🆕 GitHub Integration (v0.3.0) + Projects (v0.3.4 Coming Soon)
 - **🤖 Intelligent Issue Resolution**: RAG-powered GitHub issue analysis and automated fix generation
 - **🔄 End-to-End Workflows**: Analyze issues → Generate fixes → Create PRs with dry-run safety
-- **🎯 10 GitHub MCP Tools**: Complete issue lifecycle management via natural language
+- **🎯 16 GitHub MCP Tools**: Complete issue lifecycle + project management via natural language
 - **💬 Issue Comments**: Add comments to existing issues for workflow updates and collaboration
+- **📋 GitHub Projects Integration (v0.3.4)**: Create projects, manage roadmaps, track progress with custom dashboards
 - **🔐 Flexible Authentication**: Personal Access Token and GitHub App support
 - **📊 RAG-Enhanced Analysis**: Leverage full codebase search for issue understanding
 - **🛡️ Safety-First Design**: Dry-run mode, file protection, rate limiting, and audit logging

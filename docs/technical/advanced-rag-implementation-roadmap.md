@@ -35,8 +35,9 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 - 🚧 None currently
 
 ### Upcoming
-- 📋 Adaptive Search Intelligence - v0.3.4 (Smart query understanding) ⭐ **NEXT PRIORITY**
-- 📋 Query Enhancement - v0.3.5 (+35% recall)
+- 📋 GitHub Projects Integration - v0.3.4 (Project management & roadmap tracking) ⭐ **NEXT PRIORITY**
+- 📋 Adaptive Search Intelligence - v0.3.5 (Smart query understanding)
+- 📋 Query Enhancement - v0.3.6 (+35% recall)
 - 📋 MCP Server Optimizations - v0.4.1+ (Performance improvements)
 - 📋 Semantic Compression - v0.5.x (Advanced token reduction)
 
@@ -331,7 +332,45 @@ These provide the enhanced search capabilities needed to build on the GitHub int
 ### Phase 4: Optimization & Intelligence (Weeks 10-12)
 **Goal**: Maximize efficiency, performance, and search intelligence
 
-#### v0.3.4: Adaptive Search Intelligence (5-6 days) ⭐ **NEXT PRIORITY**
+#### v0.3.4: GitHub Projects Integration (3-4 days) ⭐ **NEXT PRIORITY**
+- **Status**: 📋 Planned
+- **Focus**: Project management integration for roadmap tracking and team collaboration
+- **Deliverables**:
+  - **6 New GitHub Projects MCP Tools**:
+    - `github_create_project` - Create GitHub Projects with custom fields and views
+    - `github_update_project` - Update project settings, descriptions, and configurations
+    - `github_add_project_item` - Add issues/PRs to projects with field assignments
+    - `github_update_project_item` - Update item fields (status, priority, assignee, custom fields)
+    - `github_get_project_status` - Get project overview with item counts and progress
+    - `github_create_project_view` - Create custom views with filtering and grouping
+  - **Project Templates**: Pre-configured project structures for common workflows
+    - Implementation Roadmap template (Status, Priority, Epic, Complexity)
+    - Bug Tracking template (Severity, Component, Reproduction steps)
+    - Feature Development template (Stage, Effort, Dependencies)
+  - **Dashboard & Filtering Support**:
+    - Dynamic view creation with multiple filter criteria
+    - Progress tracking with completion percentages
+    - Automated status updates based on issue/PR states
+    - Custom field management (text, select, number, date)
+  - **RAG-Enhanced Project Management**:
+    - Automatic project item creation from roadmap analysis
+    - Smart field assignment based on content analysis
+    - Cross-project dependency tracking
+- **Benefits**: 
+  - Structured roadmap tracking with visual progress indicators
+  - Team collaboration with shared project visibility
+  - Automated project updates from GitHub activity
+  - Integration with existing issue resolution workflow
+- **Risk**: Medium - GitHub Projects API complexity, but well-documented
+- **Implementation Plan**: Extend existing GitHub integration module with Projects API support
+- **Use Case**: 
+  - Move this implementation roadmap to a GitHub Project for better tracking
+  - Create visual dashboards showing feature completion progress
+  - Enable team collaboration on roadmap items with assignments and due dates
+  - Automate project updates when issues/PRs are completed
+  - Generate progress reports and milestone tracking
+
+#### v0.3.5: Adaptive Search Intelligence (5-6 days)
 - **Status**: 📋 Planned
 - **Focus**: Smart query understanding and dynamic optimization
 - **Deliverables**:
@@ -342,7 +381,7 @@ These provide the enhanced search capabilities needed to build on the GitHub int
 - **Benefits**: Optimal search for different query types
 - **Risk**: Higher - complex implementation
 
-#### v0.3.5: Query Enhancement & Reformulation (1 week)
+#### v0.3.6: Query Enhancement & Reformulation (1 week)
 - **Status**: 📋 Planned
 - **Focus**: Natural language to code-aware query transformation
 - **Deliverables**:
@@ -526,7 +565,7 @@ These provide immediate benefits while building toward larger changes.
 Weeks 1-3:   [████████████] Foundation (AST + Basic Hybrid) ✅
 Weeks 4-6:   [████████████] Enhancement (Advanced Search + Context) ✅
 Weeks 7-9:   [████████████] GitHub Integration + Specialized Embeddings ✅ [COMPLETED]
-Weeks 10-12: [██░░░░░░░░░░] Optimization & Intelligence (v0.3.4, v0.3.5, v0.4.1) [IN PROGRESS]
+Weeks 10-12: [██░░░░░░░░░░] Optimization & Intelligence (v0.3.4, v0.3.5, v0.3.6, v0.4.1) [IN PROGRESS]
 Weeks 13-15: [░░░░░░░░░░░░] Advanced (Compression + Adaptive)
 ```
 
@@ -548,13 +587,14 @@ As of v0.3.3.post4, Claude Code users now experience:
 
 **Transformation Status**: ✅ **COMPLETE** - Claude Code has moved from "helpful but limited" to "genuinely understands my entire project with deep semantic awareness."
 
-## 🚀 Next Phase Goals (v0.4.x+)
+## 🚀 Next Phase Goals (v0.3.4+)
 
-The foundation is complete. Next phase focuses on optimization and advanced features:
-- **Performance Optimization**: -50% search latency, batch operations, streaming responses
-- **Adaptive Search Intelligence**: Query understanding and dynamic optimization
-- **Query Enhancement**: Natural language to code-aware query transformation
-- **Semantic Compression**: LLM-based compression for ultra-large codebases
+The foundation is complete. Next phase focuses on project management, optimization and advanced features:
+- **GitHub Projects Integration**: Project management with roadmap tracking, dashboards, and team collaboration (v0.3.4)
+- **Adaptive Search Intelligence**: Query understanding and dynamic optimization (v0.3.5)
+- **Query Enhancement**: Natural language to code-aware query transformation (v0.3.6)
+- **Performance Optimization**: -50% search latency, batch operations, streaming responses (v0.4.1+)
+- **Semantic Compression**: LLM-based compression for ultra-large codebases (v0.5.x)
 
 ## 📚 Related Documentation
 

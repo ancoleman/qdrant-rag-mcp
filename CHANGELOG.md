@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3.post4] - 2025-06-10
+
+### Fixed
+
+- **Critical Dimension Mismatch Error**: Fixed "Vector dimension error: expected dim: 768, got 384" during batch reindexing
+  - Root cause: Thread safety issues and inappropriate fallback to general model (384D) for code files
+  - Added dimension-compatible fallback logic to prevent 384D vectors for code content
+  - Implemented comprehensive thread safety with RLock in SpecializedEmbeddingManager
+  - Code files now always use 768D models (CodeRankEmbed or fallback CodeBERT)
+  - Prevents race conditions during concurrent model loading/eviction
+
+### Changed
+
+- **Thread Safety Improvements**:
+  - Added `threading.RLock()` to protect all critical sections
+  - Thread-safe model loading, caching, and eviction
+  - Protected active model tracking during encoding
+  - Prevents models from being evicted while in use
+
+- **Fallback Logic Enhancement**:
+  - Checks dimension compatibility before falling back to general model
+  - For code content (768D), tries configured fallback (microsoft/codebert-base) first
+  - Only allows fallback to general model if dimensions match
+  - Raises clear error if no dimension-compatible fallback available
+
+### Developer Experience
+
+- **Test Suite Reorganization**:
+  - Reorganized 56+ test files into clear categories (unit, integration, performance, debug, examples)
+  - Added test runner script (`run_tests.sh`) for easy test execution
+  - Created pytest configuration with markers and fixtures
+  - Separated debug scripts from actual tests
+  - Added common test fixtures in conftest.py
+
+## [0.3.3.post3] - 2025-06-10 (Superseded by 0.3.3.post4)
+
+### Note
+This version was created during debugging but superseded by 0.3.3.post4 which includes the complete fix.
+
 ## [0.3.3.post2] - 2025-06-11
 
 ### Fixed

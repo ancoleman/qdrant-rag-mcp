@@ -5,7 +5,7 @@ This package provides a Model Control Protocol (MCP) server
 for code and configuration indexing with Qdrant vector database.
 """
 
-__version__ = "0.3.3.post2"
+__version__ = "0.3.3.post4"
 __author__ = "Anton Coleman"
 __email__ = "antonnoble@gmail.com"
 

@@ -7,6 +7,7 @@ specialized models optimized for different content types (code, config, docs).
 
 import os
 import logging
+import threading
 from collections import OrderedDict
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Union, Tuple, Set
@@ -135,6 +136,9 @@ class SpecializedEmbeddingManager(MemoryComponent):
             model_type: {'loads': 0, 'encodings': 0, 'errors': 0}
             for model_type in self.model_configs
         }
+        
+        # Thread safety lock
+        self._lock = threading.RLock()
         
         logger.info(f"Initialized SpecializedEmbeddingManager with device: {self.device}, "
                    f"max_models: {max_models_in_memory}, memory_limit: {memory_limit_gb}GB")
@@ -309,30 +313,31 @@ class SpecializedEmbeddingManager(MemoryComponent):
         Args:
             protect_model: Model name to protect from eviction (e.g., during loading)
         """
-        if not self.loaded_models:
-            return
-        
-        # Build list of eviction candidates (excluding active and protected models)
-        candidates = []
-        for model_name in self.loaded_models:
-            if model_name not in self.active_models and model_name != protect_model:
-                candidates.append(model_name)
-        
-        if not candidates:
-            logger.warning("Cannot evict any models - all are currently active or protected")
-            return
-        
-        # Evict the first candidate (which is the least recently used due to OrderedDict)
-        lru_model_name = candidates[0]
-        lru_model = self.loaded_models.pop(lru_model_name)
-        
-        # Update memory tracking
-        if lru_model_name in self.memory_usage:
-            self.total_memory_used_gb -= self.memory_usage[lru_model_name]
-            del self.memory_usage[lru_model_name]
-        
-        # Clean up
-        del lru_model
+        with self._lock:
+            if not self.loaded_models:
+                return
+            
+            # Build list of eviction candidates (excluding active and protected models)
+            candidates = []
+            for model_name in self.loaded_models:
+                if model_name not in self.active_models and model_name != protect_model:
+                    candidates.append(model_name)
+            
+            if not candidates:
+                logger.warning("Cannot evict any models - all are currently active or protected")
+                return
+            
+            # Evict the first candidate (which is the least recently used due to OrderedDict)
+            lru_model_name = candidates[0]
+            lru_model = self.loaded_models.pop(lru_model_name)
+            
+            # Update memory tracking
+            if lru_model_name in self.memory_usage:
+                self.total_memory_used_gb -= self.memory_usage[lru_model_name]
+                del self.memory_usage[lru_model_name]
+            
+            # Clean up
+            del lru_model
         
         # Force garbage collection
         import gc
@@ -363,18 +368,20 @@ class SpecializedEmbeddingManager(MemoryComponent):
         model_config = self.model_configs.get(content_type, self.model_configs['general'])
         model_name = model_config['name']
         
-        # Update usage statistics
-        self.usage_stats[content_type]['loads'] += 1
-        
-        # Check if already loaded
-        if model_name in self.loaded_models:
-            # Move to end (most recently used)
-            self.loaded_models.move_to_end(model_name)
-            logger.debug(f"Using cached model {model_name}")
-            return self.loaded_models[model_name], model_config
-        
-        # Mark model as active immediately to prevent eviction during loading
-        self.active_models.add(model_name)
+        # Thread-safe check if already loaded
+        with self._lock:
+            # Update usage statistics
+            self.usage_stats[content_type]['loads'] += 1
+            
+            # Check if already loaded
+            if model_name in self.loaded_models:
+                # Move to end (most recently used)
+                self.loaded_models.move_to_end(model_name)
+                logger.debug(f"Using cached model {model_name}")
+                return self.loaded_models[model_name], model_config
+            
+            # Mark model as active immediately to prevent eviction during loading
+            self.active_models.add(model_name)
         
         try:
             # Check memory constraints
@@ -401,13 +408,15 @@ class SpecializedEmbeddingManager(MemoryComponent):
             # Load model with MPS optimization if applicable
             model = self._load_model_with_mps_optimization(model_name, content_type)
             
-            # Track memory usage
-            estimated_memory = self._estimate_model_memory(model_name)
-            self.memory_usage[model_name] = estimated_memory
-            self.total_memory_used_gb += estimated_memory
-            
-            # Cache the model
-            self.loaded_models[model_name] = model
+            # Thread-safe caching
+            with self._lock:
+                # Track memory usage
+                estimated_memory = self._estimate_model_memory(model_name)
+                self.memory_usage[model_name] = estimated_memory
+                self.total_memory_used_gb += estimated_memory
+                
+                # Cache the model
+                self.loaded_models[model_name] = model
             
             logger.info(f"Successfully loaded {model_name}. "
                        f"Memory usage: {self.total_memory_used_gb:.1f}/{self.memory_limit_gb}GB")
@@ -437,19 +446,32 @@ class SpecializedEmbeddingManager(MemoryComponent):
                     # Restore original model name if fallback fails
                     self.model_configs[content_type]['name'] = original_model_name
             
-            # Last resort: fall back to general model
+            # Last resort: check if we can fall back to general model
             if content_type != 'general':
-                logger.warning(f"Falling back to general model for {content_type}")
-                # Remove from active set before recursive call
-                self.active_models.discard(model_name)
-                return self.load_model('general')
+                # Check dimension compatibility before falling back to general
+                current_dim = self.model_configs[content_type]['dimension']
+                general_dim = self.model_configs['general']['dimension']
+                
+                if general_dim == current_dim:
+                    logger.warning(f"Falling back to general model for {content_type} (dimension-compatible: {current_dim}D)")
+                    # Remove from active set before recursive call
+                    with self._lock:
+                        self.active_models.discard(model_name)
+                    return self.load_model('general')
+                else:
+                    logger.error(f"Cannot fall back to general model for {content_type}: "
+                                f"dimension mismatch ({current_dim}D vs {general_dim}D)")
+                    # Remove from active set
+                    with self._lock:
+                        self.active_models.discard(model_name)
             
             raise RuntimeError(f"Unable to load any embedding model for {content_type}")
         finally:
             # Always remove model from active set if loading failed
             # (successful loads keep it active until encode completes)
-            if model_name not in self.loaded_models:
-                self.active_models.discard(model_name)
+            with self._lock:
+                if model_name not in self.loaded_models:
+                    self.active_models.discard(model_name)
     
     def _load_model_with_mps_optimization(self, model_name: str, content_type: str) -> SentenceTransformer:
         """Load model with Apple Silicon MPS optimizations"""
@@ -612,7 +634,8 @@ class SpecializedEmbeddingManager(MemoryComponent):
         model_name = model_config['name']
         
         # Mark model as active to prevent eviction during encoding
-        self.active_models.add(model_name)
+        with self._lock:
+            self.active_models.add(model_name)
         
         try:
             # Update usage statistics
@@ -733,15 +756,43 @@ class SpecializedEmbeddingManager(MemoryComponent):
             logger.error(f"Error encoding with {model_config['name']}: {e}")
             self.usage_stats[content_type]['errors'] += 1
             
-            # If not already using general model, fall back to it
+            # If not already using general model, handle fallback appropriately
             if content_type != 'general':
-                logger.warning(f"Falling back to general model for encoding")
-                return self.encode(texts, 'general', batch_size, show_progress_bar, normalize_embeddings)
+                # Check if we have a dimension-compatible fallback
+                current_dim = self.model_configs[content_type]['dimension']
+                
+                # For code content (768D), try the configured fallback model first
+                if content_type == 'code' and self.model_configs[content_type].get('fallback'):
+                    logger.warning(f"Trying fallback model for {content_type}: {self.model_configs[content_type]['fallback']}")
+                    try:
+                        # Temporarily update model config to use fallback
+                        original_model = self.model_configs[content_type]['name']
+                        self.model_configs[content_type]['name'] = self.model_configs[content_type]['fallback']
+                        result = self.encode(texts, content_type, batch_size, show_progress_bar, normalize_embeddings)
+                        # Restore original model
+                        self.model_configs[content_type]['name'] = original_model
+                        return result
+                    except Exception as fallback_e:
+                        logger.error(f"Fallback model also failed: {fallback_e}")
+                        # Restore original model
+                        self.model_configs[content_type]['name'] = original_model
+                
+                # Only fall back to general if dimensions match
+                general_dim = self.model_configs['general']['dimension']
+                if general_dim == current_dim:
+                    logger.warning(f"Falling back to general model for encoding (dimension-compatible: {current_dim}D)")
+                    return self.encode(texts, 'general', batch_size, show_progress_bar, normalize_embeddings)
+                else:
+                    # Cannot fall back to general due to dimension mismatch
+                    logger.error(f"Cannot fall back to general model: dimension mismatch ({current_dim}D vs {general_dim}D)")
+                    logger.error(f"Original error: {e}")
+                    raise ValueError(f"Failed to encode {content_type} content and no dimension-compatible fallback available")
             
             raise
         finally:
             # Always remove model from active set when done
-            self.active_models.discard(model_name)
+            with self._lock:
+                self.active_models.discard(model_name)
     
     def get_dimension(self, content_type: str = 'general') -> int:
         """Get the embedding dimension for a content type"""
@@ -825,11 +876,13 @@ class SpecializedEmbeddingManager(MemoryComponent):
     
     def clear_cache(self):
         """Clear all loaded models from memory"""
-        logger.info(f"Clearing {len(self.loaded_models)} models from cache")
-        
-        self.loaded_models.clear()
-        self.memory_usage.clear()
-        self.total_memory_used_gb = 0.0
+        with self._lock:
+            logger.info(f"Clearing {len(self.loaded_models)} models from cache")
+            
+            self.loaded_models.clear()
+            self.memory_usage.clear()
+            self.total_memory_used_gb = 0.0
+            self.active_models.clear()
         
         # Force garbage collection
         import gc

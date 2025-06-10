@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     from . import __version__
 except ImportError:
-    __version__ = "0.3.3.post2"  # Fallback version
+    __version__ = "0.3.3.post4"  # Fallback version
 
 # Load environment variables from the MCP server directory
 from dotenv import load_dotenv

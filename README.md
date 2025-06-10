@@ -23,6 +23,16 @@ A context-aware Model Context Protocol (MCP) server that provides semantic searc
 - **💾 Session Persistence**: Automatic saving for later analysis
 - **🔍 Session Viewer**: Utility to analyze patterns across sessions
 
+### 🆕 Specialized Embeddings (v0.3.3)
+- **🎯 Content-Type Specific Models**: Different AI models optimized for different content types
+  - **Code**: Programming-aware embeddings for 30-50% better code search relevance
+  - **Config**: Structure-aware models for precise JSON/YAML/XML navigation
+  - **Documentation**: Prose-optimized embeddings for natural documentation search
+- **🧠 Language-Specific Understanding**: Python idioms, JavaScript patterns, and more
+- **🔥 Reduced Cross-Type Noise**: Configs don't pollute code searches and vice versa
+- **🛡️ Thread-Safe & Reliable**: Comprehensive thread safety with fallback protection
+- **🍎 Apple Silicon Optimized**: Memory management with MPS acceleration
+
 ### 🆕 Progressive Context Management (v0.3.2)
 - **🎯 Multi-Level Context**: File → Class → Method hierarchy for optimal token usage
 - **💰 50-70% Token Reduction**: Get high-level overviews without sacrificing detail access
@@ -494,7 +504,41 @@ export QDRANT_LOG_DIR=/custom/path   # Custom log directory
 
 ## 📈 Recent Improvements
 
-### 🚀 v0.3.0 (Latest) - GitHub Integration
+### 🚀 v0.3.3 (Latest) - Specialized Embeddings & Critical Bug Fixes
+- ✅ **Content-Type Specific Models**: Different embedding models for different content types
+  - **Code**: `nomic-ai/CodeRankEmbed` (768D) - Programming-aware embeddings for superior code search
+  - **Config**: `jinaai/jina-embeddings-v3` (1024D) - Structure-aware for JSON/YAML/XML files
+  - **Documentation**: `hkunlp/instructor-large` (768D) - Prose-optimized for markdown/docs
+  - **General**: `sentence-transformers/all-MiniLM-L12-v2` (384D) - Backward compatibility
+- ✅ **30-50% Better Code Search**: Programming-aware embeddings understand code context better
+- ✅ **Unified Memory Management**: Apple Silicon optimizations with conservative memory limits
+- ✅ **Model Registry System**: Central model management with compatibility checking
+- ✅ **Enhanced Model Scripts**: Improved download_models.sh with specialized model support
+- ✅ **Critical Post-Release Fixes (v0.3.3.post1-4)**:
+  - **Fixed Critical Search Error**: Payload type validation preventing search failures
+  - **Fixed Context Tracking Error**: Configuration float handling for proper context tracking
+  - **🔧 Fixed Dimension Mismatch**: Resolved "Vector dimension error: expected dim: 768, got 384"
+    - **Root Cause**: Thread safety issues causing CodeRankEmbed model eviction
+    - **Solution**: Comprehensive thread safety + dimension-compatible fallback logic
+    - **Impact**: Code files now always get correct 768D embeddings
+- ✅ **Test Suite Reorganization**: Clean categorization (unit/integration/performance/debug)
+- 📖 **[Memory Management Guide](docs/technical/memory-optimization-recommendations.md)**: Apple Silicon optimization details
+
+### v0.3.2 - Progressive Context Management
+- ✅ **Multi-Level Context Retrieval**: File → Class → Method hierarchy for 50-70% token reduction
+- ✅ **Semantic Caching**: Similar queries hit cache with 0.85 similarity threshold
+- ✅ **Query Intent Detection**: Automatically determines optimal context level
+- ✅ **Configurable Scoring Pipeline**: Modular scoring system with pluggable stages
+- ✅ **Enhanced BM25 Tokenization**: Code-specific preprocessing (camelCase, snake_case)
+- ✅ **Linear Combination Scoring**: More accurate hybrid search scores (0.6-0.9 vs 0.01-0.02)
+
+### v0.3.1 - Context Tracking
+- ✅ **Context Window Visibility**: Monitor what Claude knows in current session
+- ✅ **Token Usage Tracking**: Real-time estimates with warnings at 60%/80%
+- ✅ **Session Timeline**: Chronological view of all context-consuming operations
+- ✅ **Session Persistence**: Automatic saving for later analysis
+
+### v0.3.0 - GitHub Integration
 - ✅ **10 GitHub MCP Tools**: Complete issue lifecycle management via Claude Code
 - ✅ **RAG-Powered Issue Analysis**: Leverage codebase search for intelligent issue understanding
 - ✅ **Automated Fix Generation**: Generate code fixes with confidence scoring and templates

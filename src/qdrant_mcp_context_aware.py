@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     from . import __version__
 except ImportError:
-    __version__ = "0.3.4.post1"  # Fallback version
+    __version__ = "0.3.4.post2"  # Fallback version
 
 # Load environment variables from the MCP server directory
 from dotenv import load_dotenv
@@ -5679,6 +5679,117 @@ def github_resolve_issue(issue_number: int, dry_run: bool = True) -> Dict[str, A
 
 # GitHub Projects V2 tools (v0.3.4)
 @mcp.tool()
+def github_list_projects(owner: Optional[str] = None, limit: int = 20) -> Dict[str, Any]:
+    """
+    List GitHub Projects V2 for a user or organization.
+    
+    WHEN TO USE THIS TOOL:
+    - User asks to "list projects" or "show projects"
+    - User wants to see all available projects
+    - Before working with a specific project
+    - User asks "what projects do I have?"
+    - Exploring project management capabilities
+    
+    This tool lists all GitHub Projects V2 for the specified owner,
+    showing project titles, descriptions, item counts, and IDs.
+    
+    Args:
+        owner: Username or organization (defaults to current repo owner)
+        limit: Maximum number of projects to return (default: 20, max: 100)
+        
+    Returns:
+        List of projects with details
+    """
+    try:
+        if not GITHUB_AVAILABLE:
+            return {
+                "error": "GitHub integration not available",
+                "message": "Install with: pip install PyGithub GitPython"
+            }
+        
+        if not PROJECTS_AVAILABLE:
+            return {
+                "error": "GitHub Projects integration not available",
+                "message": "Install with: pip install 'gql[aiohttp]'"
+            }
+        
+        github_client, _, _, _, projects_manager = get_github_instances()
+        
+        if not projects_manager:
+            return {
+                "error": "Projects manager not available",
+                "message": "Failed to initialize GitHub Projects manager"
+            }
+        
+        # Use current repo owner if not specified
+        if not owner:
+            current_repo = github_client.get_current_repository()
+            if current_repo:
+                owner = current_repo.owner.login
+            else:
+                # Try to get authenticated user
+                try:
+                    user = github_client._github.get_user()
+                    owner = user.login
+                except:
+                    return {
+                        "error": "No owner specified",
+                        "message": "Specify an owner or switch to a repository"
+                    }
+        
+        # List projects
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        # Handle async execution
+        try:
+            if loop.is_running():
+                # We're in an async context, use thread to avoid event loop issues
+                import concurrent.futures
+                
+                def run_async():
+                    new_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(new_loop)
+                    try:
+                        return new_loop.run_until_complete(
+                            projects_manager.list_projects(owner, limit)
+                        )
+                    finally:
+                        new_loop.close()
+                
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(run_async)
+                    projects = future.result()
+            else:
+                projects = loop.run_until_complete(
+                    projects_manager.list_projects(owner, limit)
+                )
+        except RuntimeError:
+            # No loop, create one
+            projects = loop.run_until_complete(
+                projects_manager.list_projects(owner, limit)
+            )
+        
+        console_logger.info(f"Listed {len(projects)} projects for {owner}")
+        
+        return {
+            "success": True,
+            "owner": owner,
+            "count": len(projects),
+            "projects": projects
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to list projects: {str(e)}"
+        console_logger.error(error_msg)
+        return {"error": error_msg}
+
+
+@mcp.tool()
 def github_create_project(title: str, body: Optional[str] = None, owner: Optional[str] = None) -> Dict[str, Any]:
     """
     Create a new GitHub Project V2.
@@ -6365,6 +6476,104 @@ def github_get_project_status(project_id: str) -> Dict[str, Any]:
         
     except Exception as e:
         error_msg = f"Failed to get project status: {str(e)}"
+        console_logger.error(error_msg)
+        return {"error": error_msg}
+
+
+@mcp.tool()
+def github_delete_project(project_id: str) -> Dict[str, Any]:
+    """
+    Delete a GitHub Project V2.
+    
+    WHEN TO USE THIS TOOL:
+    - User asks to "delete project" with a project ID
+    - User wants to remove an entire project
+    - Cleaning up test or temporary projects
+    - Project is no longer needed
+    
+    This tool permanently deletes a GitHub Project V2. This action cannot be undone.
+    Requires the project node ID (starts with PVT_).
+    
+    Args:
+        project_id: Project node ID (must start with PVT_)
+        
+    Returns:
+        Deletion status with project details
+    """
+    try:
+        if not GITHUB_AVAILABLE:
+            return {
+                "error": "GitHub integration not available",
+                "message": "Install with: pip install PyGithub GitPython"
+            }
+        
+        if not PROJECTS_AVAILABLE:
+            return {
+                "error": "GitHub Projects integration not available",
+                "message": "Install with: pip install 'gql[aiohttp]'"
+            }
+        
+        github_client, _, _, _, projects_manager = get_github_instances()
+        
+        if not projects_manager:
+            return {
+                "error": "Projects manager not available",
+                "message": "Failed to initialize GitHub Projects manager"
+            }
+        
+        # Delete the project
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        # Handle async execution
+        try:
+            if loop.is_running():
+                # We're in an async context, use thread to avoid event loop issues
+                import concurrent.futures
+                
+                def run_async():
+                    new_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(new_loop)
+                    try:
+                        return new_loop.run_until_complete(
+                            projects_manager.delete_project(project_id)
+                        )
+                    finally:
+                        new_loop.close()
+                
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(run_async)
+                    result = future.result()
+            else:
+                result = loop.run_until_complete(
+                    projects_manager.delete_project(project_id)
+                )
+        except RuntimeError:
+            # No loop, create one
+            result = loop.run_until_complete(
+                projects_manager.delete_project(project_id)
+            )
+        
+        console_logger.info(f"Deleted project {project_id}")
+        
+        return {
+            "success": True,
+            "deleted": result.get("deleted", True),
+            "project_id": result.get("project_id"),
+            "title": result.get("title", "Unknown"),
+            "message": result.get("message", "Project deleted successfully")
+        }
+        
+    except ValueError as e:
+        error_msg = f"Invalid input: {str(e)}"
+        console_logger.error(error_msg)
+        return {"error": error_msg}
+    except Exception as e:
+        error_msg = f"Failed to delete project: {str(e)}"
         console_logger.error(error_msg)
         return {"error": error_msg}
 

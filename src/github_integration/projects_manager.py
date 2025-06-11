@@ -1216,6 +1216,206 @@ class GitHubProjectsManager:
         fields.append(release_field)
         
         return fields
+    
+    async def list_projects(self, owner: str, limit: int = 20) -> List[Dict[str, Any]]:
+        """
+        List GitHub Projects V2 for a user or organization.
+        
+        Args:
+            owner: Username or organization name
+            limit: Maximum number of projects to return (default: 20, max: 100)
+            
+        Returns:
+            List of project information
+            
+        Raises:
+            GitHubProjectsError: If listing fails
+        """
+        if limit > 100:
+            limit = 100
+        elif limit < 1:
+            limit = 20
+            
+        query = """
+        query($login: String!, $limit: Int!) {
+            user(login: $login) {
+                projectsV2(first: $limit) {
+                    totalCount
+                    nodes {
+                        id
+                        number
+                        title
+                        shortDescription
+                        url
+                        public
+                        createdAt
+                        updatedAt
+                        items(first: 0) {
+                            totalCount
+                        }
+                    }
+                }
+            }
+            organization(login: $login) {
+                projectsV2(first: $limit) {
+                    totalCount
+                    nodes {
+                        id
+                        number
+                        title
+                        shortDescription
+                        url
+                        public
+                        createdAt
+                        updatedAt
+                        items(first: 0) {
+                            totalCount
+                        }
+                    }
+                }
+            }
+        }
+        """
+        
+        try:
+            result = await self._execute_query(query, {"login": owner, "limit": limit})
+            data = result.get('data', result) if isinstance(result, dict) else result
+            
+            # Check both user and organization
+            projects_data = None
+            owner_type = None
+            
+            if data.get('user') and data['user'].get('projectsV2'):
+                projects_data = data['user']['projectsV2']
+                owner_type = 'user'
+            elif data.get('organization') and data['organization'].get('projectsV2'):
+                projects_data = data['organization']['projectsV2']
+                owner_type = 'organization'
+            
+            if not projects_data:
+                # No projects found or owner doesn't exist
+                return []
+            
+            projects = projects_data.get('nodes', [])
+            
+            # Format the projects list
+            formatted_projects = []
+            for project in projects:
+                if project:  # Skip any null entries
+                    formatted_projects.append({
+                        "id": project["id"],
+                        "number": project["number"],
+                        "title": project["title"],
+                        "description": project.get("shortDescription", ""),
+                        "url": project["url"],
+                        "public": project["public"],
+                        "item_count": project["items"]["totalCount"],
+                        "created_at": project["createdAt"],
+                        "updated_at": project["updatedAt"],
+                        "owner": owner,
+                        "owner_type": owner_type
+                    })
+            
+            logger.info(f"Found {len(formatted_projects)} projects for {owner}")
+            return formatted_projects
+            
+        except Exception as e:
+            logger.error(f"Failed to list projects for {owner}: {e}")
+            raise GitHubProjectsError(f"Failed to list projects: {e}")
+    
+    async def delete_project(self, project_id: str) -> Dict[str, Any]:
+        """
+        Delete a GitHub Project V2.
+        
+        Args:
+            project_id: Project node ID (must start with PVT_)
+            
+        Returns:
+            Dictionary with deletion status and project ID
+            
+        Raises:
+            GitHubProjectsError: If project deletion fails
+            ValueError: If project ID is invalid
+        """
+        # Validate inputs
+        if not project_id or not project_id.strip():
+            raise ValueError("Project ID cannot be empty")
+        if not project_id.startswith("PVT_"):
+            raise ValueError(f"Invalid project ID format: {project_id}. Must start with 'PVT_'")
+        
+        # Try to get project details first to confirm it exists
+        try:
+            project = await self.get_project_by_id(project_id)
+            project_title = project.get("title", "Unknown")
+            logger.info(f"Attempting to delete project '{project_title}' (ID: {project_id})")
+        except GitHubProjectsError:
+            # Project might not exist or we don't have access
+            logger.warning(f"Could not fetch project details for {project_id} before deletion")
+            project_title = "Unknown"
+        
+        mutation = """
+        mutation($projectId: ID!) {
+            deleteProjectV2(input: {
+                projectId: $projectId
+            }) {
+                projectV2 {
+                    id
+                    title
+                    number
+                }
+            }
+        }
+        """
+        
+        try:
+            result = await self._execute_query(mutation, {"projectId": project_id})
+            data = result.get('data', result) if isinstance(result, dict) else result
+            
+            # Check for errors in response
+            if isinstance(result, dict) and 'errors' in result:
+                errors = result['errors']
+                if errors:
+                    error_msg = errors[0].get('message', 'Unknown error')
+                    
+                    # Check for specific error conditions
+                    if 'not found' in error_msg.lower():
+                        raise GitHubProjectsError(f"Project {project_id} not found or you don't have access")
+                    elif 'permission' in error_msg.lower() or 'forbidden' in error_msg.lower():
+                        raise GitHubProjectsError(f"Insufficient permissions to delete project {project_id}")
+                    elif 'cannot delete' in error_msg.lower():
+                        raise GitHubProjectsError(f"Project {project_id} cannot be deleted: {error_msg}")
+                    else:
+                        raise GitHubProjectsError(f"Failed to delete project: {error_msg}")
+            
+            # Check if deletion returned data
+            if not data.get('deleteProjectV2'):
+                # Deletion successful but no data returned (this is expected for some mutations)
+                logger.info(f"Project {project_id} deleted successfully")
+                return {
+                    "deleted": True,
+                    "project_id": project_id,
+                    "title": project_title,
+                    "message": f"Project '{project_title}' deleted successfully"
+                }
+            
+            # If we got project data back, use it
+            deleted_project = data['deleteProjectV2'].get('projectV2', {})
+            title = deleted_project.get('title', project_title)
+            
+            logger.info(f"Deleted project '{title}' with ID: {project_id}")
+            return {
+                "deleted": True,
+                "project_id": project_id,
+                "title": title,
+                "number": deleted_project.get('number'),
+                "message": f"Project '{title}' deleted successfully"
+            }
+            
+        except GitHubProjectsError:
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error deleting project: {e}")
+            raise GitHubProjectsError(f"Failed to delete project: {e}")
 
 
 # Singleton instance management

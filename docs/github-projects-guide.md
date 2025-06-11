@@ -114,6 +114,25 @@ In `config/server_config.json`:
 
 ## 📚 Usage Examples
 
+### Listing Projects
+
+```bash
+# Via Claude Code (MCP)
+"List my GitHub projects"
+"Show all projects for organization myorg"
+"List up to 50 projects for user ancoleman"
+
+# Via HTTP API
+# List projects for authenticated user
+curl http://localhost:8081/github/projects
+
+# List projects for specific owner
+curl "http://localhost:8081/github/projects?owner=ancoleman"
+
+# List with limit
+curl "http://localhost:8081/github/projects?owner=myorg&limit=50"
+```
+
 ### Creating Projects
 
 #### Basic Project Creation
@@ -294,6 +313,24 @@ Analysis Result:
 
 ### MCP Tools
 
+#### `github_list_projects`
+List GitHub Projects V2 for a user or organization.
+
+**Parameters:**
+- `owner` (optional): Username or organization (defaults to current repo owner or authenticated user)
+- `limit` (optional): Maximum number of projects (default: 20, max: 100)
+
+**Returns:**
+- `projects`: List of projects with:
+  - `id`: Project node ID
+  - `number`: Project number
+  - `title`: Project name
+  - `description`: Project description
+  - `url`: Web URL
+  - `item_count`: Number of items in project
+  - `created_at`: Creation timestamp
+  - `updated_at`: Last update timestamp
+
 #### `github_create_project`
 Create a new GitHub Project V2.
 
@@ -305,6 +342,19 @@ Create a new GitHub Project V2.
 **Returns:**
 - `project`: Created project with ID and URL
 - `fields`: List of fields (if template used)
+
+#### `github_delete_project`
+Delete a GitHub Project V2.
+
+**Parameters:**
+- `project_id` (required): Project node ID (must start with PVT_)
+
+**Returns:**
+- `deleted`: Boolean indicating success
+- `title`: Name of the deleted project
+- `message`: Confirmation message
+
+**Note:** This action cannot be undone. All project data, including items and fields, will be permanently deleted.
 
 #### `github_add_project_item`
 Add an issue or PR to a project.
@@ -361,8 +411,10 @@ Add item with intelligent field assignment.
 
 | Endpoint | Method | Purpose |
 |----------|---------|---------|
+| `/github/projects` | GET | List projects |
 | `/github/projects` | POST | Create project |
 | `/github/projects/{owner}/{number}` | GET | Get project |
+| `/github/projects/{project_id}` | DELETE | Delete project |
 | `/github/projects/items` | POST | Add item |
 | `/github/projects/items/update` | POST | Update item |
 | `/github/projects/items/smart` | POST | Smart add |
@@ -385,7 +437,16 @@ Use the provided test script:
 
 ### Manual Testing Flow
 
-1. **Create a test project**:
+1. **List existing projects**:
+```bash
+# List all projects for current user
+curl http://localhost:8081/github/projects
+
+# List projects for specific owner
+curl "http://localhost:8081/github/projects?owner=ancoleman&limit=10"
+```
+
+2. **Create a test project**:
 ```bash
 curl -X POST http://localhost:8081/github/projects \
   -d '{"owner": "ancoleman", "title": "Test Project", "template": "bugs"}'
@@ -408,7 +469,36 @@ curl -X POST http://localhost:8081/github/projects/items/smart \
 curl http://localhost:8081/github/projects/ancoleman/1/status
 ```
 
+5. **Delete test project** (cleanup):
+```bash
+# First get the project ID
+curl http://localhost:8081/github/projects/ancoleman/1 | jq '.project.id'
+
+# Then delete the project
+curl -X DELETE http://localhost:8081/github/projects/PVT_xxxx
+```
+
 ## 🏆 Best Practices
+
+### Project Management
+
+#### Deleting Projects
+
+When cleaning up projects:
+
+```bash
+# Via Claude Code MCP
+"Delete project PVT_kwDOBxxx"
+
+# Via HTTP API
+curl -X DELETE http://localhost:8081/github/projects/PVT_kwDOBxxx
+```
+
+**Important considerations:**
+- Deletion is permanent and cannot be undone
+- All project items, fields, and views are deleted
+- Consider archiving projects instead if you might need them later
+- Requires appropriate permissions (project admin)
 
 ### Project Organization
 
@@ -416,6 +506,7 @@ curl http://localhost:8081/github/projects/ancoleman/1/status
 2. **Name projects clearly** with purpose and timeframe
 3. **Limit items per project** to maintain performance
 4. **Archive completed projects** to reduce clutter
+5. **Delete test projects** to keep workspace clean
 
 ### Field Design
 

@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.4.post2] - 2025-06-11
+
+### 🛠️ GitHub Projects V2 CRUD Operations
+
+This patch release completes the GitHub Projects V2 integration by adding list and delete operations, enabling full project lifecycle management.
+
+### Added
+
+- **List Projects Operation**:
+  - `github_list_projects` MCP tool - List all GitHub Projects V2 for a user or organization
+  - Supports pagination with limit parameter (default: 20, max: 100)
+  - Returns project details including ID, number, title, description, item count, and timestamps
+  - Graceful handling of user vs organization ownership
+
+- **Delete Project Operation**:
+  - `github_delete_project` MCP tool - Delete a GitHub Project V2 permanently
+  - Validates project ID format (must start with PVT_)
+  - Fetches project details before deletion for confirmation
+  - Returns deleted project title in confirmation message
+  - Clear warning that deletion is permanent and cannot be undone
+
+- **HTTP API Endpoints**:
+  - `GET /github/projects` - List projects with optional owner and limit parameters
+  - `DELETE /github/projects/{project_id}` - Delete a project by ID
+
+### Documentation
+
+- Updated GitHub Projects Guide with list and delete operations
+- Added best practices for project cleanup and management
+- Documented project ID validation requirements
+- Added examples for listing projects by owner
+
+### Fixed
+
+- Improved error messages for invalid project ID formats
+- Better handling of GraphQL errors in project operations
+
 ## [0.3.4.post1] - 2025-06-11
 
 ### 🎯 Token Usage Optimization

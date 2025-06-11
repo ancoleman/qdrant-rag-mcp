@@ -695,6 +695,23 @@ async def github_health_endpoint():
 
 # GitHub Projects V2 Endpoints (v0.3.4)
 
+@app.get("/github/projects")
+async def github_list_projects_endpoint(owner: Optional[str] = None, limit: int = 20):
+    """List GitHub Projects V2 for a user or organization"""
+    try:
+        from qdrant_mcp_context_aware import github_list_projects
+        
+        result = github_list_projects(owner=owner, limit=limit)
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/github/projects")
 async def github_create_project_endpoint(request: GitHubCreateProjectRequest):
     """Create a new GitHub Project V2"""
@@ -865,6 +882,23 @@ async def github_create_project_field_endpoint(request: GitHubCreateProjectField
             raise HTTPException(status_code=400, detail=result["error"])
         
         return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/github/projects/{project_id}")
+async def github_delete_project_endpoint(project_id: str):
+    """Delete a GitHub Project V2"""
+    try:
+        from qdrant_mcp_context_aware import github_delete_project
+        
+        result = github_delete_project(project_id=project_id)
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

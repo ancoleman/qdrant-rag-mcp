@@ -38,11 +38,20 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
   - ✅ Async/await handling for GraphQL operations in MCP context
   - ✅ Reserved field name handling and error recovery
   - ✅ Full test coverage with comprehensive test script
+- ✅ **Token Usage Optimization (v0.3.4.post1)** - 70% reduction in GitHub issue analysis
+  - ✅ Enhanced MCP tool docstrings with clear "WHEN TO USE THIS TOOL" sections
+  - ✅ Progressive context integration for issue analysis
+  - ✅ Query deduplication and optimization
+  - ✅ Configuration optimizations for reduced token overhead
+- ✅ **GitHub Projects V2 CRUD Operations (v0.3.4.post2)** - Complete project lifecycle management
+  - ✅ List projects operation with pagination support
+  - ✅ Delete project operation with validation and confirmation
+  - ✅ HTTP API endpoints for list and delete
+  - ✅ Enhanced error handling and validation
 
 ### In Progress
 
 ### Upcoming
-- 📋 Token Usage Optimization - v0.3.4.post1 (70% reduction in GitHub issue analysis)
 - 📋 Adaptive Search Intelligence - v0.3.5 (Smart query understanding)
 - 📋 Query Enhancement - v0.3.6 (+35% recall)
 - 📋 MCP Server Optimizations - v0.4.1+ (Performance improvements)
@@ -50,20 +59,21 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 
 ## 📊 Current State vs. Target State
 
-### Current State (Updated with v0.3.3.post4)
-- **Token Usage**: ~3,600-6,000 tokens per query (50-70% reduction with progressive context)
-- **Context Efficiency**: 1.8-3.0% of context window per query (depends on context level)
+### Current State (Updated with v0.3.4.post2)
+- **Token Usage**: ~1,800-3,000 tokens per query (70-83% reduction with optimized GitHub issue analysis)
+- **Context Efficiency**: 0.9-1.5% of context window per query (improved with MCP tool usage)
 - **Search Precision**: +75% over baseline (specialized embeddings + enhanced ranking + hybrid search)
-- **Queries Before Full**: ~55+ (with progressive context management)
+- **Queries Before Full**: ~110+ (with optimized MCP tool usage and progressive context)
 - **Search Modes**: Hybrid (default), Vector-only, Keyword-only with progressive context
 - **AST Support**: Python, Shell scripts, Go, JavaScript, TypeScript (complete functions/structures preserved)
 - **Context Features**: Multi-level progressive context (file/class/method), semantic caching, auto surrounding chunks
 - **Chunk Sizes**: Optimized for semantic understanding (code: 3000, config: 2000)
 - **Ranking Features**: Multi-signal ranking with 5 configurable factors + content-type specific optimization
-- **GitHub Integration**: Complete issue lifecycle with RAG-powered analysis and automated resolution
+- **GitHub Integration**: Complete issue lifecycle with RAG-powered analysis, automated resolution, and full Projects V2 CRUD
 - **Specialized Embeddings**: Content-type specific models (CodeRankEmbed for code, jina-v3 for configs, instructor for docs)
 - **Memory Management**: Unified system with Apple Silicon optimizations and thread-safe operation
 - **Context Tracking**: Session visibility with token usage monitoring and timeline analysis
+- **MCP Tool Enhancement**: 30+ tools with comprehensive "WHEN TO USE THIS TOOL" documentation
 
 ### Target State (Advanced RAG) - ✅ **ACHIEVED with v0.3.3**
 - **Token Usage**: ~3,600 tokens per query (-76%) ✅ **ACHIEVED**
@@ -390,6 +400,24 @@ These provide the enhanced search capabilities needed to build on the GitHub int
   - Maintains search quality with progressive context
   - Smarter context levels (bug→method, feature→class)
 - **Implementation Plan**: [Token Optimization Plan](./v0.3.4.post1-token-optimization-plan.md)
+
+#### v0.3.4.post2: GitHub Projects V2 CRUD Operations (1 day)
+- **Status**: ✅ Completed (2025-06-11)
+- **Focus**: Complete GitHub Projects V2 integration with list and delete operations
+- **Problem**: Missing CRUD operations for full project lifecycle management
+- **Delivered**:
+  - ✅ `github_list_projects` MCP tool with pagination support
+  - ✅ `github_delete_project` MCP tool with validation
+  - ✅ HTTP API endpoints (GET /github/projects, DELETE /github/projects/{id})
+  - ✅ Proper async handling for GraphQL operations
+  - ✅ Enhanced error messages and validation
+  - ✅ Updated documentation with best practices
+- **Benefits**: 
+  - Complete project lifecycle management
+  - Clean workspace maintenance with project deletion
+  - Better project discovery with list operation
+  - Consistent GraphQL integration pattern
+- **Risk**: Low - builds on existing GraphQL infrastructure
 
 #### v0.3.5: Adaptive Search Intelligence (5-6 days)
 - **Status**: 📋 Planned

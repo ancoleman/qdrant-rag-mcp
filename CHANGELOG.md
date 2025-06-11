@@ -7,9 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-- **Critical MCP Server Startup Issue**: Fixed tuple unpacking error in `get_github_instances()` calls that prevented the MCP server from starting after adding GitHub Projects support. Updated all calls to properly unpack 5 return values instead of 4.
-
 ## [0.3.4] - 2025-06-10
 
 ### 🚀 Major Feature: GitHub Projects V2 Integration
@@ -48,6 +45,10 @@ Added comprehensive GitHub Projects V2 support via GraphQL API, enabling project
 - **get_github_instances()** now returns 5 values (added projects_manager)
 - Updated all GitHub tool calls to handle new return signature
 - Enhanced error messages to guide dependency installation
+
+### Fixed
+
+- **Critical MCP Server Startup Issue**: Fixed tuple unpacking error in `get_github_instances()` calls that prevented the MCP server from starting after adding GitHub Projects support. Updated all calls to properly unpack 5 return values instead of 4.
 
 ### Technical Details
 

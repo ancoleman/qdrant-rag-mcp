@@ -5003,6 +5003,49 @@ def get_github_instances():
     return _github_client, _issue_analyzer, _code_generator, _github_workflows, _projects_manager
 
 
+def run_async_in_thread(coro):
+    """
+    Helper function to run async coroutines in MCP context.
+    Handles the case where an event loop is already running by using a thread pool.
+    
+    Args:
+        coro: The coroutine to run
+        
+    Returns:
+        The result of the coroutine
+    """
+    import asyncio
+    import concurrent.futures
+    
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # We're in an async context, use thread to avoid event loop issues
+            def run_async():
+                new_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(new_loop)
+                try:
+                    return new_loop.run_until_complete(coro)
+                finally:
+                    new_loop.close()
+            
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(run_async)
+                return future.result()
+        else:
+            return loop.run_until_complete(coro)
+    except RuntimeError:
+        # No loop, create one
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            # Clean up the loop when done
+            loop.close()
+            asyncio.set_event_loop(None)
+
+
 # GitHub MCP Tools
 @mcp.tool()
 def github_list_repositories(owner: Optional[str] = None) -> Dict[str, Any]:
@@ -5738,41 +5781,9 @@ def github_list_projects(owner: Optional[str] = None, limit: int = 20) -> Dict[s
                     }
         
         # List projects
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        
-        # Handle async execution
-        try:
-            if loop.is_running():
-                # We're in an async context, use thread to avoid event loop issues
-                import concurrent.futures
-                
-                def run_async():
-                    new_loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(new_loop)
-                    try:
-                        return new_loop.run_until_complete(
-                            projects_manager.list_projects(owner, limit)
-                        )
-                    finally:
-                        new_loop.close()
-                
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(run_async)
-                    projects = future.result()
-            else:
-                projects = loop.run_until_complete(
-                    projects_manager.list_projects(owner, limit)
-                )
-        except RuntimeError:
-            # No loop, create one
-            projects = loop.run_until_complete(
-                projects_manager.list_projects(owner, limit)
-            )
+        projects = run_async_in_thread(
+            projects_manager.list_projects(owner, limit)
+        )
         
         console_logger.info(f"Listed {len(projects)} projects for {owner}")
         
@@ -5838,14 +5849,7 @@ def github_create_project(title: str, body: Optional[str] = None, owner: Optiona
             owner = current_repo.owner.login
         
         # Create project (async function needs to be run in event loop)
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        
-        project = loop.run_until_complete(
+        project = run_async_in_thread(
             projects_manager.create_project(owner, title, body)
         )
         
@@ -5920,14 +5924,7 @@ def github_get_project(number: int, owner: Optional[str] = None) -> Dict[str, An
             owner = current_repo.owner.login
         
         # Get project details
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        
-        project = loop.run_until_complete(
+        project = run_async_in_thread(
             projects_manager.get_project(owner, number)
         )
         
@@ -6017,36 +6014,9 @@ def github_add_project_item(project_id: str, issue_number: int) -> Dict[str, Any
                 }
         
         # Add to project
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # We're in an async context (like FastAPI), use thread to avoid event loop issues
-                import concurrent.futures
-                
-                def run_async():
-                    new_loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(new_loop)
-                    try:
-                        return new_loop.run_until_complete(
-                            projects_manager.add_item_to_project(project_id, content_id)
-                        )
-                    finally:
-                        new_loop.close()
-                
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(run_async)
-                    item = future.result()
-            else:
-                item = loop.run_until_complete(
-                    projects_manager.add_item_to_project(project_id, content_id)
-                )
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            item = loop.run_until_complete(
-                projects_manager.add_item_to_project(project_id, content_id)
-            )
+        item = run_async_in_thread(
+            projects_manager.add_item_to_project(project_id, content_id)
+        )
         
         console_logger.info(f"Added {item['content']['title']} to project")
         
@@ -6107,14 +6077,7 @@ def github_update_project_item(project_id: str, item_id: str, field_id: str, val
             }
         
         # Update the field
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        
-        result = loop.run_until_complete(
+        result = run_async_in_thread(
             projects_manager.update_item_field(project_id, item_id, field_id, value)
         )
         
@@ -6170,38 +6133,9 @@ def github_create_project_field(project_id: str, name: str, data_type: str,
             }
         
         # Create the field
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # We're in an async context (like FastAPI), we need to handle this differently
-                import concurrent.futures
-                import threading
-                
-                # Run in a separate thread to avoid event loop issues
-                def run_async():
-                    new_loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(new_loop)
-                    try:
-                        return new_loop.run_until_complete(
-                            projects_manager.create_field(project_id, name, data_type, options)
-                        )
-                    finally:
-                        new_loop.close()
-                
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(run_async)
-                    field = future.result()
-            else:
-                field = loop.run_until_complete(
-                    projects_manager.create_field(project_id, name, data_type, options)
-                )
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            field = loop.run_until_complete(
-                projects_manager.create_field(project_id, name, data_type, options)
-            )
+        field = run_async_in_thread(
+            projects_manager.create_field(project_id, name, data_type, options)
+        )
         
         console_logger.info(f"Created project field '{name}' with type {data_type}")
         
@@ -6268,37 +6202,9 @@ def github_create_project_from_template(title: str, template: str, body: Optiona
             owner = current_repo.owner.login
         
         # Create project from template
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # We're in an async context, use thread to avoid event loop issues
-                import concurrent.futures
-                
-                def run_async():
-                    new_loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(new_loop)
-                    try:
-                        return new_loop.run_until_complete(
-                            projects_manager.create_project_from_template(owner, title, template, body)
-                        )
-                    finally:
-                        new_loop.close()
-                
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(run_async)
-                    project = future.result()
-            else:
-                project = loop.run_until_complete(
-                    projects_manager.create_project_from_template(owner, title, template, body)
-                )
-        except RuntimeError:
-            # No loop, create one
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            project = loop.run_until_complete(
-                projects_manager.create_project_from_template(owner, title, template, body)
-            )
+        project = run_async_in_thread(
+            projects_manager.create_project_from_template(owner, title, template, body)
+        )
         
         console_logger.info(f"Created project '{title}' from template '{template}'")
         
@@ -6363,13 +6269,6 @@ def github_get_project_status(project_id: str) -> Dict[str, Any]:
             }
         
         # Get detailed project status via GraphQL
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        
         # Enhanced query for project status
         status_query = """
         query($projectId: ID!) {
@@ -6412,33 +6311,9 @@ def github_get_project_status(project_id: str) -> Dict[str, Any]:
         """
         
         # Handle async execution
-        try:
-            if loop.is_running():
-                # We're in an async context (like FastAPI), use thread to avoid event loop issues
-                import concurrent.futures
-                
-                def run_async():
-                    new_loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(new_loop)
-                    try:
-                        return new_loop.run_until_complete(
-                            projects_manager._execute_query(status_query, {"projectId": project_id})
-                        )
-                    finally:
-                        new_loop.close()
-                
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(run_async)
-                    data = future.result()
-            else:
-                data = loop.run_until_complete(
-                    projects_manager._execute_query(status_query, {"projectId": project_id})
-                )
-        except RuntimeError:
-            # No loop, create one
-            data = loop.run_until_complete(
-                projects_manager._execute_query(status_query, {"projectId": project_id})
-            )
+        data = run_async_in_thread(
+            projects_manager._execute_query(status_query, {"projectId": project_id})
+        )
         
         project = data["node"]
         if not project:
@@ -6543,41 +6418,9 @@ def github_delete_project(project_id: str) -> Dict[str, Any]:
             }
         
         # Delete the project
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        
-        # Handle async execution
-        try:
-            if loop.is_running():
-                # We're in an async context, use thread to avoid event loop issues
-                import concurrent.futures
-                
-                def run_async():
-                    new_loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(new_loop)
-                    try:
-                        return new_loop.run_until_complete(
-                            projects_manager.delete_project(project_id)
-                        )
-                    finally:
-                        new_loop.close()
-                
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(run_async)
-                    result = future.result()
-            else:
-                result = loop.run_until_complete(
-                    projects_manager.delete_project(project_id)
-                )
-        except RuntimeError:
-            # No loop, create one
-            result = loop.run_until_complete(
-                projects_manager.delete_project(project_id)
-            )
+        result = run_async_in_thread(
+            projects_manager.delete_project(project_id)
+        )
         
         console_logger.info(f"Deleted project {project_id}")
         
@@ -6645,41 +6488,11 @@ def github_smart_add_project_item(project_id: str, issue_number: int) -> Dict[st
         current_repo = github_client._current_repo
         
         # Execute smart add with async handling
-        import asyncio
-        loop = asyncio.get_event_loop()
-        try:
-            if loop.is_running():
-                # We're in an async context (like FastAPI), use thread to avoid event loop issues
-                import concurrent.futures
-                
-                def run_async():
-                    new_loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(new_loop)
-                    try:
-                        return new_loop.run_until_complete(
-                            projects_manager.smart_add_issue_to_project(
-                                project_id, issue_number, current_repo
-                            )
-                        )
-                    finally:
-                        new_loop.close()
-                
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(run_async)
-                    result = future.result()
-            else:
-                result = loop.run_until_complete(
-                    projects_manager.smart_add_issue_to_project(
-                        project_id, issue_number, current_repo
-                    )
-                )
-        except RuntimeError:
-            # No loop, create one
-            result = loop.run_until_complete(
-                projects_manager.smart_add_issue_to_project(
-                    project_id, issue_number, current_repo
-                )
+        result = run_async_in_thread(
+            projects_manager.smart_add_issue_to_project(
+                project_id, issue_number, current_repo
             )
+        )
         
         console_logger.info(f"Smart added issue #{issue_number} to project with {len(result['applied_fields'])} fields set")
         

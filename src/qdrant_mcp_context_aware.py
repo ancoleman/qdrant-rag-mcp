@@ -5046,6 +5046,86 @@ def run_async_in_thread(coro):
             asyncio.set_event_loop(None)
 
 
+def check_github_available():
+    """Check if GitHub integration is available."""
+    if not GITHUB_AVAILABLE:
+        return {
+            "error": "GitHub integration not available",
+            "message": "Install with: pip install PyGithub GitPython"
+        }
+    return None
+
+
+def check_projects_available():
+    """Check if GitHub Projects integration is available."""
+    if not PROJECTS_AVAILABLE:
+        return {
+            "error": "GitHub Projects integration not available",
+            "message": "Install with: pip install 'gql[aiohttp]'"
+        }
+    return None
+
+
+def check_repository_context(github_client):
+    """Check if a repository context is set."""
+    if not github_client.get_current_repository():
+        return {
+            "error": "No repository context set",
+            "message": "Use github_switch_repository first"
+        }
+    return None
+
+
+def check_projects_manager(projects_manager):
+    """Check if projects manager is available."""
+    if not projects_manager:
+        return {
+            "error": "Projects manager not available",
+            "message": "Failed to initialize GitHub Projects manager"
+        }
+    return None
+
+
+def validate_github_prerequisites(require_projects=False, require_repo=False):
+    """
+    Validate common GitHub prerequisites and return appropriate error if any check fails.
+    
+    Args:
+        require_projects: Whether GitHub Projects integration is required
+        require_repo: Whether a repository context is required
+        
+    Returns:
+        Tuple of (error_dict or None, github_instances)
+    """
+    # Check basic GitHub availability
+    error = check_github_available()
+    if error:
+        return error, None
+    
+    # Check projects availability if required
+    if require_projects:
+        error = check_projects_available()
+        if error:
+            return error, None
+    
+    # Get GitHub instances
+    github_client, issue_analyzer, code_generator, workflows, projects_manager = get_github_instances()
+    
+    # Check repository context if required
+    if require_repo:
+        error = check_repository_context(github_client)
+        if error:
+            return error, None
+    
+    # Check projects manager if projects are required
+    if require_projects:
+        error = check_projects_manager(projects_manager)
+        if error:
+            return error, None
+    
+    return None, (github_client, issue_analyzer, code_generator, workflows, projects_manager)
+
+
 # GitHub MCP Tools
 @mcp.tool()
 def github_list_repositories(owner: Optional[str] = None) -> Dict[str, Any]:
@@ -5072,13 +5152,10 @@ def github_list_repositories(owner: Optional[str] = None) -> Dict[str, Any]:
         List of repository information
     """
     try:
-        if not GITHUB_AVAILABLE:
-            return {
-                "error": "GitHub integration not available",
-                "message": "Install with: pip install PyGithub GitPython"
-            }
-        
-        github_client, _, _, _, _ = get_github_instances()
+        error, instances = validate_github_prerequisites()
+        if error:
+            return error
+        github_client, _, _, _, _ = instances
         repositories = github_client.list_repositories(owner)
         
         console_logger.info(f"Listed {len(repositories)} repositories for {owner or 'authenticated user'}")
@@ -5122,13 +5199,10 @@ def github_switch_repository(owner: str, repo: str) -> Dict[str, Any]:
         Repository information and switch status
     """
     try:
-        if not GITHUB_AVAILABLE:
-            return {
-                "error": "GitHub integration not available",
-                "message": "Install with: pip install PyGithub GitPython"
-            }
-        
-        github_client, _, _, _, _ = get_github_instances()
+        error, instances = validate_github_prerequisites()
+        if error:
+            return error
+        github_client, _, _, _, _ = instances
         repository = github_client.set_repository(owner, repo)
         
         # Optional: Auto-index repository if configured
@@ -5207,19 +5281,10 @@ def github_fetch_issues(state: str = "open", labels: Optional[List[str]] = None,
         List of issue information
     """
     try:
-        if not GITHUB_AVAILABLE:
-            return {
-                "error": "GitHub integration not available",
-                "message": "Install with: pip install PyGithub GitPython"
-            }
-        
-        github_client, _, _, _, _ = get_github_instances()
-        
-        if not github_client.get_current_repository():
-            return {
-                "error": "No repository context set",
-                "message": "Use github_switch_repository first"
-            }
+        error, instances = validate_github_prerequisites(require_repo=True)
+        if error:
+            return error
+        github_client, _, _, _, _ = instances
         
         issues = github_client.get_issues(state=state, labels=labels, limit=limit)
         
@@ -5281,19 +5346,12 @@ def github_get_issue(issue_number: int) -> Dict[str, Any]:
         Detailed issue information
     """
     try:
-        if not GITHUB_AVAILABLE:
-            return {
-                "error": "GitHub integration not available",
-                "message": "Install with: pip install PyGithub GitPython"
-            }
+        # Validate prerequisites
+        error, instances = validate_github_prerequisites(require_repo=True)
+        if error:
+            return error
         
-        github_client, _, _, _, _ = get_github_instances()
-        
-        if not github_client.get_current_repository():
-            return {
-                "error": "No repository context set",
-                "message": "Use github_switch_repository first"
-            }
+        github_client, _, _, _, _ = instances
         
         issue = github_client.get_issue(issue_number)
         
@@ -5354,19 +5412,10 @@ def github_create_issue(title: str, body: str = "", labels: Optional[List[str]] 
         Created issue information
     """
     try:
-        if not GITHUB_AVAILABLE:
-            return {
-                "error": "GitHub integration not available",
-                "message": "Install with: pip install PyGithub GitPython"
-            }
-        
-        github_client, _, _, _, _ = get_github_instances()
-        
-        if not github_client.get_current_repository():
-            return {
-                "error": "No repository context set",
-                "message": "Use github_switch_repository first"
-            }
+        error, instances = validate_github_prerequisites(require_repo=True)
+        if error:
+            return error
+        github_client, _, _, _, _ = instances
         
         issue = github_client.create_issue(title, body, labels, assignees)
         
@@ -5413,19 +5462,10 @@ def github_add_comment(issue_number: int, body: str) -> Dict[str, Any]:
         Comment information
     """
     try:
-        if not GITHUB_AVAILABLE:
-            return {
-                "error": "GitHub integration not available",
-                "message": "Install with: pip install PyGithub GitPython"
-            }
-        
-        github_client, _, _, _, _ = get_github_instances()
-        
-        if not github_client.get_current_repository():
-            return {
-                "error": "No repository context set",
-                "message": "Use github_switch_repository first"
-            }
+        error, instances = validate_github_prerequisites(require_repo=True)
+        if error:
+            return error
+        github_client, _, _, _, _ = instances
         
         comment = github_client.add_comment(issue_number, body)
         
@@ -5482,19 +5522,10 @@ def github_analyze_issue(issue_number: int) -> Dict[str, Any]:
         Analysis results with search results and recommendations
     """
     try:
-        if not GITHUB_AVAILABLE:
-            return {
-                "error": "GitHub integration not available",
-                "message": "Install with: pip install PyGithub GitPython"
-            }
-        
-        github_client, _, _, workflows, _ = get_github_instances()
-        
-        if not github_client.get_current_repository():
-            return {
-                "error": "No repository context set",
-                "message": "Use github_switch_repository first"
-            }
+        error, instances = validate_github_prerequisites(require_repo=True)
+        if error:
+            return error
+        github_client, _, _, workflows, _ = instances
         
         # Run analysis workflow
         result = workflows.analyze_issue_workflow(issue_number)
@@ -5549,19 +5580,10 @@ def github_suggest_fix(issue_number: int) -> Dict[str, Any]:
         Fix suggestions and implementation plan
     """
     try:
-        if not GITHUB_AVAILABLE:
-            return {
-                "error": "GitHub integration not available",
-                "message": "Install with: pip install PyGithub GitPython"
-            }
-        
-        github_client, _, _, workflows, _ = get_github_instances()
-        
-        if not github_client.get_current_repository():
-            return {
-                "error": "No repository context set",
-                "message": "Use github_switch_repository first"
-            }
+        error, instances = validate_github_prerequisites(require_repo=True)
+        if error:
+            return error
+        github_client, _, _, workflows, _ = instances
         
         # Run fix suggestion workflow
         result = workflows.suggest_fix_workflow(issue_number)
@@ -5609,19 +5631,10 @@ def github_create_pull_request(title: str, body: str, head: str, base: str = "ma
         Pull request information
     """
     try:
-        if not GITHUB_AVAILABLE:
-            return {
-                "error": "GitHub integration not available",
-                "message": "Install with: pip install PyGithub GitPython"
-            }
-        
-        github_client, _, _, _, _ = get_github_instances()
-        
-        if not github_client.get_current_repository():
-            return {
-                "error": "No repository context set",
-                "message": "Use github_switch_repository first"
-            }
+        error, instances = validate_github_prerequisites(require_repo=True)
+        if error:
+            return error
+        github_client, _, _, _, _ = instances
         
         # Create pull request
         pr = github_client.create_pull_request(
@@ -5677,19 +5690,10 @@ def github_resolve_issue(issue_number: int, dry_run: bool = True) -> Dict[str, A
         Resolution workflow results
     """
     try:
-        if not GITHUB_AVAILABLE:
-            return {
-                "error": "GitHub integration not available",
-                "message": "Install with: pip install PyGithub GitPython"
-            }
-        
-        github_client, _, _, workflows = get_github_instances()
-        
-        if not github_client.get_current_repository():
-            return {
-                "error": "No repository context set",
-                "message": "Use github_switch_repository first"
-            }
+        error, instances = validate_github_prerequisites(require_repo=True)
+        if error:
+            return error
+        github_client, _, _, workflows, _ = instances
         
         # Run complete resolution workflow
         result = workflows.resolve_issue_workflow(issue_number, dry_run=dry_run)
@@ -5744,25 +5748,10 @@ def github_list_projects(owner: Optional[str] = None, limit: int = 20) -> Dict[s
         List of projects with details
     """
     try:
-        if not GITHUB_AVAILABLE:
-            return {
-                "error": "GitHub integration not available",
-                "message": "Install with: pip install PyGithub GitPython"
-            }
-        
-        if not PROJECTS_AVAILABLE:
-            return {
-                "error": "GitHub Projects integration not available",
-                "message": "Install with: pip install 'gql[aiohttp]'"
-            }
-        
-        github_client, _, _, _, projects_manager = get_github_instances()
-        
-        if not projects_manager:
-            return {
-                "error": "Projects manager not available",
-                "message": "Failed to initialize GitHub Projects manager"
-            }
+        error, instances = validate_github_prerequisites(require_projects=True)
+        if error:
+            return error
+        github_client, _, _, _, projects_manager = instances
         
         # Use current repo owner if not specified
         if not owner:
@@ -5818,25 +5807,10 @@ def github_create_project(title: str, body: Optional[str] = None, owner: Optiona
         Consider adding a custom field after creation if descriptions are needed.
     """
     try:
-        if not GITHUB_AVAILABLE:
-            return {
-                "error": "GitHub integration not available",
-                "message": "Install with: pip install PyGithub GitPython"
-            }
-        
-        if not PROJECTS_AVAILABLE:
-            return {
-                "error": "GitHub Projects integration not available", 
-                "message": "Install with: pip install 'gql[aiohttp]'"
-            }
-        
-        github_client, _, _, _, projects_manager = get_github_instances()
-        
-        if not projects_manager:
-            return {
-                "error": "Projects manager not available",
-                "message": "Failed to initialize GitHub Projects manager"
-            }
+        error, instances = validate_github_prerequisites(require_projects=True)
+        if error:
+            return error
+        github_client, _, _, _, projects_manager = instances
         
         # Use current repo owner if not specified
         if not owner:
@@ -5893,25 +5867,10 @@ def github_get_project(number: int, owner: Optional[str] = None) -> Dict[str, An
         Project details including fields and item counts
     """
     try:
-        if not GITHUB_AVAILABLE:
-            return {
-                "error": "GitHub integration not available",
-                "message": "Install with: pip install PyGithub GitPython"
-            }
-        
-        if not PROJECTS_AVAILABLE:
-            return {
-                "error": "GitHub Projects integration not available",
-                "message": "Install with: pip install 'gql[aiohttp]'"
-            }
-        
-        github_client, _, _, _, projects_manager = get_github_instances()
-        
-        if not projects_manager:
-            return {
-                "error": "Projects manager not available",
-                "message": "Failed to initialize GitHub Projects manager"
-            }
+        error, instances = validate_github_prerequisites(require_projects=True)
+        if error:
+            return error
+        github_client, _, _, _, projects_manager = instances
         
         # Use current repo owner if not specified
         if not owner:
@@ -5972,32 +5931,12 @@ def github_add_project_item(project_id: str, issue_number: int) -> Dict[str, Any
         Added item information
     """
     try:
-        if not GITHUB_AVAILABLE:
-            return {
-                "error": "GitHub integration not available",
-                "message": "Install with: pip install PyGithub GitPython"
-            }
-        
-        if not PROJECTS_AVAILABLE:
-            return {
-                "error": "GitHub Projects integration not available",
-                "message": "Install with: pip install 'gql[aiohttp]'"
-            }
-        
-        github_client, _, _, _, projects_manager = get_github_instances()
-        
-        if not projects_manager:
-            return {
-                "error": "Projects manager not available",
-                "message": "Failed to initialize GitHub Projects manager"
-            }
+        error, instances = validate_github_prerequisites(require_projects=True, require_repo=True)
+        if error:
+            return error
+        github_client, _, _, _, projects_manager = instances
         
         current_repo = github_client.get_current_repository()
-        if not current_repo:
-            return {
-                "error": "No repository context set",
-                "message": "Use github_switch_repository first"
-            }
         
         # Get the issue/PR to add
         try:
@@ -6056,25 +5995,10 @@ def github_update_project_item(project_id: str, item_id: str, field_id: str, val
         Update confirmation
     """
     try:
-        if not GITHUB_AVAILABLE:
-            return {
-                "error": "GitHub integration not available",
-                "message": "Install with: pip install PyGithub GitPython"
-            }
-        
-        if not PROJECTS_AVAILABLE:
-            return {
-                "error": "GitHub Projects integration not available",
-                "message": "Install with: pip install 'gql[aiohttp]'"
-            }
-        
-        github_client, _, _, _, projects_manager = get_github_instances()
-        
-        if not projects_manager:
-            return {
-                "error": "Projects manager not available",
-                "message": "Failed to initialize GitHub Projects manager"
-            }
+        error, instances = validate_github_prerequisites(require_projects=True)
+        if error:
+            return error
+        github_client, _, _, _, projects_manager = instances
         
         # Update the field
         result = run_async_in_thread(
@@ -6112,25 +6036,10 @@ def github_create_project_field(project_id: str, name: str, data_type: str,
         Created field information
     """
     try:
-        if not GITHUB_AVAILABLE:
-            return {
-                "error": "GitHub integration not available",
-                "message": "Install with: pip install PyGithub GitPython"
-            }
-        
-        if not PROJECTS_AVAILABLE:
-            return {
-                "error": "GitHub Projects integration not available",
-                "message": "Install with: pip install 'gql[aiohttp]'"
-            }
-        
-        github_client, _, _, _, projects_manager = get_github_instances()
-        
-        if not projects_manager:
-            return {
-                "error": "Projects manager not available",
-                "message": "Failed to initialize GitHub Projects manager"
-            }
+        error, instances = validate_github_prerequisites(require_projects=True)
+        if error:
+            return error
+        github_client, _, _, _, projects_manager = instances
         
         # Create the field
         field = run_async_in_thread(
@@ -6171,25 +6080,10 @@ def github_create_project_from_template(title: str, template: str, body: Optiona
         Created project with configured fields
     """
     try:
-        if not GITHUB_AVAILABLE:
-            return {
-                "error": "GitHub integration not available",
-                "message": "Install with: pip install PyGithub GitPython"
-            }
-        
-        if not PROJECTS_AVAILABLE:
-            return {
-                "error": "GitHub Projects integration not available",
-                "message": "Install with: pip install 'gql[aiohttp]'"
-            }
-        
-        github_client, _, _, _, projects_manager = get_github_instances()
-        
-        if not projects_manager:
-            return {
-                "error": "Projects manager not available",
-                "message": "Failed to initialize GitHub Projects manager"
-            }
+        error, instances = validate_github_prerequisites(require_projects=True)
+        if error:
+            return error
+        github_client, _, _, _, projects_manager = instances
         
         # Use current repo owner if not specified
         if not owner:
@@ -6248,25 +6142,10 @@ def github_get_project_status(project_id: str) -> Dict[str, Any]:
         Project status dashboard with metrics
     """
     try:
-        if not GITHUB_AVAILABLE:
-            return {
-                "error": "GitHub integration not available",
-                "message": "Install with: pip install PyGithub GitPython"
-            }
-        
-        if not PROJECTS_AVAILABLE:
-            return {
-                "error": "GitHub Projects integration not available",
-                "message": "Install with: pip install 'gql[aiohttp]'"
-            }
-        
-        github_client, _, _, _, projects_manager = get_github_instances()
-        
-        if not projects_manager:
-            return {
-                "error": "Projects manager not available",
-                "message": "Failed to initialize GitHub Projects manager"
-            }
+        error, instances = validate_github_prerequisites(require_projects=True)
+        if error:
+            return error
+        github_client, _, _, _, projects_manager = instances
         
         # Get detailed project status via GraphQL
         # Enhanced query for project status
@@ -6397,21 +6276,13 @@ def github_delete_project(project_id: str) -> Dict[str, Any]:
         Deletion status with project details
     """
     try:
-        if not GITHUB_AVAILABLE:
-            return {
-                "error": "GitHub integration not available",
-                "message": "Install with: pip install PyGithub GitPython"
-            }
+        error, instances = validate_github_prerequisites(require_projects=True)
+        if error:
+            return error
+        github_client, _, _, _, projects_manager = instances
         
-        if not PROJECTS_AVAILABLE:
-            return {
-                "error": "GitHub Projects integration not available",
-                "message": "Install with: pip install 'gql[aiohttp]'"
-            }
-        
-        github_client, _, _, _, projects_manager = get_github_instances()
-        
-        if not projects_manager:
+        # Validate project ID format
+        if not project_id.startswith("PVT_"):
             return {
                 "error": "Projects manager not available",
                 "message": "Failed to initialize GitHub Projects manager"
@@ -6458,34 +6329,12 @@ def github_smart_add_project_item(project_id: str, issue_number: int) -> Dict[st
         Item details with applied field assignments
     """
     try:
-        if not GITHUB_AVAILABLE:
-            return {
-                "error": "GitHub integration not available",
-                "message": "Install with: pip install PyGithub GitPython"
-            }
+        error, instances = validate_github_prerequisites(require_projects=True, require_repo=True)
+        if error:
+            return error
+        github_client, _, _, _, projects_manager = instances
         
-        if not PROJECTS_AVAILABLE:
-            return {
-                "error": "GitHub Projects integration not available",
-                "message": "Install with: pip install 'gql[aiohttp]'"
-            }
-        
-        github_client, _, _, _, projects_manager = get_github_instances()
-        
-        if not projects_manager:
-            return {
-                "error": "Projects manager not available",
-                "message": "Failed to initialize GitHub Projects manager"
-            }
-        
-        # Get current repository from GitHub client
-        if not hasattr(github_client, '_current_repo') or not github_client._current_repo:
-            return {
-                "error": "No repository selected",
-                "message": "Use github_switch_repository first"
-            }
-        
-        current_repo = github_client._current_repo
+        current_repo = github_client.get_current_repository()
         
         # Execute smart add with async handling
         result = run_async_in_thread(

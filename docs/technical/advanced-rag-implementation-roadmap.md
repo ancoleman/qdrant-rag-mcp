@@ -50,6 +50,7 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
   - ✅ Enhanced error handling and validation
 
 ### In Progress
+- 🚧 **GitHub Sub-Issues Support (v0.3.4.post4)** - Hierarchical task management
 
 ### Upcoming
 - 📋 Adaptive Search Intelligence - v0.3.5 (Smart query understanding)
@@ -59,7 +60,7 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 
 ## 📊 Current State vs. Target State
 
-### Current State (Updated with v0.3.4.post2)
+### Current State (Updated with v0.3.4.post3)
 - **Token Usage**: ~1,800-3,000 tokens per query (70-83% reduction with optimized GitHub issue analysis)
 - **Context Efficiency**: 0.9-1.5% of context window per query (improved with MCP tool usage)
 - **Search Precision**: +75% over baseline (specialized embeddings + enhanced ranking + hybrid search)
@@ -418,6 +419,40 @@ These provide the enhanced search capabilities needed to build on the GitHub int
   - Better project discovery with list operation
   - Consistent GraphQL integration pattern
 - **Risk**: Low - builds on existing GraphQL infrastructure
+
+#### v0.3.4.post3: Code Refactoring - DRY Improvements (1 day)
+- **Status**: ✅ Completed (2025-06-11)
+- **Focus**: Eliminate code duplication across GitHub integration functions
+- **Problem**: ~500 lines of duplicated validation and async handling code
+- **Delivered**:
+  - ✅ `run_async_in_thread` helper for async coroutine execution
+  - ✅ Validation helper functions for GitHub prerequisites
+  - ✅ `validate_github_prerequisites` comprehensive validation helper
+  - ✅ Refactored all 20 GitHub MCP functions
+  - ✅ Fixed event loop conflicts in multiple functions
+- **Benefits**: 
+  - Better maintainability and consistency
+  - DRY principle applied throughout
+  - Thread-safe async execution
+  - Easier to add new GitHub features
+- **Risk**: Low - refactoring with no functional changes
+
+#### v0.3.4.post4: GitHub Sub-Issues Support (2-3 days)
+- **Status**: 📋 Planned
+- **Focus**: Hierarchical task management with GitHub sub-issues
+- **Problem**: Need to break down complex tasks into manageable sub-tasks
+- **Deliverables**:
+  - REST API integration for sub-issues (create, list, remove, reorder)
+  - 5 new MCP tools for sub-issue management
+  - Auto-add sub-issues to Projects V2 with inheritance
+  - Progress rollup from sub-issues to parent
+  - Bulk sub-issue creation from checklists
+- **Benefits**: 
+  - 40% faster task breakdown and organization
+  - Complete hierarchy view in Projects V2
+  - Automatic progress tracking
+  - Support for complex multi-level tasks
+- **Risk**: Low - uses stable REST API endpoints
 
 #### v0.3.5: Adaptive Search Intelligence (5-6 days)
 - **Status**: 📋 Planned

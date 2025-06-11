@@ -7,6 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Critical MCP Server Startup Issue**: Fixed tuple unpacking error in `get_github_instances()` calls that prevented the MCP server from starting after adding GitHub Projects support. Updated all calls to properly unpack 5 return values instead of 4.
+
+## [0.3.4] - 2025-06-10
+
+### 🚀 Major Feature: GitHub Projects V2 Integration
+
+Added comprehensive GitHub Projects V2 support via GraphQL API, enabling project management workflows with roadmap tracking, dashboards, and team collaboration directly through Claude Code.
+
+### Added
+
+- **GitHubProjectsManager**: GraphQL adapter for Projects V2 API using gql library
+  - Adapter pattern integration preserving existing REST functionality
+  - Async GraphQL operations with proper error handling
+  - Owner ID caching for performance optimization
+  - Clean separation between REST and GraphQL operations
+  
+- **6 New GitHub Projects MCP Tools**:
+  - `github_create_project` - Create GitHub Projects V2 with custom fields and descriptions
+  - `github_get_project` - Get project details including fields and item counts
+  - `github_add_project_item` - Add issues or PRs to projects from current repository
+  - `github_update_project_item` - Update field values for project items
+  - `github_create_project_field` - Create custom fields (TEXT, NUMBER, DATE, SINGLE_SELECT)
+  - `github_get_project_status` - Dashboard view with progress metrics and completion rates
+  
+- **Dependency Management**:
+  - Added `gql[aiohttp]>=3.4.1` for GraphQL client support
+  - Added `aiohttp>=3.8.0` for async HTTP transport
+  - Graceful fallback when dependencies not installed
+  
+- **Project Status Metrics**:
+  - Issue statistics (open/closed counts)
+  - Pull request statistics (open/closed/merged counts)
+  - Automatic completion rate calculation
+  - Field listing with types and options
+  
+### Changed
+
+- **get_github_instances()** now returns 5 values (added projects_manager)
+- Updated all GitHub tool calls to handle new return signature
+- Enhanced error messages to guide dependency installation
+
+### Technical Details
+
+- **Architecture**: Clean adapter pattern extending existing GitHubClient
+- **Authentication**: Extracts token from PyGithub client for GraphQL
+- **Async Handling**: Proper event loop management for sync/async bridge
+- **GraphQL Queries**: Optimized queries with fragment reuse
+- **Node ID Support**: Handles GitHub's global node ID system
+
+### Migration Notes
+
+1. **Install Dependencies**: Run `pip install 'gql[aiohttp]>=3.4.1'`
+2. **Token Permissions**: Ensure PAT has `project` scope for Projects V2
+3. **Organization Projects**: GitHub Apps can only access org projects, not user projects
+
+### Use Cases
+
+- Move implementation roadmaps to GitHub Projects for visual tracking
+- Create dashboards showing feature completion progress
+- Enable team collaboration with assignments and due dates
+- Automate project updates when issues/PRs are completed
+- Generate progress reports and milestone tracking
+
 ## [0.3.3.post4] - 2025-06-10
 
 ### Fixed

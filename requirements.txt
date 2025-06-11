@@ -19,9 +19,13 @@ psutil>=5.9.0,<6.0.0  # System and process monitoring
 # MCP framework
 mcp>=1.8.1,<2.0.0  # Model Context Protocol SDK
 
-# GitHub integration (v0.3.0)
+# GitHub integration (v0.3.0+)
 pygithub>=2.6.1,<3.0.0  # GitHub API client
 gitpython>=3.1.44,<4.0.0  # Git operations
+
+# GitHub Projects V2 integration (v0.3.4)
+gql[aiohttp]>=3.4.1,<4.0.0  # GraphQL client for Projects V2 API
+aiohttp>=3.8.0,<4.0.0  # Async HTTP transport for GraphQL
 
 # Optional performance improvements for Python 3.12
 orjson>=3.10.18,<4.0.0  # Faster JSON parsing

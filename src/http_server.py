@@ -38,7 +38,11 @@ from qdrant_mcp_context_aware import (
     # GitHub integration functions (v0.3.0)
     github_list_repositories, github_switch_repository, github_fetch_issues,
     github_get_issue, github_create_issue, github_add_comment, github_analyze_issue, github_suggest_fix,
-    github_create_pull_request, github_resolve_issue
+    github_create_pull_request, github_resolve_issue,
+    # GitHub Projects V2 functions (v0.3.4)
+    github_create_project, github_get_project, github_add_project_item,
+    github_update_project_item, github_create_project_field, github_get_project_status,
+    github_smart_add_project_item
 )
 
 @asynccontextmanager
@@ -53,7 +57,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Qdrant RAG Server HTTP API", 
-    version="0.3.3",
+    version="0.3.4",
     lifespan=lifespan
 )
 
@@ -190,6 +194,38 @@ class GitHubCreatePullRequestRequest(BaseModel):
 class GitHubResolveIssueRequest(BaseModel):
     issue_number: int
     dry_run: Optional[bool] = True
+
+# GitHub Projects V2 request models (v0.3.4)
+class GitHubCreateProjectRequest(BaseModel):
+    owner: str
+    title: str
+    body: Optional[str] = None
+    template: Optional[str] = None
+
+class GitHubGetProjectRequest(BaseModel):
+    owner: str
+    number: int
+
+class GitHubAddProjectItemRequest(BaseModel):
+    project_id: str
+    issue_number: Optional[int] = None
+    pr_number: Optional[int] = None
+
+class GitHubUpdateProjectItemRequest(BaseModel):
+    project_id: str
+    item_id: str
+    field_id: str
+    value: Any
+
+class GitHubCreateProjectFieldRequest(BaseModel):
+    project_id: str
+    name: str
+    data_type: str
+    options: Optional[List[Dict[str, str]]] = None
+
+class GitHubGetProjectStatusRequest(BaseModel):
+    owner: str
+    number: int
 
 # Startup is now handled by lifespan context manager
 
@@ -654,6 +690,215 @@ async def github_health_endpoint():
             "github": github_health,
             "timestamp": result.get("timestamp")
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# GitHub Projects V2 Endpoints (v0.3.4)
+
+@app.post("/github/projects")
+async def github_create_project_endpoint(request: GitHubCreateProjectRequest):
+    """Create a new GitHub Project V2"""
+    try:
+        # Instead of calling the MCP tool, let's call the projects_manager directly
+        from qdrant_mcp_context_aware import get_github_instances, GITHUB_AVAILABLE, PROJECTS_AVAILABLE
+        
+        if not GITHUB_AVAILABLE:
+            raise HTTPException(status_code=503, detail="GitHub integration not available")
+        
+        if not PROJECTS_AVAILABLE:
+            raise HTTPException(status_code=503, detail="GitHub Projects integration not available")
+        
+        github_client, _, _, _, projects_manager = get_github_instances()
+        
+        if not projects_manager:
+            raise HTTPException(status_code=503, detail="Projects manager not available")
+        
+        # If template is specified, use the template function
+        if request.template:
+            project = await projects_manager.create_project_from_template(
+                owner=request.owner,
+                title=request.title,
+                template=request.template,
+                body=request.body
+            )
+        else:
+            # Regular project creation - call async method directly
+            project = await projects_manager.create_project(
+                owner=request.owner,
+                title=request.title,
+                body=request.body
+            )
+        
+        response = {
+            "success": True,
+            "project": {
+                "id": project["id"],
+                "number": project["number"],
+                "title": project["title"],
+                "description": None,
+                "url": project["url"],
+                "owner": request.owner,
+                "created_at": project["createdAt"]
+            }
+        }
+        
+        # Add a note if description was requested
+        if request.body:
+            response["note"] = "GitHub Projects V2 API doesn't support descriptions at creation time. Consider adding a custom field after creation."
+            
+        return response
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/github/projects/{owner}/{number}")
+async def github_get_project_endpoint(owner: str, number: int):
+    """Get GitHub Project V2 details"""
+    try:
+        from qdrant_mcp_context_aware import get_github_instances, GITHUB_AVAILABLE, PROJECTS_AVAILABLE
+        
+        if not GITHUB_AVAILABLE:
+            raise HTTPException(status_code=503, detail="GitHub integration not available")
+        
+        if not PROJECTS_AVAILABLE:
+            raise HTTPException(status_code=503, detail="GitHub Projects integration not available")
+        
+        github_client, _, _, _, projects_manager = get_github_instances()
+        
+        if not projects_manager:
+            raise HTTPException(status_code=503, detail="Projects manager not available")
+        
+        # Call async method directly
+        project = await projects_manager.get_project(owner, number)
+        
+        return {
+            "success": True,
+            "project": project
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/github/projects/items")
+async def github_add_project_item_endpoint(request: GitHubAddProjectItemRequest):
+    """Add an issue or PR to a GitHub Project"""
+    try:
+        # The MCP tool takes either issue_number or pr_number, not both
+        # If pr_number is provided, use it as issue_number (GitHub treats them the same)
+        issue_num = request.issue_number if request.issue_number else request.pr_number
+        
+        if not issue_num:
+            raise HTTPException(status_code=400, detail="Either issue_number or pr_number is required")
+            
+        result = github_add_project_item(
+            project_id=request.project_id,
+            issue_number=issue_num
+        )
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/github/projects/items/smart")
+async def github_smart_add_project_item_endpoint(request: GitHubAddProjectItemRequest):
+    """Add an issue to a project with intelligent field assignment"""
+    try:
+        # The MCP tool takes either issue_number or pr_number, not both
+        issue_num = request.issue_number if request.issue_number else request.pr_number
+        
+        if not issue_num:
+            raise HTTPException(status_code=400, detail="Either issue_number or pr_number is required")
+            
+        result = github_smart_add_project_item(
+            project_id=request.project_id,
+            issue_number=issue_num
+        )
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/github/projects/items")
+async def github_update_project_item_endpoint(request: GitHubUpdateProjectItemRequest):
+    """Update a field value for a project item"""
+    try:
+        result = github_update_project_item(
+            project_id=request.project_id,
+            item_id=request.item_id,
+            field_id=request.field_id,
+            value=request.value
+        )
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/github/projects/fields")
+async def github_create_project_field_endpoint(request: GitHubCreateProjectFieldRequest):
+    """Create a custom field in a GitHub Project"""
+    try:
+        result = github_create_project_field(
+            project_id=request.project_id,
+            name=request.name,
+            data_type=request.data_type,
+            options=request.options
+        )
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/github/projects/{owner}/{number}/status")
+async def github_get_project_status_endpoint(owner: str, number: int):
+    """Get GitHub Project V2 status with metrics"""
+    try:
+        # First get the project to retrieve its ID
+        from qdrant_mcp_context_aware import get_github_instances, GITHUB_AVAILABLE, PROJECTS_AVAILABLE
+        
+        if not GITHUB_AVAILABLE:
+            raise HTTPException(status_code=503, detail="GitHub integration not available")
+        
+        if not PROJECTS_AVAILABLE:
+            raise HTTPException(status_code=503, detail="GitHub Projects integration not available")
+        
+        github_client, _, _, _, projects_manager = get_github_instances()
+        
+        if not projects_manager:
+            raise HTTPException(status_code=503, detail="Projects manager not available")
+        
+        # Get project details first to get the ID
+        project = await projects_manager.get_project(owner, number)
+        project_id = project["id"]
+        
+        # Now call the status function with the project ID
+        result = github_get_project_status(project_id=project_id)
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

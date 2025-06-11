@@ -19,6 +19,15 @@ except ImportError:
     GitOperations = None
     get_git_operations = None
 
+# Optional GitHub Projects V2 support
+try:
+    from .projects_manager import GitHubProjectsManager, get_projects_manager
+    PROJECTS_AVAILABLE = True
+except ImportError:
+    PROJECTS_AVAILABLE = False
+    GitHubProjectsManager = None
+    get_projects_manager = None
+
 __all__ = [
     "GitHubClient",
     "get_github_client",
@@ -30,5 +39,8 @@ __all__ = [
     "get_github_workflows",
     "GitOperations",
     "get_git_operations",
-    "GIT_OPS_AVAILABLE"
+    "GIT_OPS_AVAILABLE",
+    "GitHubProjectsManager",
+    "get_projects_manager", 
+    "PROJECTS_AVAILABLE"
 ]

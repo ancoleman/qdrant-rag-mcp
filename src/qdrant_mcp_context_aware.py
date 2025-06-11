@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     from . import __version__
 except ImportError:
-    __version__ = "0.3.3.post4"  # Fallback version
+    __version__ = "0.3.4"  # Fallback version
 
 # Load environment variables from the MCP server directory
 from dotenv import load_dotenv
@@ -4713,9 +4713,11 @@ try:
     from github_integration.issue_analyzer import get_issue_analyzer
     from github_integration.code_generator import get_code_generator
     from github_integration.workflows import get_github_workflows
+    from github_integration import PROJECTS_AVAILABLE, get_projects_manager
     GITHUB_AVAILABLE = True
 except ImportError:
     GITHUB_AVAILABLE = False
+    PROJECTS_AVAILABLE = False
     console_logger.warning("GitHub integration not available. Install with: pip install PyGithub GitPython")
 
 
@@ -4724,11 +4726,12 @@ _github_client = None
 _issue_analyzer = None
 _code_generator = None
 _github_workflows = None
+_projects_manager = None
 
 
 def get_github_instances():
     """Get or create GitHub service instances."""
-    global _github_client, _issue_analyzer, _code_generator, _github_workflows
+    global _github_client, _issue_analyzer, _code_generator, _github_workflows, _projects_manager
     
     if not GITHUB_AVAILABLE:
         raise ImportError("GitHub integration not available. Install with: pip install PyGithub GitPython")
@@ -4761,7 +4764,15 @@ def get_github_instances():
         # Update configuration on existing instance
         _github_workflows = get_github_workflows(_github_client, _issue_analyzer, _code_generator, github_config)
     
-    return _github_client, _issue_analyzer, _code_generator, _github_workflows
+    # Initialize Projects manager if available
+    if PROJECTS_AVAILABLE and _projects_manager is None:
+        try:
+            _projects_manager = get_projects_manager(_github_client)
+        except Exception as e:
+            console_logger.warning(f"Failed to initialize GitHub Projects manager: {e}")
+            _projects_manager = None
+    
+    return _github_client, _issue_analyzer, _code_generator, _github_workflows, _projects_manager
 
 
 # GitHub MCP Tools
@@ -4783,7 +4794,7 @@ def github_list_repositories(owner: Optional[str] = None) -> Dict[str, Any]:
                 "message": "Install with: pip install PyGithub GitPython"
             }
         
-        github_client, _, _, _ = get_github_instances()
+        github_client, _, _, _, _ = get_github_instances()
         repositories = github_client.list_repositories(owner)
         
         console_logger.info(f"Listed {len(repositories)} repositories for {owner or 'authenticated user'}")
@@ -4819,7 +4830,7 @@ def github_switch_repository(owner: str, repo: str) -> Dict[str, Any]:
                 "message": "Install with: pip install PyGithub GitPython"
             }
         
-        github_client, _, _, _ = get_github_instances()
+        github_client, _, _, _, _ = get_github_instances()
         repository = github_client.set_repository(owner, repo)
         
         # Optional: Auto-index repository if configured
@@ -4890,7 +4901,7 @@ def github_fetch_issues(state: str = "open", labels: Optional[List[str]] = None,
                 "message": "Install with: pip install PyGithub GitPython"
             }
         
-        github_client, _, _, _ = get_github_instances()
+        github_client, _, _, _, _ = get_github_instances()
         
         if not github_client.get_current_repository():
             return {
@@ -4950,7 +4961,7 @@ def github_get_issue(issue_number: int) -> Dict[str, Any]:
                 "message": "Install with: pip install PyGithub GitPython"
             }
         
-        github_client, _, _, _ = get_github_instances()
+        github_client, _, _, _, _ = get_github_instances()
         
         if not github_client.get_current_repository():
             return {
@@ -5009,7 +5020,7 @@ def github_create_issue(title: str, body: str = "", labels: Optional[List[str]] 
                 "message": "Install with: pip install PyGithub GitPython"
             }
         
-        github_client, _, _, _ = get_github_instances()
+        github_client, _, _, _, _ = get_github_instances()
         
         if not github_client.get_current_repository():
             return {
@@ -5068,7 +5079,7 @@ def github_add_comment(issue_number: int, body: str) -> Dict[str, Any]:
                 "message": "Install with: pip install PyGithub GitPython"
             }
         
-        github_client, _, _, _ = get_github_instances()
+        github_client, _, _, _, _ = get_github_instances()
         
         if not github_client.get_current_repository():
             return {
@@ -5124,7 +5135,7 @@ def github_analyze_issue(issue_number: int) -> Dict[str, Any]:
                 "message": "Install with: pip install PyGithub GitPython"
             }
         
-        github_client, _, _, workflows = get_github_instances()
+        github_client, _, _, workflows, _ = get_github_instances()
         
         if not github_client.get_current_repository():
             return {
@@ -5178,7 +5189,7 @@ def github_suggest_fix(issue_number: int) -> Dict[str, Any]:
                 "message": "Install with: pip install PyGithub GitPython"
             }
         
-        github_client, _, _, workflows = get_github_instances()
+        github_client, _, _, workflows, _ = get_github_instances()
         
         if not github_client.get_current_repository():
             return {
@@ -5238,7 +5249,7 @@ def github_create_pull_request(title: str, body: str, head: str, base: str = "ma
                 "message": "Install with: pip install PyGithub GitPython"
             }
         
-        github_client, _, _, _ = get_github_instances()
+        github_client, _, _, _, _ = get_github_instances()
         
         if not github_client.get_current_repository():
             return {
@@ -5340,6 +5351,801 @@ def github_resolve_issue(issue_number: int, dry_run: bool = True) -> Dict[str, A
                 "dry_run": dry_run
             }
         )
+        return {"error": error_msg}
+
+
+# GitHub Projects V2 tools (v0.3.4)
+@mcp.tool()
+def github_create_project(title: str, body: Optional[str] = None, owner: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Create a new GitHub Project V2.
+    
+    Args:
+        title: Project title
+        body: Optional project description (Note: GitHub API currently doesn't support descriptions at creation)
+        owner: Repository owner (defaults to current repo owner)
+        
+    Returns:
+        Project information including ID and URL
+        
+    Note:
+        The body parameter is accepted but not used due to GitHub API limitations.
+        Consider adding a custom field after creation if descriptions are needed.
+    """
+    try:
+        if not GITHUB_AVAILABLE:
+            return {
+                "error": "GitHub integration not available",
+                "message": "Install with: pip install PyGithub GitPython"
+            }
+        
+        if not PROJECTS_AVAILABLE:
+            return {
+                "error": "GitHub Projects integration not available", 
+                "message": "Install with: pip install 'gql[aiohttp]'"
+            }
+        
+        github_client, _, _, _, projects_manager = get_github_instances()
+        
+        if not projects_manager:
+            return {
+                "error": "Projects manager not available",
+                "message": "Failed to initialize GitHub Projects manager"
+            }
+        
+        # Use current repo owner if not specified
+        if not owner:
+            current_repo = github_client.get_current_repository()
+            if not current_repo:
+                return {
+                    "error": "No repository context set", 
+                    "message": "Use github_switch_repository first or specify owner"
+                }
+            owner = current_repo.owner.login
+        
+        # Create project (async function needs to be run in event loop)
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        project = loop.run_until_complete(
+            projects_manager.create_project(owner, title, body)
+        )
+        
+        console_logger.info(f"Created GitHub project '{title}' for {owner}")
+        
+        response = {
+            "success": True,
+            "project": {
+                "id": project["id"],
+                "number": project["number"],
+                "title": project["title"],
+                "description": None,  # GitHub Projects V2 doesn't support descriptions at creation
+                "url": project["url"],
+                "owner": owner,
+                "created_at": project["createdAt"]
+            }
+        }
+        
+        # Add note if description was requested
+        if body:
+            response["note"] = "GitHub Projects V2 API doesn't support descriptions at creation time. Consider adding a custom field after creation."
+            
+        return response
+        
+    except Exception as e:
+        error_msg = f"Failed to create project: {str(e)}"
+        console_logger.error(error_msg)
+        return {"error": error_msg}
+
+
+@mcp.tool()
+def github_get_project(number: int, owner: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Get GitHub Project V2 details.
+    
+    Args:
+        number: Project number
+        owner: Repository owner (defaults to current repo owner)
+        
+    Returns:
+        Project details including fields and item counts
+    """
+    try:
+        if not GITHUB_AVAILABLE:
+            return {
+                "error": "GitHub integration not available",
+                "message": "Install with: pip install PyGithub GitPython"
+            }
+        
+        if not PROJECTS_AVAILABLE:
+            return {
+                "error": "GitHub Projects integration not available",
+                "message": "Install with: pip install 'gql[aiohttp]'"
+            }
+        
+        github_client, _, _, _, projects_manager = get_github_instances()
+        
+        if not projects_manager:
+            return {
+                "error": "Projects manager not available",
+                "message": "Failed to initialize GitHub Projects manager"
+            }
+        
+        # Use current repo owner if not specified
+        if not owner:
+            current_repo = github_client.get_current_repository()
+            if not current_repo:
+                return {
+                    "error": "No repository context set",
+                    "message": "Use github_switch_repository first or specify owner"
+                }
+            owner = current_repo.owner.login
+        
+        # Get project details
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        project = loop.run_until_complete(
+            projects_manager.get_project(owner, number)
+        )
+        
+        console_logger.info(f"Retrieved project #{number} for {owner}")
+        
+        return {
+            "success": True,
+            "project": {
+                "id": project["id"],
+                "number": project["number"],
+                "title": project["title"],
+                "description": project.get("shortDescription", ""),
+                "url": project["url"],
+                "item_count": project["items"]["totalCount"],
+                "fields": [
+                    {
+                        "id": field["id"],
+                        "name": field["name"],
+                        "type": field["dataType"],
+                        "options": field.get("options", [])
+                    }
+                    for field in project["fields"]["nodes"]
+                ],
+                "created_at": project["createdAt"],
+                "updated_at": project["updatedAt"]
+            }
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to get project: {str(e)}"
+        console_logger.error(error_msg)
+        return {"error": error_msg}
+
+
+@mcp.tool()
+def github_add_project_item(project_id: str, issue_number: int) -> Dict[str, Any]:
+    """
+    Add an issue or PR to a GitHub Project V2.
+    
+    Args:
+        project_id: Project node ID
+        issue_number: Issue or PR number from current repository
+        
+    Returns:
+        Added item information
+    """
+    try:
+        if not GITHUB_AVAILABLE:
+            return {
+                "error": "GitHub integration not available",
+                "message": "Install with: pip install PyGithub GitPython"
+            }
+        
+        if not PROJECTS_AVAILABLE:
+            return {
+                "error": "GitHub Projects integration not available",
+                "message": "Install with: pip install 'gql[aiohttp]'"
+            }
+        
+        github_client, _, _, _, projects_manager = get_github_instances()
+        
+        if not projects_manager:
+            return {
+                "error": "Projects manager not available",
+                "message": "Failed to initialize GitHub Projects manager"
+            }
+        
+        current_repo = github_client.get_current_repository()
+        if not current_repo:
+            return {
+                "error": "No repository context set",
+                "message": "Use github_switch_repository first"
+            }
+        
+        # Get the issue/PR to add
+        try:
+            issue = current_repo.get_issue(issue_number)
+            content_id = issue.node_id
+        except Exception:
+            try:
+                pr = current_repo.get_pull(issue_number)
+                content_id = pr.node_id
+            except Exception:
+                return {
+                    "error": f"Issue/PR #{issue_number} not found",
+                    "message": "Check the issue/PR number"
+                }
+        
+        # Add to project
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # We're in an async context (like FastAPI), use thread to avoid event loop issues
+                import concurrent.futures
+                
+                def run_async():
+                    new_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(new_loop)
+                    try:
+                        return new_loop.run_until_complete(
+                            projects_manager.add_item_to_project(project_id, content_id)
+                        )
+                    finally:
+                        new_loop.close()
+                
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(run_async)
+                    item = future.result()
+            else:
+                item = loop.run_until_complete(
+                    projects_manager.add_item_to_project(project_id, content_id)
+                )
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            item = loop.run_until_complete(
+                projects_manager.add_item_to_project(project_id, content_id)
+            )
+        
+        console_logger.info(f"Added {item['content']['title']} to project")
+        
+        return {
+            "success": True,
+            "item": {
+                "id": item["id"],
+                "type": item["type"],
+                "content": {
+                    "id": item["content"]["id"],
+                    "number": item["content"]["number"],
+                    "title": item["content"]["title"],
+                    "url": item["content"]["url"]
+                },
+                "created_at": item["createdAt"]
+            }
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to add item to project: {str(e)}"
+        console_logger.error(error_msg)
+        return {"error": error_msg}
+
+
+@mcp.tool()
+def github_update_project_item(project_id: str, item_id: str, field_id: str, value: str) -> Dict[str, Any]:
+    """
+    Update a field value for a project item.
+    
+    Args:
+        project_id: Project node ID
+        item_id: Item node ID
+        field_id: Field node ID
+        value: New field value
+        
+    Returns:
+        Update confirmation
+    """
+    try:
+        if not GITHUB_AVAILABLE:
+            return {
+                "error": "GitHub integration not available",
+                "message": "Install with: pip install PyGithub GitPython"
+            }
+        
+        if not PROJECTS_AVAILABLE:
+            return {
+                "error": "GitHub Projects integration not available",
+                "message": "Install with: pip install 'gql[aiohttp]'"
+            }
+        
+        github_client, _, _, _, projects_manager = get_github_instances()
+        
+        if not projects_manager:
+            return {
+                "error": "Projects manager not available",
+                "message": "Failed to initialize GitHub Projects manager"
+            }
+        
+        # Update the field
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        result = loop.run_until_complete(
+            projects_manager.update_item_field(project_id, item_id, field_id, value)
+        )
+        
+        console_logger.info(f"Updated project item field {field_id} to '{value}'")
+        
+        return {
+            "success": True,
+            "item_id": result["id"],
+            "field_id": field_id,
+            "value": value
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to update item field: {str(e)}"
+        console_logger.error(error_msg)
+        return {"error": error_msg}
+
+
+@mcp.tool()
+def github_create_project_field(project_id: str, name: str, data_type: str, 
+                               options: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
+    """
+    Create a custom field in a GitHub Project V2.
+    
+    Args:
+        project_id: Project node ID
+        name: Field name
+        data_type: Field type (TEXT, NUMBER, DATE, SINGLE_SELECT)
+        options: For SINGLE_SELECT, list of {name, color} options
+        
+    Returns:
+        Created field information
+    """
+    try:
+        if not GITHUB_AVAILABLE:
+            return {
+                "error": "GitHub integration not available",
+                "message": "Install with: pip install PyGithub GitPython"
+            }
+        
+        if not PROJECTS_AVAILABLE:
+            return {
+                "error": "GitHub Projects integration not available",
+                "message": "Install with: pip install 'gql[aiohttp]'"
+            }
+        
+        github_client, _, _, _, projects_manager = get_github_instances()
+        
+        if not projects_manager:
+            return {
+                "error": "Projects manager not available",
+                "message": "Failed to initialize GitHub Projects manager"
+            }
+        
+        # Create the field
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # We're in an async context (like FastAPI), we need to handle this differently
+                import concurrent.futures
+                import threading
+                
+                # Run in a separate thread to avoid event loop issues
+                def run_async():
+                    new_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(new_loop)
+                    try:
+                        return new_loop.run_until_complete(
+                            projects_manager.create_field(project_id, name, data_type, options)
+                        )
+                    finally:
+                        new_loop.close()
+                
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(run_async)
+                    field = future.result()
+            else:
+                field = loop.run_until_complete(
+                    projects_manager.create_field(project_id, name, data_type, options)
+                )
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            field = loop.run_until_complete(
+                projects_manager.create_field(project_id, name, data_type, options)
+            )
+        
+        console_logger.info(f"Created project field '{name}' with type {data_type}")
+        
+        return {
+            "success": True,
+            "field": {
+                "id": field["id"],
+                "name": field["name"],
+                "type": field["dataType"],
+                "options": field.get("options", [])
+            }
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to create project field: {str(e)}"
+        console_logger.error(error_msg)
+        return {"error": error_msg}
+
+
+@mcp.tool()
+def github_create_project_from_template(title: str, template: str, body: Optional[str] = None, 
+                                        owner: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Create a GitHub Project V2 from a predefined template.
+    
+    Args:
+        title: Project title
+        template: Template name ('roadmap', 'bugs', 'features')
+        body: Optional project description
+        owner: Repository owner (defaults to current repo owner)
+        
+    Returns:
+        Created project with configured fields
+    """
+    try:
+        if not GITHUB_AVAILABLE:
+            return {
+                "error": "GitHub integration not available",
+                "message": "Install with: pip install PyGithub GitPython"
+            }
+        
+        if not PROJECTS_AVAILABLE:
+            return {
+                "error": "GitHub Projects integration not available",
+                "message": "Install with: pip install 'gql[aiohttp]'"
+            }
+        
+        github_client, _, _, _, projects_manager = get_github_instances()
+        
+        if not projects_manager:
+            return {
+                "error": "Projects manager not available",
+                "message": "Failed to initialize GitHub Projects manager"
+            }
+        
+        # Use current repo owner if not specified
+        if not owner:
+            current_repo = github_client.get_current_repository()
+            if not current_repo:
+                return {
+                    "error": "No repository context set",
+                    "message": "Use github_switch_repository first or specify owner"
+                }
+            owner = current_repo.owner.login
+        
+        # Create project from template
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        project = loop.run_until_complete(
+            projects_manager.create_project_from_template(owner, title, template, body)
+        )
+        
+        console_logger.info(f"Created project '{title}' from template '{template}'")
+        
+        return {
+            "success": True,
+            "project": {
+                "id": project["id"],
+                "number": project["number"],
+                "title": project["title"],
+                "description": project.get("shortDescription", ""),
+                "url": project["url"],
+                "owner": owner,
+                "template": template,
+                "fields": [
+                    {
+                        "id": field["id"],
+                        "name": field["name"],
+                        "type": field["dataType"],
+                        "options": field.get("options", [])
+                    }
+                    for field in project.get("fields", [])
+                ]
+            }
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to create project from template: {str(e)}"
+        console_logger.error(error_msg)
+        return {"error": error_msg}
+
+
+@mcp.tool()
+def github_get_project_status(project_id: str) -> Dict[str, Any]:
+    """
+    Get project status overview with item counts and progress.
+    
+    Args:
+        project_id: Project node ID
+        
+    Returns:
+        Project status dashboard with metrics
+    """
+    try:
+        if not GITHUB_AVAILABLE:
+            return {
+                "error": "GitHub integration not available",
+                "message": "Install with: pip install PyGithub GitPython"
+            }
+        
+        if not PROJECTS_AVAILABLE:
+            return {
+                "error": "GitHub Projects integration not available",
+                "message": "Install with: pip install 'gql[aiohttp]'"
+            }
+        
+        github_client, _, _, _, projects_manager = get_github_instances()
+        
+        if not projects_manager:
+            return {
+                "error": "Projects manager not available",
+                "message": "Failed to initialize GitHub Projects manager"
+            }
+        
+        # Get detailed project status via GraphQL
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        # Enhanced query for project status
+        status_query = """
+        query($projectId: ID!) {
+            node(id: $projectId) {
+                ... on ProjectV2 {
+                    id
+                    number
+                    title
+                    shortDescription
+                    url
+                    items(first: 100) {
+                        totalCount
+                        nodes {
+                            type
+                            content {
+                                ... on Issue {
+                                    state
+                                    closed
+                                }
+                                ... on PullRequest {
+                                    state
+                                    merged
+                                    closed
+                                }
+                            }
+                        }
+                    }
+                    fields(first: 20) {
+                        nodes {
+                            ... on ProjectV2Field {
+                                id
+                                name
+                                dataType
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        """
+        
+        # Handle async execution
+        try:
+            if loop.is_running():
+                # We're in an async context (like FastAPI), use thread to avoid event loop issues
+                import concurrent.futures
+                
+                def run_async():
+                    new_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(new_loop)
+                    try:
+                        return new_loop.run_until_complete(
+                            projects_manager._execute_query(status_query, {"projectId": project_id})
+                        )
+                    finally:
+                        new_loop.close()
+                
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(run_async)
+                    data = future.result()
+            else:
+                data = loop.run_until_complete(
+                    projects_manager._execute_query(status_query, {"projectId": project_id})
+                )
+        except RuntimeError:
+            # No loop, create one
+            data = loop.run_until_complete(
+                projects_manager._execute_query(status_query, {"projectId": project_id})
+            )
+        
+        project = data["node"]
+        if not project:
+            return {"error": "Project not found"}
+        
+        # Calculate statistics
+        items = project["items"]["nodes"]
+        total_items = project["items"]["totalCount"]
+        
+        issue_stats = {"open": 0, "closed": 0}
+        pr_stats = {"open": 0, "closed": 0, "merged": 0}
+        
+        for item in items:
+            if item["type"] == "ISSUE":
+                if item["content"]["closed"]:
+                    issue_stats["closed"] += 1
+                else:
+                    issue_stats["open"] += 1
+            elif item["type"] == "PULL_REQUEST":
+                if item["content"]["merged"]:
+                    pr_stats["merged"] += 1
+                elif item["content"]["closed"]:
+                    pr_stats["closed"] += 1
+                else:
+                    pr_stats["open"] += 1
+        
+        console_logger.info(f"Retrieved status for project #{project['number']}")
+        
+        return {
+            "success": True,
+            "project": {
+                "id": project["id"],
+                "number": project["number"],
+                "title": project["title"],
+                "description": project.get("shortDescription", ""),
+                "url": project["url"]
+            },
+            "statistics": {
+                "total_items": total_items,
+                "issues": issue_stats,
+                "pull_requests": pr_stats,
+                "completion_rate": round(
+                    (issue_stats["closed"] + pr_stats["merged"]) / max(total_items, 1) * 100, 1
+                ) if total_items > 0 else 0
+            },
+            "fields": [
+                {
+                    "id": field["id"],
+                    "name": field["name"],
+                    "type": field["dataType"]
+                }
+                for field in project["fields"]["nodes"]
+                if field and "id" in field  # Skip empty field objects
+            ]
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to get project status: {str(e)}"
+        console_logger.error(error_msg)
+        return {"error": error_msg}
+
+
+@mcp.tool()
+def github_smart_add_project_item(project_id: str, issue_number: int) -> Dict[str, Any]:
+    """
+    Add an issue to a project with intelligent field assignment.
+    
+    This tool analyzes the issue content and automatically assigns appropriate
+    field values based on the issue title, body, and labels.
+    
+    Args:
+        project_id: Project node ID
+        issue_number: Issue number from current repository
+        
+    Returns:
+        Item details with applied field assignments
+    """
+    try:
+        if not GITHUB_AVAILABLE:
+            return {
+                "error": "GitHub integration not available",
+                "message": "Install with: pip install PyGithub GitPython"
+            }
+        
+        if not PROJECTS_AVAILABLE:
+            return {
+                "error": "GitHub Projects integration not available",
+                "message": "Install with: pip install 'gql[aiohttp]'"
+            }
+        
+        github_client, _, _, _, projects_manager = get_github_instances()
+        
+        if not projects_manager:
+            return {
+                "error": "Projects manager not available",
+                "message": "Failed to initialize GitHub Projects manager"
+            }
+        
+        # Get current repository from GitHub client
+        if not hasattr(github_client, '_current_repo') or not github_client._current_repo:
+            return {
+                "error": "No repository selected",
+                "message": "Use github_switch_repository first"
+            }
+        
+        current_repo = github_client._current_repo
+        
+        # Execute smart add with async handling
+        import asyncio
+        loop = asyncio.get_event_loop()
+        try:
+            if loop.is_running():
+                # We're in an async context (like FastAPI), use thread to avoid event loop issues
+                import concurrent.futures
+                
+                def run_async():
+                    new_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(new_loop)
+                    try:
+                        return new_loop.run_until_complete(
+                            projects_manager.smart_add_issue_to_project(
+                                project_id, issue_number, current_repo
+                            )
+                        )
+                    finally:
+                        new_loop.close()
+                
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(run_async)
+                    result = future.result()
+            else:
+                result = loop.run_until_complete(
+                    projects_manager.smart_add_issue_to_project(
+                        project_id, issue_number, current_repo
+                    )
+                )
+        except RuntimeError:
+            # No loop, create one
+            result = loop.run_until_complete(
+                projects_manager.smart_add_issue_to_project(
+                    project_id, issue_number, current_repo
+                )
+            )
+        
+        console_logger.info(f"Smart added issue #{issue_number} to project with {len(result['applied_fields'])} fields set")
+        
+        return {
+            "success": True,
+            "item": {
+                "id": result["item"]["id"],
+                "type": result["item"]["type"],
+                "issue_number": issue_number,
+                "created_at": result["item"]["createdAt"]
+            },
+            "applied_fields": result["applied_fields"],
+            "all_suggestions": result["suggestions"],
+            "message": f"Added issue #{issue_number} with {len(result['applied_fields'])} fields automatically set"
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to smart add item to project: {str(e)}"
+        console_logger.error(error_msg)
         return {"error": error_msg}
 
 

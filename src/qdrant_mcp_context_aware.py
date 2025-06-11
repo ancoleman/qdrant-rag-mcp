@@ -6271,13 +6271,34 @@ def github_create_project_from_template(title: str, template: str, body: Optiona
         import asyncio
         try:
             loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # We're in an async context, use thread to avoid event loop issues
+                import concurrent.futures
+                
+                def run_async():
+                    new_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(new_loop)
+                    try:
+                        return new_loop.run_until_complete(
+                            projects_manager.create_project_from_template(owner, title, template, body)
+                        )
+                    finally:
+                        new_loop.close()
+                
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(run_async)
+                    project = future.result()
+            else:
+                project = loop.run_until_complete(
+                    projects_manager.create_project_from_template(owner, title, template, body)
+                )
         except RuntimeError:
+            # No loop, create one
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-        
-        project = loop.run_until_complete(
-            projects_manager.create_project_from_template(owner, title, template, body)
-        )
+            project = loop.run_until_complete(
+                projects_manager.create_project_from_template(owner, title, template, body)
+            )
         
         console_logger.info(f"Created project '{title}' from template '{template}'")
         

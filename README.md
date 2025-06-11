@@ -1,17 +1,19 @@
 # Qdrant RAG MCP Server
 
-A context-aware Model Context Protocol (MCP) server that provides semantic search capabilities across your codebase using Qdrant vector database. Now with **intelligent GitHub issue resolution** capabilities (v0.3.0). Designed to work seamlessly with Claude Code.
+A context-aware Model Context Protocol (MCP) server that provides semantic search capabilities across your codebase using Qdrant vector database. Now with **intelligent GitHub issue resolution** (v0.3.0) and **GitHub Projects V2 management** (v0.3.4). Designed to work seamlessly with Claude Code.
 
 > **Why MCP RAG?** This server enables AI agents to efficiently work with entire codebases while using 95%+ fewer tokens. [Learn how →](docs/reference/why-mcp-rag-agentic-coding.md)
 
 ## 🌟 Features
 
-### 🆕 GitHub Integration (v0.3.0) + Projects (v0.3.4 Coming Soon)
+### 🆕 GitHub Integration (v0.3.0) + Projects V2 (v0.3.4)
 - **🤖 Intelligent Issue Resolution**: RAG-powered GitHub issue analysis and automated fix generation
 - **🔄 End-to-End Workflows**: Analyze issues → Generate fixes → Create PRs with dry-run safety
-- **🎯 16 GitHub MCP Tools**: Complete issue lifecycle + project management via natural language
+- **📋 GitHub Projects V2 Management**: Create projects, manage roadmaps, track progress with custom dashboards
+- **🎯 24 GitHub MCP Tools**: Complete issue lifecycle + 8 new project management tools via natural language
 - **💬 Issue Comments**: Add comments to existing issues for workflow updates and collaboration
-- **📋 GitHub Projects Integration (v0.3.4)**: Create projects, manage roadmaps, track progress with custom dashboards
+- **🧠 Smart Project Assignment**: RAG-enhanced field assignment based on issue content analysis
+- **📊 Project Templates**: Pre-built templates for roadmaps, bug tracking, and feature planning
 - **🔐 Flexible Authentication**: Personal Access Token and GitHub App support
 - **📊 RAG-Enhanced Analysis**: Leverage full codebase search for issue understanding
 - **🛡️ Safety-First Design**: Dry-run mode, file protection, rate limiting, and audit logging
@@ -177,6 +179,7 @@ In your Claude Code configuration (`~/.claude-code/config.json`):
 - **[Complete Setup & Usage Guide](docs/complete-setup-and-usage-guide.md)** 📚 - Comprehensive setup and usage instructions
   - Includes: [Changing Embedding Models](docs/complete-setup-and-usage-guide.md#what-to-expect-changing-embedding-models) - What to expect when switching models
 - **[GitHub Integration Guide](docs/github-integration-guide.md)** 🤖 - Setup and use GitHub issue resolution (v0.3.0)
+- **[GitHub Projects Guide](docs/github-projects-guide.md)** 📋 - Manage GitHub Projects V2 with custom fields (v0.3.4)
 - **[Context-Aware Guide](docs/context-aware-guide.md)** 🎯 - How the context-aware system works
 - **[MCP Scope Configuration Guide](docs/mcp-scope-configuration-guide.md)** 🔧 - Understanding local vs global configuration
 - **[Practical Usage Examples](docs/rag-usage-examples.md)** 💡 - Real-world examples with Claude Code
@@ -205,6 +208,7 @@ In your Claude Code configuration (`~/.claude-code/config.json`):
 
 - **Get started quickly** → [Complete Setup & Usage Guide](docs/complete-setup-and-usage-guide.md)
 - **🆕 Automate GitHub issues** → [GitHub Integration Guide](docs/github-integration-guide.md)
+- **🆕 Manage GitHub Projects** → [GitHub Projects Guide](docs/github-projects-guide.md)
 - **🆕 Use progressive search efficiently** → [Progressive Search Usage Guide](docs/technical/progressive-context/progressive-search-usage-guide.md)
 - **Load context fast in Claude** → [Quick Context Setup](docs/quick-context-setup.md)
 - **Use RAG in ALL my projects** → [MCP Scope Configuration Guide](docs/mcp-scope-configuration-guide.md)
@@ -243,6 +247,17 @@ claude
 # - Analyze: "Analyze issue #123 using RAG search"
 # - Fix: "Generate fix suggestions for issue #123"
 # - Resolve: "Resolve issue #123 in dry-run mode"
+```
+
+**🆕 GitHub Projects V2 Management (v0.3.4)**
+```bash
+# In Claude with GitHub Projects:
+# - Create: "Create a roadmap project for Q1 2025"
+# - Template: "Create a bug tracking project from template"
+# - Add Items: "Add issue #123 to project with smart field assignment"
+# - Status: "Show project #1 status with completion metrics"
+# - Update: "Update issue #123 status to In Progress"
+# - Custom Fields: "Create a priority field with High/Medium/Low options"
 ```
 
 **🆕 Progressive Context Management (v0.3.2)**
@@ -524,6 +539,16 @@ export QDRANT_LOG_DIR=/custom/path   # Custom log directory
     - **Impact**: Code files now always get correct 768D embeddings
 - ✅ **Test Suite Reorganization**: Clean categorization (unit/integration/performance/debug)
 - 📖 **[Memory Management Guide](docs/technical/memory-optimization-recommendations.md)**: Apple Silicon optimization details
+
+### v0.3.4 - GitHub Projects V2 Integration
+- ✅ **GitHub Projects V2 Support**: Full GraphQL API integration for modern project management
+- ✅ **8 New Project Tools**: Create projects, add items, update fields, track progress
+- ✅ **Smart Field Assignment**: RAG-enhanced analysis automatically assigns priority/status/type
+- ✅ **Project Templates**: Pre-built templates for roadmaps, bug tracking, feature planning
+- ✅ **Custom Field Support**: Create and manage TEXT, NUMBER, DATE, SINGLE_SELECT fields
+- ✅ **Progress Dashboards**: Automatic completion metrics and status tracking
+- ✅ **GraphQL Adapter Pattern**: Clean separation preserving existing REST functionality
+- 📖 **[GitHub Projects Guide](docs/github-projects-guide.md)**: Complete guide with examples and templates
 
 ### v0.3.2 - Progressive Context Management
 - ✅ **Multi-Level Context Retrieval**: File → Class → Method hierarchy for 50-70% token reduction

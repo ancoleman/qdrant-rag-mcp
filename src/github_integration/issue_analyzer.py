@@ -111,7 +111,7 @@ class IssueAnalyzer:
             }
             
             # Include search results based on configuration
-            if include_raw_search and response_verbosity == "full":
+            if include_raw_search and response_verbosity != "summary":
                 result["search_results"] = search_results
             elif response_verbosity == "summary":
                 # Create a summarized version
@@ -244,10 +244,26 @@ class IssueAnalyzer:
         """Perform various RAG searches based on extracted information."""
         search_results = {
             "code_search": [],
+            "docs_search": [],
             "general_search": [],
             "file_search": [],
             "error_search": []
         }
+        
+        # Determine context level based on issue type
+        issue_type = extracted_info.get("issue_type", "unknown")
+        context_level = {
+            "bug": "method",        # Bugs need implementation details
+            "feature": "class",     # Features need structure overview
+            "documentation": "file", # Docs need high-level understanding
+            "performance": "method", # Performance issues need implementation details
+            "unknown": "class"      # Default to class level
+        }.get(issue_type, "class")
+        
+        # Get progressive context configuration
+        analysis_config = self.config.get("issues", {}).get("analysis", {})
+        progressive_config = analysis_config.get("progressive_context", {})
+        progressive_enabled = progressive_config.get("enabled", True)
         
         # Prepare search queries
         queries = []
@@ -276,36 +292,63 @@ class IssueAnalyzer:
         for keyword in extracted_info["keywords"][:5]:
             queries.append(("keyword", keyword))
         
-        # Perform searches
+        # Deduplicate queries
+        seen_queries = set()
+        unique_queries = []
+        
         for query_type, query_text in queries:
+            normalized = query_text.lower().strip()
+            if normalized not in seen_queries and len(normalized) > 3:
+                seen_queries.add(normalized)
+                unique_queries.append((query_type, query_text))
+        
+        # Limit total queries
+        unique_queries = unique_queries[:8]  # Max 8 unique queries
+        
+        # Perform searches with progressive context
+        for query_type, query_text in unique_queries:
             try:
+                # Base search parameters
+                search_params = {
+                    "query": query_text,
+                    "n_results": self.search_limit if query_type != "keyword" else self.search_limit // 2,
+                    "include_context": self.context_expansion
+                }
+                
+                # Add progressive context parameters if enabled
+                if progressive_enabled:
+                    search_params.update({
+                        "progressive_mode": True,
+                        "context_level": context_level,
+                        "include_expansion_options": True,
+                        "semantic_cache": True
+                    })
+                
                 if query_type in ["function", "class", "error"]:
                     # Use code search for technical queries
-                    results = self.search_functions["search_code"](
-                        query=query_text,
-                        n_results=self.search_limit,
-                        include_context=self.context_expansion,
-                        include_dependencies=self.include_dependencies
-                    )
+                    search_params["include_dependencies"] = self.include_dependencies
+                    results = self.search_functions["search_code"](**search_params)
                     search_results["code_search"].extend(results.get("results", []))
                 
                 elif query_type == "feature":
-                    # Use general search for feature requests
-                    results = self.search_functions["search"](
-                        query=query_text,
-                        n_results=self.search_limit,
-                        include_context=self.context_expansion
-                    )
-                    search_results["general_search"].extend(results.get("results", []))
+                    # Use docs search for feature requests to find related documentation
+                    results = self.search_functions.get("search_docs", self.search_functions["search"])(**search_params)
+                    search_results["docs_search"].extend(results.get("results", []))
                 
                 else:
-                    # Use general search for other queries
-                    results = self.search_functions["search"](
-                        query=query_text,
-                        n_results=self.search_limit // 2,
-                        include_context=self.context_expansion
-                    )
-                    search_results["general_search"].extend(results.get("results", []))
+                    # For keywords and title, try code search first as it's most likely
+                    # to find relevant implementation details
+                    try:
+                        results = self.search_functions["search_code"](**search_params)
+                        search_results["code_search"].extend(results.get("results", []))
+                    except Exception as e:
+                        # If code search fails, try docs search as fallback
+                        logger.debug(f"Code search failed for '{query_text}', trying docs: {e}")
+                        try:
+                            results = self.search_functions.get("search_docs", self.search_functions["search"])(**search_params)
+                            search_results["docs_search"].extend(results.get("results", []))
+                        except Exception as e2:
+                            logger.warning(f"All searches failed for query '{query_text}': {e2}")
                     
             except Exception as e:
                 logger.warning(f"Search failed for query '{query_text}': {e}")

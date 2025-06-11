@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     from . import __version__
 except ImportError:
-    __version__ = "0.3.4"  # Fallback version
+    __version__ = "0.3.4.post1"  # Fallback version
 
 # Load environment variables from the MCP server directory
 from dotenv import load_dotenv
@@ -859,7 +859,22 @@ def clear_project_collections() -> Dict[str, Any]:
 
 @mcp.tool()
 def get_context() -> Dict[str, Any]:
-    """Get current project context"""
+    """
+    Get current project context
+    
+    WHEN TO USE THIS TOOL:
+    - User asks "what project am I working on?"
+    - Need to verify current indexing status
+    - Before switching projects
+    - To check how many files are indexed
+    - Debugging search or indexing issues
+    
+    This tool returns:
+    - Current project name and path
+    - Active collections in Qdrant
+    - Total number of indexed documents
+    - Working directory information
+    """
     current_project = get_current_project()
     if current_project:
         # Get statistics for current project
@@ -892,6 +907,19 @@ def get_context() -> Dict[str, Any]:
 def get_file_chunks(file_path: str, start_chunk: int = 0, end_chunk: Optional[int] = None) -> Dict[str, Any]:
     """
     Get all chunks for a specific file or a range of chunks
+    
+    WHEN TO USE THIS TOOL:
+    - Need to see the complete indexed content of a file
+    - Debugging why search isn't finding expected content
+    - User asks "show me all chunks for file X"
+    - Verifying how a file was chunked during indexing
+    - Getting full context around a search result
+    
+    This tool automatically:
+    - Retrieves all indexed chunks for a file
+    - Shows chunk boundaries and metadata
+    - Supports range queries for large files
+    - Works with code, config, and documentation files
     
     Args:
         file_path: Path to the file
@@ -1102,6 +1130,19 @@ def delete_file_chunks(file_path: str, collection_name: Optional[str] = None) ->
 def detect_changes(directory: str = ".") -> Dict[str, Any]:
     """
     Compare current filesystem state with indexed state in Qdrant.
+    
+    WHEN TO USE THIS TOOL:
+    - Before reindexing to see what changed
+    - User asks "what files have changed?"
+    - Checking if index is up to date
+    - After pulling changes from git
+    - Debugging why search isn't finding new files
+    
+    This tool automatically:
+    - Scans the filesystem for current files
+    - Compares with indexed files in Qdrant
+    - Detects file modifications using content hashes
+    - Identifies added, modified, unchanged, and deleted files
     
     Args:
         directory: Directory to scan for changes (default: current directory)
@@ -1345,6 +1386,20 @@ def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
     """
     Index a source code file
     
+    WHEN TO USE THIS TOOL:
+    - User asks to "index this file" for a specific code file
+    - After creating a new code file
+    - When a specific file isn't showing up in searches
+    - Adding individual files without indexing entire directory
+    - PREFER index_directory for multiple files
+    
+    This tool automatically:
+    - Detects programming language from file extension
+    - Uses AST-based chunking for better code understanding
+    - Preserves function/class boundaries
+    - Extracts imports and dependencies
+    - Uses code-specific embeddings
+    
     Args:
         file_path: Path to the file to index
         force_global: If True, index to global collection instead of project
@@ -1568,6 +1623,20 @@ def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
 def index_documentation(file_path: str, force_global: bool = False) -> Dict[str, Any]:
     """
     Index a documentation file (markdown, rst, etc.)
+    
+    WHEN TO USE THIS TOOL:
+    - User asks to "index this README" or documentation file
+    - After creating or updating documentation
+    - When documentation isn't showing up in searches
+    - Adding individual markdown/rst files
+    - PREFER index_directory for multiple files
+    
+    This tool automatically:
+    - Parses markdown structure (headings, sections)
+    - Preserves document hierarchy
+    - Extracts code blocks and links
+    - Uses section-based chunking
+    - Uses documentation-specific embeddings
     
     Args:
         file_path: Path to the documentation file to index
@@ -1869,10 +1938,23 @@ def index_directory(directory: str = None, patterns: List[str] = None, recursive
     """
     Index files in a directory.
     
+    WHEN TO USE THIS TOOL:
+    - User asks to "index this project" or "index this directory"
+    - Starting work on a new codebase
+    - After cloning a repository
+    - When search returns no results (might need indexing)
+    - ALWAYS index before searching in a new project
+    
+    This tool automatically:
+    - Indexes code, config, and documentation files
+    - Respects .gitignore and .ragignore patterns
+    - Processes files with appropriate specialized indexers
+    - Creates searchable vector embeddings
+    
     Args:
         directory: Directory to index (REQUIRED - must be absolute path or will be resolved from client's context)
-        patterns: File patterns to include
-        recursive: Whether to search recursively
+        patterns: File patterns to include (optional - defaults to common code/config/doc patterns)
+        recursive: Whether to search recursively (default: True)
     """
     try:
         if patterns is None:
@@ -2105,8 +2187,18 @@ def reindex_directory(
     """
     Reindex a directory by first clearing existing project data.
     
-    This prevents stale data from deleted/moved files.
-    Use this when files have been renamed, moved, or deleted.
+    WHEN TO USE THIS TOOL:
+    - Files have been renamed, moved, or deleted
+    - User asks to "reindex" or "refresh" the index
+    - Search results contain outdated or stale data
+    - After major code refactoring
+    - When switching branches in git
+    
+    This tool automatically:
+    - Detects file changes (added/modified/deleted) when incremental=True
+    - Only processes changed files for efficiency
+    - Clears stale data from moved/deleted files
+    - Rebuilds search indices
     
     Args:
         directory: Directory to reindex (default: current directory)
@@ -2660,6 +2752,19 @@ def search(
     """
     Search indexed content (defaults to current project only)
     
+    WHEN TO USE THIS TOOL:
+    - User asks to "search for X" or "find X" in the codebase
+    - User asks "where is X defined/used/implemented?"
+    - General queries about code, configs, or documentation
+    - When you need to understand how something works
+    - PREFER specialized tools (search_code, search_docs, search_config) for specific file types
+    
+    This tool automatically:
+    - Searches across all indexed content types (code, config, docs)
+    - Uses hybrid search (vector + keyword) for best results
+    - Includes surrounding context chunks
+    - Supports progressive context for token efficiency
+    
     Args:
         query: Search query
         n_results: Number of results
@@ -3042,6 +3147,19 @@ def search_code(
 ) -> Dict[str, Any]:
     """
     Search specifically in code files (defaults to current project)
+    
+    WHEN TO USE THIS TOOL:
+    - User asks about functions, classes, methods, or code structure
+    - User asks "how does X work?" or "show me the implementation of X"
+    - Looking for specific programming constructs or patterns
+    - Debugging or understanding code behavior
+    - Finding usage examples of APIs or functions
+    
+    This tool automatically:
+    - Searches only in code files (.py, .js, .ts, .go, etc.)
+    - Uses code-specific embeddings for better accuracy
+    - Preserves code structure (functions, classes) in results
+    - Includes line numbers and language information
     
     Args:
         query: Search query
@@ -3448,6 +3566,19 @@ def search_docs(
     """
     Search specifically in documentation files
     
+    WHEN TO USE THIS TOOL:
+    - User asks about documentation, guides, or tutorials
+    - Looking for setup instructions or configuration guides
+    - User asks "how to use X" or "what does the README say"
+    - Finding API documentation or usage examples
+    - Understanding project structure or architecture docs
+    
+    This tool automatically:
+    - Searches only in documentation files (.md, .rst, .txt)
+    - Preserves document structure (headings, sections)
+    - Uses documentation-optimized embeddings
+    - Returns section context with headings
+    
     Args:
         query: Search query
         doc_type: Filter by documentation type (e.g., 'markdown', 'rst')
@@ -3829,6 +3960,19 @@ def search_config(
     """
     Search specifically in configuration files
     
+    WHEN TO USE THIS TOOL:
+    - User asks about configuration settings or options
+    - Looking for environment variables or API keys
+    - User asks "how is X configured?" or "what are the settings for Y?"
+    - Finding database connections or service endpoints
+    - Understanding deployment or build configurations
+    
+    This tool automatically:
+    - Searches only in config files (.json, .yaml, .xml, .env, etc.)
+    - Preserves configuration structure and paths
+    - Uses config-optimized embeddings
+    - Returns hierarchical context (nested config paths)
+    
     Args:
         query: Search query
         file_type: Filter by config file type (e.g., 'json', 'yaml', 'toml', 'xml', 'ini')
@@ -4150,7 +4294,23 @@ def search_config(
 
 @mcp.tool()
 def switch_project(project_path: str) -> Dict[str, Any]:
-    """Switch to a different project context"""
+    """
+    Switch to a different project context
+    
+    WHEN TO USE THIS TOOL:
+    - User asks to "switch to project X" or "work on project Y"
+    - Moving between different codebases
+    - After cloning a new repository
+    - When searches return results from wrong project
+    - Organizing work across multiple projects
+    
+    This tool automatically:
+    - Changes the working directory
+    - Updates project context for searches
+    - Isolates collections by project
+    - Resets project-specific caches
+    - Returns project statistics
+    """
     try:
         path = Path(project_path).resolve()
         if not path.exists():
@@ -4183,7 +4343,23 @@ def switch_project(project_path: str) -> Dict[str, Any]:
 
 @mcp.tool()
 def index_config(file_path: str, force_global: bool = False) -> Dict[str, Any]:
-    """Index a configuration file"""
+    """
+    Index a configuration file
+    
+    WHEN TO USE THIS TOOL:
+    - User asks to "index this config file"
+    - After creating or updating configuration files
+    - When config files aren't showing up in searches
+    - Adding individual JSON/YAML/XML files
+    - PREFER index_directory for multiple files
+    
+    This tool automatically:
+    - Detects config format (JSON, YAML, XML, INI, etc.)
+    - Preserves hierarchical structure
+    - Extracts nested configuration paths
+    - Uses config-specific embeddings
+    - Handles environment variables
+    """
     try:
         from qdrant_client.http.models import PointStruct
         
@@ -4327,9 +4503,18 @@ def rebuild_bm25_indices(collections: Optional[List[str]] = None) -> Dict[str, A
     """
     Rebuild BM25 indices for specified collections or all collections.
     
-    This is useful after server restart when BM25 indices are lost.
-    Note: The indices are built from chunks, not files. Each file is split
-    into multiple chunks during indexing.
+    WHEN TO USE THIS TOOL:
+    - After server restart when keyword search isn't working
+    - User reports "keyword search not finding results"
+    - When hybrid search returns only vector results
+    - After major reindexing operations
+    - Fixing search quality issues
+    
+    This tool automatically:
+    - Rebuilds keyword search indices from Qdrant data
+    - Processes all chunks in collections
+    - Restores hybrid search functionality
+    - Reports chunk counts per collection
     
     Args:
         collections: Optional list of collection names to rebuild. If None, rebuilds all.
@@ -4426,6 +4611,20 @@ def get_memory_status() -> Dict[str, Any]:
     """
     Get detailed memory status of the MCP server.
     
+    WHEN TO USE THIS TOOL:
+    - User asks about memory usage or performance
+    - Debugging slow performance or crashes
+    - Before performing memory-intensive operations
+    - Monitoring server resource consumption
+    - When getting out-of-memory errors
+    
+    This tool returns:
+    - Current memory usage by component
+    - Embedding model memory consumption
+    - Cache sizes and limits
+    - Cleanup statistics
+    - Memory pressure indicators
+    
     Returns current memory usage, component breakdown, and cleanup statistics.
     """
     try:
@@ -4469,6 +4668,20 @@ def get_memory_status() -> Dict[str, Any]:
 def trigger_memory_cleanup(aggressive: bool = False) -> Dict[str, Any]:
     """
     Manually trigger memory cleanup.
+    
+    WHEN TO USE THIS TOOL:
+    - Server is running slow or using too much memory
+    - Before performing memory-intensive operations
+    - User reports performance issues
+    - After indexing large projects
+    - When memory_status shows high usage
+    
+    This tool automatically:
+    - Clears unused caches
+    - Evicts least-recently-used models
+    - Runs garbage collection
+    - Frees up system memory
+    - Reports memory freed
     
     Args:
         aggressive: If True, performs aggressive cleanup (removes more items)
@@ -4529,6 +4742,21 @@ def trigger_memory_cleanup(aggressive: bool = False) -> Dict[str, Any]:
 def health_check() -> Dict[str, Any]:
     """
     Check the health status of all services.
+    
+    WHEN TO USE THIS TOOL:
+    - User asks "is everything working?"
+    - Debugging connection or performance issues
+    - Before starting important operations
+    - When searches return errors
+    - Regular system health monitoring
+    
+    This tool checks:
+    - Qdrant connection and collections
+    - Embedding model availability
+    - Disk space availability
+    - Memory usage (if psutil available)
+    - Current project context
+    - GitHub integration status
     
     Returns status of:
     - Qdrant connection
@@ -4781,6 +5009,19 @@ def github_list_repositories(owner: Optional[str] = None) -> Dict[str, Any]:
     """
     List GitHub repositories for a user/organization.
     
+    WHEN TO USE THIS TOOL:
+    - User asks to "list my repositories" or "show repos"
+    - Need to find a specific repository
+    - Before switching to a repository
+    - Exploring available projects
+    - User asks "what repos do I have access to?"
+    
+    This tool automatically:
+    - Fetches repositories from GitHub API
+    - Shows public and private repos (based on auth)
+    - Returns repository names, descriptions, and URLs
+    - Lists recent activity information
+    
     Args:
         owner: Repository owner (defaults to authenticated user)
         
@@ -4815,6 +5056,20 @@ def github_list_repositories(owner: Optional[str] = None) -> Dict[str, Any]:
 def github_switch_repository(owner: str, repo: str) -> Dict[str, Any]:
     """
     Switch to a different GitHub repository context.
+    
+    WHEN TO USE THIS TOOL:
+    - User asks to "switch to repo X" or "work on repository Y"
+    - Before working with GitHub issues or PRs
+    - Changing GitHub project context
+    - After listing repositories
+    - User provides "owner/repo" format
+    
+    This tool automatically:
+    - Sets the active GitHub repository
+    - Verifies repository access
+    - Updates context for issue/PR operations
+    - Returns repository details
+    - Enables GitHub-specific features
     
     Args:
         owner: Repository owner
@@ -4886,6 +5141,20 @@ def github_fetch_issues(state: str = "open", labels: Optional[List[str]] = None,
     """
     Fetch GitHub issues from current repository.
     
+    WHEN TO USE THIS TOOL:
+    - User asks to "show issues" or "list bugs"
+    - Looking for work items or tasks
+    - User asks "what issues are open?"
+    - Filtering issues by label or state
+    - Before analyzing or working on issues
+    
+    This tool automatically:
+    - Fetches issues from current repository
+    - Filters by state (open/closed/all)
+    - Filters by labels if specified
+    - Returns issue titles, numbers, and metadata
+    - Includes assignees and timestamps
+    
     Args:
         state: Issue state (open, closed, all)
         labels: Filter by labels
@@ -4948,6 +5217,20 @@ def github_get_issue(issue_number: int) -> Dict[str, Any]:
     """
     Get detailed information about a specific GitHub issue.
     
+    WHEN TO USE THIS TOOL:
+    - User asks about "issue #123" specifically
+    - Need full details about an issue
+    - Before analyzing or fixing an issue
+    - Getting issue description and comments
+    - User asks "what is issue X about?"
+    
+    This tool automatically:
+    - Fetches complete issue details
+    - Includes issue body and comments
+    - Shows labels, assignees, and status
+    - Returns creation and update timestamps
+    - Provides full context for analysis
+    
     Args:
         issue_number: Issue number
         
@@ -5003,6 +5286,20 @@ def github_create_issue(title: str, body: str = "", labels: Optional[List[str]] 
                        assignees: Optional[List[str]] = None) -> Dict[str, Any]:
     """
     Create a new GitHub issue.
+    
+    WHEN TO USE THIS TOOL:
+    - User asks to "create an issue" or "file a bug"
+    - Documenting a problem or feature request
+    - Creating work items or tasks
+    - User provides issue title and description
+    - Tracking TODOs or improvements
+    
+    This tool automatically:
+    - Creates issue in current repository
+    - Applies specified labels
+    - Assigns to specified users
+    - Returns issue number and URL
+    - Enables tracking and collaboration
     
     Args:
         title: Issue title
@@ -5122,6 +5419,19 @@ def github_analyze_issue(issue_number: int) -> Dict[str, Any]:
     """
     Perform comprehensive analysis of a GitHub issue using RAG search.
     
+    WHEN TO USE THIS TOOL:
+    - User asks to "analyze issue #X"
+    - User asks "what is issue #X about?"
+    - User asks for "issue analysis", "investigate issue", "understand issue"
+    - User wants to know what code/files are related to an issue
+    - ALWAYS use this instead of manual search when analyzing GitHub issues
+    
+    This tool automatically:
+    - Fetches issue details and comments
+    - Extracts errors, code references, and keywords
+    - Performs optimized RAG searches with progressive context
+    - Returns summarized analysis with recommendations
+    
     Args:
         issue_number: Issue number to analyze
         
@@ -5175,6 +5485,19 @@ def github_analyze_issue(issue_number: int) -> Dict[str, Any]:
 def github_suggest_fix(issue_number: int) -> Dict[str, Any]:
     """
     Generate fix suggestions for a GitHub issue using RAG analysis.
+    
+    WHEN TO USE THIS TOOL:
+    - User asks to "suggest a fix for issue #X"
+    - User asks "how to fix issue #X"
+    - User asks for "fix suggestions", "solution", "implementation plan"
+    - User wants code changes to resolve an issue
+    - Use AFTER github_analyze_issue for best results
+    
+    This tool automatically:
+    - Analyzes the issue with RAG search
+    - Generates concrete fix suggestions
+    - Provides implementation steps
+    - Suggests code changes with context
     
     Args:
         issue_number: Issue number

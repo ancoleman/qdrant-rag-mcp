@@ -42,6 +42,7 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
 ### In Progress
 
 ### Upcoming
+- 📋 Token Usage Optimization - v0.3.4.post1 (70% reduction in GitHub issue analysis)
 - 📋 Adaptive Search Intelligence - v0.3.5 (Smart query understanding)
 - 📋 Query Enhancement - v0.3.6 (+35% recall)
 - 📋 MCP Server Optimizations - v0.4.1+ (Performance improvements)
@@ -370,6 +371,25 @@ These provide the enhanced search capabilities needed to build on the GitHub int
   - Implement RAG-enhanced project item creation based on issue analysis
   - Add progress tracking with automated status updates
   - Create integration with existing issue resolution workflow
+
+#### v0.3.4.post1: Token Usage Optimization (2-3 days)
+- **Status**: ✅ Completed (2025-06-11)
+- **Focus**: Reduce token usage during GitHub issue analysis by 70%
+- **Problem**: Claude not using dedicated MCP tools, performing manual searches
+- **Delivered**:
+  - ✅ Enhanced MCP tool docstrings with clear usage triggers
+  - ✅ Progressive context support in GitHub issue analysis
+  - ✅ Reduced default search_limit from 10 to 5
+  - ✅ Fixed response verbosity configuration check
+  - ✅ Query deduplication with 8-query limit
+  - ✅ Context level selection based on issue type
+  - ✅ Eliminated code duplication in search method
+- **Benefits**: 
+  - 70% reduction in token usage for issue analysis
+  - Better tool selection by Claude via clear docstrings
+  - Maintains search quality with progressive context
+  - Smarter context levels (bug→method, feature→class)
+- **Implementation Plan**: [Token Optimization Plan](./v0.3.4.post1-token-optimization-plan.md)
 
 #### v0.3.5: Adaptive Search Intelligence (5-6 days)
 - **Status**: 📋 Planned

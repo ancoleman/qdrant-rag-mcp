@@ -285,7 +285,7 @@ class SemanticCache(LRUMemoryCache):
         self.embeddings_cache[text_hash] = embedding
         
         # Limit embeddings cache size (more aggressive limit)
-        if len(self.embeddings_cache) > self.max_cache_size:
+        if len(self.embeddings_cache) > self.max_items:
             # Remove oldest quarter
             items_to_remove = list(self.embeddings_cache.keys())[:len(self.embeddings_cache)//4]
             for key in items_to_remove:

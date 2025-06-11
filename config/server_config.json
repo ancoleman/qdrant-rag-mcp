@@ -166,15 +166,21 @@
       "default_state": "open",
       "max_fetch_count": 50,
       "analysis": {
-        "search_limit": 10,
+        "search_limit": 5,
         "context_expansion": true,
-        "include_dependencies": true,
+        "include_dependencies": false,
         "code_similarity_threshold": 0.7,
         "response_verbosity": "summary",
         "include_raw_search_results": false,
         "max_relevant_files": 5,
         "truncate_content": true,
-        "content_preview_length": 200
+        "content_preview_length": 200,
+        "progressive_context": {
+          "enabled": true,
+          "default_level": "class",
+          "bug_level": "method",
+          "feature_level": "file"
+        }
       }
     },
     "pull_requests": {

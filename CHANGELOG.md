@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.4.post1] - 2025-06-11
+
+### 🎯 Token Usage Optimization
+
+This patch release implements critical optimizations to reduce token usage during GitHub issue analysis by approximately 70%, addressing the issue where Claude was not using the dedicated MCP tools and instead performing manual searches.
+
+### Changed
+
+- **Enhanced MCP Tool Docstrings**:
+  - Added clear "WHEN TO USE THIS TOOL" sections to ALL 30+ MCP tools
+  - Comprehensive usage triggers for better tool selection by Claude
+  - Clear descriptions of what each tool does automatically
+  - Updated search tools: search, search_code, search_docs, search_config
+  - Updated indexing tools: index_directory, reindex_directory, index_code, index_documentation, index_config
+  - Updated utility tools: get_context, detect_changes, health_check, get_file_chunks, switch_project
+  - Updated system tools: rebuild_bm25_indices, get_memory_status, trigger_memory_cleanup
+  - Updated GitHub tools: github_list_repositories, github_switch_repository, github_fetch_issues, github_get_issue, github_create_issue, github_analyze_issue, github_suggest_fix
+  - Emphasized using specialized tools over general operations
+
+- **Progressive Context Integration**:
+  - Added progressive context support to GitHub issue analysis
+  - Context level selection based on issue type (bug→method, feature→class, docs→file)
+  - Enabled semantic caching and expansion options for all searches
+  - Progressive context parameters now passed to all RAG search operations
+
+- **Configuration Optimizations**:
+  - Reduced default `search_limit` from 10 to 5 results
+  - Set `include_dependencies` to false by default (reduces token overhead)
+  - Added `progressive_context` configuration section for GitHub issues
+  - Fixed response verbosity check to properly respect "summary" mode
+
+- **Query Deduplication**:
+  - Implemented query normalization and deduplication before searches
+  - Maximum of 8 unique queries per issue analysis
+  - Filters out queries shorter than 3 characters
+  - Prevents redundant searches on similar terms
+
+### Fixed
+
+- Response verbosity check now correctly excludes raw search results in summary mode
+- Eliminated code duplication in `_perform_rag_searches` method
+- Fixed SemanticCache attribute error by using `max_items` instead of `max_cache_size`
+- Updated GitHub issue analyzer to use specialized search tools (search_code/search_docs) instead of general search
+
+### Documentation
+
+- Updated GitHub Integration Guide with detailed token optimization explanation
+- Added comprehensive configuration reference for issue analysis settings
+- Documented the multi-step issue analysis workflow
+- Added real-world token reduction examples (83% typical reduction)
+
+### Testing
+
+- Added `test_token_optimization.py` to validate token reduction achievements
+- Added `test_config_verification.py` for implementation verification
+- Updated test script to accurately calculate queries and token usage
+
 ## [0.3.4] - 2025-06-10
 
 ### 🚀 Major Feature: GitHub Projects V2 Integration

@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.4.post3] - 2025-06-11
+
+### 🔧 Code Refactoring - DRY Improvements
+
+This patch release significantly improves code maintainability by introducing helper functions that eliminate hundreds of lines of duplicated code across GitHub integration functions.
+
+### Added
+
+- **Async Helper Function**:
+  - `run_async_in_thread` - Centralized async coroutine execution for MCP context
+  - Handles running event loops, thread safety, and edge cases
+  - Used by all 10 GitHub Projects V2 functions
+
+- **Validation Helper Functions**:
+  - `check_github_available` - Validates GitHub integration availability
+  - `check_projects_available` - Validates Projects V2 integration
+  - `check_repository_context` - Ensures repository is set
+  - `check_projects_manager` - Validates projects manager initialization
+  - `validate_github_prerequisites` - Comprehensive validation helper combining all checks
+
+### Changed
+
+- **Refactored All GitHub Functions**:
+  - Updated 20 GitHub MCP functions to use validation helpers
+  - Removed ~500 lines of duplicated validation and async handling code
+  - Improved consistency across all GitHub integration points
+  - Simplified maintenance and future updates
+
+### Fixed
+
+- Event loop conflicts in `github_create_project_from_template`
+- Event loop conflicts in `github_get_project`
+- Inconsistent error messages across GitHub functions
+- Direct `_current_repo` access changed to proper getter method
+
+### Technical Improvements
+
+- Better separation of concerns with dedicated helper functions
+- DRY (Don't Repeat Yourself) principle applied throughout
+- Consistent error handling patterns
+- Thread-safe async execution in all contexts
+
 ## [0.3.4.post2] - 2025-06-11
 
 ### 🛠️ GitHub Projects V2 CRUD Operations

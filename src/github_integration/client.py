@@ -649,6 +649,155 @@ class GitHubClient:
                 "status": "error", 
                 "message": str(e)
             }
+    
+    # Sub-issues REST API support
+    def _get_rest_headers(self) -> Dict[str, str]:
+        """Get headers for REST API requests including auth and preview headers."""
+        # Get the token from PyGithub's auth
+        token = None
+        if hasattr(self._github, '_Github__requester') and hasattr(self._github._Github__requester, '_Requester__authorizationHeader'):
+            auth_header = self._github._Github__requester._Requester__authorizationHeader
+            if auth_header and auth_header.startswith('token '):
+                token = auth_header[6:]  # Remove 'token ' prefix
+            elif auth_header and auth_header.startswith('Bearer '):
+                token = auth_header[7:]  # Remove 'Bearer ' prefix
+        
+        if not token:
+            # Try to get from config
+            token = self.config.get("auth", {}).get("token") or os.getenv("GITHUB_TOKEN")
+        
+        if not token:
+            raise GitHubAuthError("Cannot find GitHub token for REST API calls")
+        
+        return {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28"
+        }
+    
+    def _make_rest_request(self, method: str, endpoint: str, data: Optional[Dict] = None) -> Dict[str, Any]:
+        """Make a REST API request to GitHub."""
+        import requests
+        
+        base_url = "https://api.github.com"
+        if hasattr(self._github, '_Github__requester') and hasattr(self._github._Github__requester, '_Requester__hostname'):
+            base_url = f"https://{self._github._Github__requester._Requester__hostname}"
+        
+        url = f"{base_url}{endpoint}"
+        headers = self._get_rest_headers()
+        
+        try:
+            if method == "GET":
+                response = requests.get(url, headers=headers)
+            elif method == "POST":
+                response = requests.post(url, headers=headers, json=data)
+            elif method == "DELETE":
+                response = requests.delete(url, headers=headers)
+            elif method == "PATCH":
+                response = requests.patch(url, headers=headers, json=data)
+            else:
+                raise ValueError(f"Unsupported HTTP method: {method}")
+            
+            response.raise_for_status()
+            
+            # Return empty dict for 204 No Content
+            if response.status_code == 204:
+                return {"success": True}
+            
+            return response.json()
+            
+        except requests.exceptions.RequestException as e:
+            if hasattr(e, 'response') and e.response is not None:
+                error_msg = f"GitHub API error: {e.response.status_code}"
+                try:
+                    error_data = e.response.json()
+                    if 'message' in error_data:
+                        error_msg += f" - {error_data['message']}"
+                except:
+                    error_msg += f" - {e.response.text}"
+                raise Exception(error_msg)
+            raise Exception(f"Request failed: {str(e)}")
+    
+    def add_sub_issue(self, parent_issue_number: int, sub_issue_id: int, replace_parent: bool = False) -> Dict[str, Any]:
+        """
+        Add a sub-issue relationship to a parent issue.
+        
+        Args:
+            parent_issue_number: The parent issue number
+            sub_issue_id: The sub-issue ID to link
+            replace_parent: Whether to replace the current parent (re-parenting)
+            
+        Returns:
+            Dict containing the operation result
+        """
+        if not self._current_repo:
+            raise ValueError("No repository set. Use set_repository() first.")
+        
+        endpoint = f"/repos/{self._current_repo.owner.login}/{self._current_repo.name}/issues/{parent_issue_number}/sub_issues"
+        data = {
+            "sub_issue_id": sub_issue_id,
+            "replace_parent": replace_parent
+        }
+        
+        return self._retry_request(self._make_rest_request, "POST", endpoint, data)
+    
+    def list_sub_issues(self, parent_issue_number: int) -> List[Dict[str, Any]]:
+        """
+        List all sub-issues for a parent issue.
+        
+        Args:
+            parent_issue_number: The parent issue number
+            
+        Returns:
+            List of sub-issue data
+        """
+        if not self._current_repo:
+            raise ValueError("No repository set. Use set_repository() first.")
+        
+        endpoint = f"/repos/{self._current_repo.owner.login}/{self._current_repo.name}/issues/{parent_issue_number}/sub_issues"
+        
+        result = self._retry_request(self._make_rest_request, "GET", endpoint)
+        return result if isinstance(result, list) else []
+    
+    def remove_sub_issue(self, parent_issue_number: int, sub_issue_id: int) -> Dict[str, Any]:
+        """
+        Remove a sub-issue relationship from a parent issue.
+        
+        Args:
+            parent_issue_number: The parent issue number
+            sub_issue_id: The sub-issue ID to unlink
+            
+        Returns:
+            Dict containing the operation result
+        """
+        if not self._current_repo:
+            raise ValueError("No repository set. Use set_repository() first.")
+        
+        # The DELETE endpoint uses query parameter for sub_issue_id
+        endpoint = f"/repos/{self._current_repo.owner.login}/{self._current_repo.name}/issues/{parent_issue_number}/sub_issue?sub_issue_id={sub_issue_id}"
+        
+        return self._retry_request(self._make_rest_request, "DELETE", endpoint)
+    
+    def reorder_sub_issues(self, parent_issue_number: int, sub_issue_ids: List[int]) -> Dict[str, Any]:
+        """
+        Reorder sub-issues within a parent issue.
+        
+        Args:
+            parent_issue_number: The parent issue number
+            sub_issue_ids: Ordered list of sub-issue IDs
+            
+        Returns:
+            Dict containing the operation result
+        """
+        if not self._current_repo:
+            raise ValueError("No repository set. Use set_repository() first.")
+        
+        endpoint = f"/repos/{self._current_repo.owner.login}/{self._current_repo.name}/issues/{parent_issue_number}/sub_issues/priority"
+        data = {
+            "sub_issue_ids": sub_issue_ids
+        }
+        
+        return self._retry_request(self._make_rest_request, "PATCH", endpoint, data)
 
 
 # Global client instance

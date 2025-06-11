@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.4.post4] - 2025-06-11
+
+### 🎯 GitHub Sub-Issues Support
+
+This release adds comprehensive GitHub sub-issues (task lists) support, enabling hierarchical issue management with full REST API integration and Projects V2 compatibility.
+
+### Added
+
+- **5 New GitHub Sub-Issues MCP Tools**:
+  - `github_list_sub_issues` - List all sub-issues for a parent issue
+  - `github_add_sub_issue` - Link existing issues as sub-issues
+  - `github_remove_sub_issue` - Remove sub-issue relationships
+  - `github_create_sub_issue` - Create and link new sub-issues in one operation
+  - `github_reorder_sub_issues` - Reorder sub-issues for priority management
+  
+- **Projects V2 Sub-Issues Integration**:
+  - `github_add_sub_issues_to_project` - Bulk add all sub-issues to a project
+  - `smart_add_sub_issues_to_project` method in ProjectsManager
+  - Automatic smart field assignment for sub-issues
+
+- **REST API Implementation**:
+  - Direct GitHub REST API integration for sub-issues (PyGithub doesn't support them)
+  - Methods: `add_sub_issue`, `list_sub_issues`, `remove_sub_issue`, `reorder_sub_issues`
+  - Bearer token authentication with preview headers
+  - Full error handling and retry logic
+
+- **HTTP API Endpoints**:
+  - POST `/github/list_sub_issues`
+  - POST `/github/add_sub_issue`
+  - POST `/github/remove_sub_issue`
+  - POST `/github/create_sub_issue`
+  - POST `/github/reorder_sub_issues`
+  - POST `/github/add_sub_issues_to_project`
+
+- **Testing Infrastructure**:
+  - `test_github_sub_issues_api.sh` - Comprehensive test script
+  - Tests all sub-issue operations including Projects V2 integration
+  - Includes cleanup functionality
+
+### Technical Details
+
+- **Implementation Strategy**: Since PyGithub doesn't support GitHub's sub-issues API, we implemented direct REST API calls using the requests library
+- **API Compatibility**: Uses GitHub's task list preview API with appropriate headers
+- **Projects Integration**: Sub-issues can be bulk-added to Projects V2 with automatic field assignment
+- **Parameter Naming**: The API uses `sub_issue_id` but accepts issue numbers for current repository
+
+### Use Cases
+
+- Breaking down complex features into manageable sub-tasks
+- Creating hierarchical issue structures for better organization
+- Managing implementation roadmaps with parent/child relationships
+- Bulk project management with automatic sub-issue tracking
+- Re-parenting issues when reorganizing work
+
 ## [0.3.4.post3] - 2025-06-11
 
 ### 🔧 Code Refactoring - DRY Improvements

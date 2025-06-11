@@ -42,7 +42,10 @@ from qdrant_mcp_context_aware import (
     # GitHub Projects V2 functions (v0.3.4)
     github_create_project, github_get_project, github_add_project_item,
     github_update_project_item, github_create_project_field, github_get_project_status,
-    github_smart_add_project_item
+    github_smart_add_project_item,
+    # GitHub Sub-Issues functions (v0.3.4.post4)
+    github_list_sub_issues, github_add_sub_issue, github_remove_sub_issue,
+    github_create_sub_issue, github_reorder_sub_issues, github_add_sub_issues_to_project
 )
 
 @asynccontextmanager
@@ -57,7 +60,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Qdrant RAG Server HTTP API", 
-    version="0.3.4",
+    version="0.3.4.post4",
     lifespan=lifespan
 )
 
@@ -226,6 +229,33 @@ class GitHubCreateProjectFieldRequest(BaseModel):
 class GitHubGetProjectStatusRequest(BaseModel):
     owner: str
     number: int
+
+# GitHub Sub-Issues request models (v0.3.4.post4)
+class GitHubListSubIssuesRequest(BaseModel):
+    parent_issue_number: int
+
+class GitHubAddSubIssueRequest(BaseModel):
+    parent_issue_number: int
+    sub_issue_number: int
+    replace_parent: Optional[bool] = False
+
+class GitHubRemoveSubIssueRequest(BaseModel):
+    parent_issue_number: int
+    sub_issue_number: int
+
+class GitHubCreateSubIssueRequest(BaseModel):
+    parent_issue_number: int
+    title: str
+    body: Optional[str] = ""
+    labels: Optional[List[str]] = None
+
+class GitHubReorderSubIssuesRequest(BaseModel):
+    parent_issue_number: int
+    sub_issue_numbers: List[int]
+
+class GitHubAddSubIssuesToProjectRequest(BaseModel):
+    project_id: str
+    parent_issue_number: int
 
 # Startup is now handled by lifespan context manager
 
@@ -926,6 +956,121 @@ async def github_get_project_status_endpoint(owner: str, number: int):
         
         # Now call the status function with the project ID
         result = github_get_project_status(project_id=project_id)
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# GitHub Sub-Issues endpoints (v0.3.4.post4)
+@app.post("/github/list_sub_issues")
+async def github_list_sub_issues_endpoint(request: GitHubListSubIssuesRequest):
+    """List all sub-issues for a parent issue"""
+    try:
+        result = github_list_sub_issues(parent_issue_number=request.parent_issue_number)
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/github/add_sub_issue")
+async def github_add_sub_issue_endpoint(request: GitHubAddSubIssueRequest):
+    """Add a sub-issue relationship to a parent issue"""
+    try:
+        result = github_add_sub_issue(
+            parent_issue_number=request.parent_issue_number,
+            sub_issue_number=request.sub_issue_number,
+            replace_parent=request.replace_parent
+        )
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/github/remove_sub_issue")
+async def github_remove_sub_issue_endpoint(request: GitHubRemoveSubIssueRequest):
+    """Remove a sub-issue relationship from a parent issue"""
+    try:
+        result = github_remove_sub_issue(
+            parent_issue_number=request.parent_issue_number,
+            sub_issue_number=request.sub_issue_number
+        )
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/github/create_sub_issue")
+async def github_create_sub_issue_endpoint(request: GitHubCreateSubIssueRequest):
+    """Create a new issue and immediately add it as a sub-issue"""
+    try:
+        result = github_create_sub_issue(
+            parent_issue_number=request.parent_issue_number,
+            title=request.title,
+            body=request.body,
+            labels=request.labels
+        )
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/github/reorder_sub_issues")
+async def github_reorder_sub_issues_endpoint(request: GitHubReorderSubIssuesRequest):
+    """Reorder sub-issues within a parent issue"""
+    try:
+        result = github_reorder_sub_issues(
+            parent_issue_number=request.parent_issue_number,
+            sub_issue_numbers=request.sub_issue_numbers
+        )
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/github/add_sub_issues_to_project")
+async def github_add_sub_issues_to_project_endpoint(request: GitHubAddSubIssuesToProjectRequest):
+    """Add all sub-issues of a parent issue to a GitHub Project V2"""
+    try:
+        result = github_add_sub_issues_to_project(
+            project_id=request.project_id,
+            parent_issue_number=request.parent_issue_number
+        )
         
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])

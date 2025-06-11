@@ -48,9 +48,19 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
   - ✅ Delete project operation with validation and confirmation
   - ✅ HTTP API endpoints for list and delete
   - ✅ Enhanced error handling and validation
+- ✅ **Code Refactoring - DRY Improvements (v0.3.4.post3)** - Better maintainability
+  - ✅ Async helper function `run_async_in_thread` for event loop handling
+  - ✅ Validation helper functions for GitHub prerequisites
+  - ✅ Refactored all 20 GitHub MCP functions (~500 lines removed)
+  - ✅ Fixed event loop conflicts in Projects V2 functions
+- ✅ **GitHub Sub-Issues Support (v0.3.4.post4)** - Hierarchical task management
+  - ✅ 5 new MCP tools for sub-issues management
+  - ✅ REST API implementation (PyGithub doesn't support sub-issues)
+  - ✅ Projects V2 integration with bulk sub-issue addition
+  - ✅ HTTP API endpoints for all sub-issue operations
+  - ✅ Comprehensive test script for validation
 
 ### In Progress
-- 🚧 **GitHub Sub-Issues Support (v0.3.4.post4)** - Hierarchical task management
 
 ### Upcoming
 - 📋 Adaptive Search Intelligence - v0.3.5 (Smart query understanding)
@@ -438,21 +448,21 @@ These provide the enhanced search capabilities needed to build on the GitHub int
 - **Risk**: Low - refactoring with no functional changes
 
 #### v0.3.4.post4: GitHub Sub-Issues Support (2-3 days)
-- **Status**: 📋 Planned
+- **Status**: ✅ Completed (2025-06-11)
 - **Focus**: Hierarchical task management with GitHub sub-issues
 - **Problem**: Need to break down complex tasks into manageable sub-tasks
-- **Deliverables**:
-  - REST API integration for sub-issues (create, list, remove, reorder)
-  - 5 new MCP tools for sub-issue management
-  - Auto-add sub-issues to Projects V2 with inheritance
-  - Progress rollup from sub-issues to parent
-  - Bulk sub-issue creation from checklists
+- **Delivered**:
+  - ✅ REST API integration for sub-issues (create, list, remove, reorder)
+  - ✅ 5 new MCP tools for sub-issue management
+  - ✅ Auto-add sub-issues to Projects V2 with smart field assignment
+  - ✅ HTTP API endpoints for all sub-issue operations
+  - ✅ Comprehensive test script for validation
 - **Benefits**: 
-  - 40% faster task breakdown and organization
+  - Hierarchical issue organization
   - Complete hierarchy view in Projects V2
-  - Automatic progress tracking
+  - Bulk project management capabilities
   - Support for complex multi-level tasks
-- **Risk**: Low - uses stable REST API endpoints
+- **Impact**: Teams can now manage complex features with proper task breakdown
 
 #### v0.3.5: Adaptive Search Intelligence (5-6 days)
 - **Status**: 📋 Planned

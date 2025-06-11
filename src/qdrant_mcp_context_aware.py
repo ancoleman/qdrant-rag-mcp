@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     from . import __version__
 except ImportError:
-    __version__ = "0.3.4.post3"  # Fallback version
+    __version__ = "0.3.4.post4"  # Fallback version
 
 # Load environment variables from the MCP server directory
 from dotenv import load_dotenv
@@ -6360,6 +6360,324 @@ def github_smart_add_project_item(project_id: str, issue_number: int) -> Dict[st
         
     except Exception as e:
         error_msg = f"Failed to smart add item to project: {str(e)}"
+        console_logger.error(error_msg)
+        return {"error": error_msg}
+
+
+# GitHub Sub-Issues tools
+@mcp.tool()
+def github_list_sub_issues(parent_issue_number: int) -> Dict[str, Any]:
+    """
+    List all sub-issues for a parent issue.
+    
+    WHEN TO USE THIS TOOL:
+    - User asks to "list sub-issues for issue #X"
+    - User asks "what are the sub-tasks for issue #X?"
+    - Need to see the breakdown of a complex issue
+    - Checking progress on a parent issue
+    - Before adding or removing sub-issues
+    
+    This tool retrieves all sub-issues linked to a parent issue,
+    showing their status, title, and relationship.
+    
+    Args:
+        parent_issue_number: The parent issue number
+        
+    Returns:
+        List of sub-issue information with status and titles
+    """
+    try:
+        error, instances = validate_github_prerequisites(require_repo=True)
+        if error:
+            return error
+        github_client, _, _, _, _ = instances
+        
+        # Get sub-issues
+        sub_issues = github_client.list_sub_issues(parent_issue_number)
+        
+        console_logger.info(f"Listed {len(sub_issues)} sub-issues for issue #{parent_issue_number}")
+        
+        return {
+            "parent_issue": parent_issue_number,
+            "sub_issues_count": len(sub_issues),
+            "sub_issues": sub_issues,
+            "message": f"Found {len(sub_issues)} sub-issues for issue #{parent_issue_number}"
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to list sub-issues: {str(e)}"
+        console_logger.error(error_msg)
+        return {"error": error_msg}
+
+
+@mcp.tool()
+def github_add_sub_issue(parent_issue_number: int, sub_issue_number: int, replace_parent: bool = False) -> Dict[str, Any]:
+    """
+    Add a sub-issue relationship to a parent issue.
+    
+    WHEN TO USE THIS TOOL:
+    - User asks to "add issue #Y as sub-issue of #X"
+    - User asks to "link issue #Y to parent #X"
+    - Breaking down complex issues into sub-tasks
+    - Creating hierarchical issue relationships
+    - Re-parenting an issue (with replace_parent=True)
+    
+    This tool creates a parent-child relationship between two existing issues.
+    Use replace_parent=True if the sub-issue already has a different parent.
+    
+    Args:
+        parent_issue_number: The parent issue number
+        sub_issue_number: The issue number to add as a sub-issue
+        replace_parent: Whether to replace the current parent (re-parenting)
+        
+    Returns:
+        Operation result with relationship details
+    """
+    try:
+        error, instances = validate_github_prerequisites(require_repo=True)
+        if error:
+            return error
+        github_client, _, _, _, _ = instances
+        
+        # Note: GitHub sub-issues API uses issue numbers, not IDs
+        # The client method expects sub_issue_id but we're passing issue number
+        # This works because the API accepts issue numbers in the current repository
+        github_client.add_sub_issue(parent_issue_number, sub_issue_number, replace_parent)
+        
+        console_logger.info(f"Added issue #{sub_issue_number} as sub-issue of #{parent_issue_number}")
+        
+        return {
+            "success": True,
+            "parent_issue": parent_issue_number,
+            "sub_issue": sub_issue_number,
+            "replaced_parent": replace_parent,
+            "message": f"Successfully added issue #{sub_issue_number} as sub-issue of #{parent_issue_number}"
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to add sub-issue: {str(e)}"
+        console_logger.error(error_msg)
+        return {"error": error_msg}
+
+
+@mcp.tool()
+def github_remove_sub_issue(parent_issue_number: int, sub_issue_number: int) -> Dict[str, Any]:
+    """
+    Remove a sub-issue relationship from a parent issue.
+    
+    WHEN TO USE THIS TOOL:
+    - User asks to "remove sub-issue #Y from #X"
+    - User asks to "unlink issue #Y from parent #X"
+    - Reorganizing issue hierarchy
+    - Making a sub-issue independent
+    - Correcting mistaken relationships
+    
+    This tool removes the parent-child relationship between two issues.
+    The sub-issue becomes independent but is not deleted.
+    
+    Args:
+        parent_issue_number: The parent issue number
+        sub_issue_number: The sub-issue number to remove
+        
+    Returns:
+        Operation result confirming removal
+    """
+    try:
+        error, instances = validate_github_prerequisites(require_repo=True)
+        if error:
+            return error
+        github_client, _, _, _, _ = instances
+        
+        # Remove sub-issue (API accepts issue number for current repo)
+        github_client.remove_sub_issue(parent_issue_number, sub_issue_number)
+        
+        console_logger.info(f"Removed issue #{sub_issue_number} from parent #{parent_issue_number}")
+        
+        return {
+            "success": True,
+            "parent_issue": parent_issue_number,
+            "removed_sub_issue": sub_issue_number,
+            "message": f"Successfully removed issue #{sub_issue_number} from parent #{parent_issue_number}"
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to remove sub-issue: {str(e)}"
+        console_logger.error(error_msg)
+        return {"error": error_msg}
+
+
+@mcp.tool()
+def github_create_sub_issue(parent_issue_number: int, title: str, body: str = "", labels: Optional[List[str]] = None) -> Dict[str, Any]:
+    """
+    Create a new issue and immediately add it as a sub-issue.
+    
+    WHEN TO USE THIS TOOL:
+    - User asks to "create a sub-task for issue #X"
+    - User asks to "add a new sub-issue to #X with title..."
+    - Breaking down work while creating new issues
+    - Creating subtasks from a checklist
+    - Planning implementation details
+    
+    This tool combines issue creation with sub-issue linking in one operation.
+    The new issue inherits context from the parent.
+    
+    Args:
+        parent_issue_number: The parent issue number
+        title: Title for the new sub-issue
+        body: Description/body for the new sub-issue
+        labels: Optional labels to apply (inherits parent labels if not specified)
+        
+    Returns:
+        Created sub-issue information with relationship details
+    """
+    try:
+        error, instances = validate_github_prerequisites(require_repo=True)
+        if error:
+            return error
+        github_client, _, _, _, _ = instances
+        
+        # Get parent issue for context
+        parent_issue = github_client.get_issue(parent_issue_number)
+        
+        # Inherit labels from parent if not specified
+        if labels is None:
+            labels = parent_issue.get("labels", [])
+        
+        # Add reference to parent in body
+        enhanced_body = f"{body}\n\n---\nSub-issue of #{parent_issue_number}" if body else f"Sub-issue of #{parent_issue_number}"
+        
+        # Create the issue
+        new_issue = github_client.create_issue(
+            title=title,
+            body=enhanced_body,
+            labels=labels
+        )
+        
+        # Add as sub-issue
+        github_client.add_sub_issue(parent_issue_number, new_issue["number"], replace_parent=False)
+        
+        console_logger.info(f"Created issue #{new_issue['number']} as sub-issue of #{parent_issue_number}")
+        
+        return {
+            "success": True,
+            "parent_issue": parent_issue_number,
+            "sub_issue": {
+                "number": new_issue["number"],
+                "title": new_issue["title"],
+                "url": new_issue["url"],
+                "state": new_issue["state"],
+                "labels": new_issue["labels"]
+            },
+            "message": f"Created issue #{new_issue['number']} as sub-issue of #{parent_issue_number}"
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to create sub-issue: {str(e)}"
+        console_logger.error(error_msg)
+        return {"error": error_msg}
+
+
+@mcp.tool()
+def github_reorder_sub_issues(parent_issue_number: int, sub_issue_numbers: List[int]) -> Dict[str, Any]:
+    """
+    Reorder sub-issues within a parent issue.
+    
+    WHEN TO USE THIS TOOL:
+    - User asks to "reorder sub-issues for #X"
+    - User provides a specific order like "put #3 before #2"
+    - Prioritizing sub-tasks
+    - Organizing workflow sequence
+    - Adjusting implementation order
+    
+    This tool sets the display order of sub-issues under a parent.
+    Provide all sub-issue numbers in the desired order.
+    
+    Args:
+        parent_issue_number: The parent issue number
+        sub_issue_numbers: Ordered list of sub-issue numbers
+        
+    Returns:
+        Operation result with new ordering
+    """
+    try:
+        error, instances = validate_github_prerequisites(require_repo=True)
+        if error:
+            return error
+        github_client, _, _, _, _ = instances
+        
+        # Note: The API accepts issue numbers for current repository
+        # Even though the parameter is named sub_issue_ids, it works with issue numbers
+        github_client.reorder_sub_issues(parent_issue_number, sub_issue_numbers)
+        
+        console_logger.info(f"Reordered {len(sub_issue_numbers)} sub-issues for issue #{parent_issue_number}")
+        
+        return {
+            "success": True,
+            "parent_issue": parent_issue_number,
+            "new_order": sub_issue_numbers,
+            "message": f"Successfully reordered {len(sub_issue_numbers)} sub-issues"
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to reorder sub-issues: {str(e)}"
+        console_logger.error(error_msg)
+        return {"error": error_msg}
+
+
+@mcp.tool()
+def github_add_sub_issues_to_project(project_id: str, parent_issue_number: int) -> Dict[str, Any]:
+    """
+    Add all sub-issues of a parent issue to a GitHub Project V2.
+    
+    WHEN TO USE THIS TOOL:
+    - User asks to "add all sub-issues of #X to project"
+    - User asks to "track sub-tasks in project board"
+    - Managing hierarchical issues in project view
+    - After creating sub-issues for better visualization
+    - Bulk project organization
+    
+    This tool automatically adds all sub-issues with smart field assignment,
+    inheriting relevant values from the parent issue where appropriate.
+    
+    Args:
+        project_id: Project node ID (starts with PVT_)
+        parent_issue_number: Parent issue number with sub-issues
+        
+    Returns:
+        Operation result with added sub-issues and field assignments
+    """
+    try:
+        error, instances = validate_github_prerequisites(require_projects=True, require_repo=True)
+        if error:
+            return error
+        github_client, _, _, _, projects_manager = instances
+        
+        current_repo = github_client.get_current_repository()
+        
+        # Execute smart add sub-issues with async handling
+        result = run_async_in_thread(
+            projects_manager.smart_add_sub_issues_to_project(
+                project_id, parent_issue_number, current_repo, github_client
+            )
+        )
+        
+        console_logger.info(
+            f"Added {result['added_count']} sub-issues from parent #{parent_issue_number} to project"
+        )
+        
+        return {
+            "success": True,
+            "parent_issue": parent_issue_number,
+            "project_id": project_id,
+            "added_count": result["added_count"],
+            "failed_count": result["failed_count"],
+            "sub_issues": result["sub_issues"],
+            "failed_sub_issues": result.get("failed_sub_issues", []),
+            "message": result["message"]
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to add sub-issues to project: {str(e)}"
         console_logger.error(error_msg)
         return {"error": error_msg}
 

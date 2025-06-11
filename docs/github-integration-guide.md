@@ -10,6 +10,7 @@ This guide covers the GitHub issue resolution capabilities added in v0.3.0, incl
 - [🔐 Authentication Setup](#-authentication-setup)
 - [🛠️ Configuration](#️-configuration)
 - [📚 Usage Examples](#-usage-examples)
+- [📋 Sub-Issues Management](#-sub-issues-management-v034post4)
 - [🔍 Analysis Features](#-analysis-features)
 - [🚀 Token Optimization](#-token-optimization)
 - [🛡️ Safety Features](#️-safety-features)
@@ -475,6 +476,207 @@ github_create_pull_request \
   head="fix-auth-bug" \
   base="main"
 ```
+
+## 📋 Sub-Issues Management (v0.3.4.post4)
+
+GitHub sub-issues (task lists) enable hierarchical issue organization for complex features and projects.
+
+### Overview
+
+Sub-issues provide:
+- **Hierarchical Organization**: Parent issues can have multiple sub-tasks
+- **Progress Tracking**: See completion status across all sub-issues
+- **Dependency Management**: Understand task relationships
+- **Projects V2 Integration**: Bulk-add sub-issues to project boards
+
+### Creating Sub-Issues
+
+#### Method 1: Create and Link New Sub-Issue
+```bash
+# Via Claude Code (MCP)
+"Create a sub-task for issue #123 titled 'Implement user authentication'"
+
+# Via HTTP API
+curl -X POST http://localhost:8081/github/create_sub_issue \
+  -H "Content-Type: application/json" \
+  -d '{
+    "parent_issue_number": 123,
+    "title": "Implement user authentication",
+    "body": "Add OAuth2 authentication flow",
+    "labels": ["enhancement", "backend"]
+  }'
+```
+
+#### Method 2: Link Existing Issues
+```bash
+# Via Claude Code
+"Add issue #456 as a sub-issue of #123"
+
+# Via HTTP API
+curl -X POST http://localhost:8081/github/add_sub_issue \
+  -H "Content-Type: application/json" \
+  -d '{
+    "parent_issue_number": 123,
+    "sub_issue_number": 456
+  }'
+```
+
+### Managing Sub-Issues
+
+#### List All Sub-Issues
+```bash
+# Via Claude Code
+"List all sub-issues for issue #123"
+"Show me the sub-tasks of #123"
+
+# Via HTTP API
+curl -X POST http://localhost:8081/github/list_sub_issues \
+  -H "Content-Type: application/json" \
+  -d '{"parent_issue_number": 123}'
+
+# Response example:
+{
+  "parent_issue": 123,
+  "sub_issues_count": 3,
+  "sub_issues": [
+    {
+      "number": 456,
+      "title": "Implement user authentication",
+      "state": "open",
+      "assignee": "developer1"
+    },
+    {
+      "number": 457,
+      "title": "Add database migrations",
+      "state": "closed",
+      "assignee": "developer2"
+    }
+  ]
+}
+```
+
+#### Remove Sub-Issue Relationship
+```bash
+# Via Claude Code
+"Remove sub-issue #456 from parent #123"
+
+# Via HTTP API
+curl -X POST http://localhost:8081/github/remove_sub_issue \
+  -H "Content-Type: application/json" \
+  -d '{
+    "parent_issue_number": 123,
+    "sub_issue_number": 456
+  }'
+```
+
+#### Reorder Sub-Issues
+```bash
+# Via Claude Code
+"Reorder sub-issues for #123: put #458 first, then #456, then #457"
+
+# Via HTTP API
+curl -X POST http://localhost:8081/github/reorder_sub_issues \
+  -H "Content-Type: application/json" \
+  -d '{
+    "parent_issue_number": 123,
+    "sub_issue_numbers": [458, 456, 457]
+  }'
+```
+
+### Re-parenting Issues
+
+Move a sub-issue to a different parent:
+```bash
+# Via Claude Code
+"Move sub-issue #456 from parent #123 to parent #789"
+
+# Via HTTP API (with replace_parent=true)
+curl -X POST http://localhost:8081/github/add_sub_issue \
+  -H "Content-Type: application/json" \
+  -d '{
+    "parent_issue_number": 789,
+    "sub_issue_number": 456,
+    "replace_parent": true
+  }'
+```
+
+### Projects V2 Integration
+
+Automatically add all sub-issues to a project:
+```bash
+# Via Claude Code
+"Add all sub-issues of #123 to project PVT_kwDOAdYevc4A7ABC"
+
+# Via HTTP API
+curl -X POST http://localhost:8081/github/add_sub_issues_to_project \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "PVT_kwDOAdYevc4A7ABC",
+    "parent_issue_number": 123
+  }'
+
+# Response includes:
+{
+  "added_count": 3,
+  "failed_count": 0,
+  "sub_issues": [
+    {
+      "issue_number": 456,
+      "item_id": "PVTI_lADOAdYevc4A7ABC",
+      "applied_fields": {
+        "Status": "In Progress",
+        "Priority": "High"
+      }
+    }
+  ]
+}
+```
+
+### Common Workflows
+
+#### Breaking Down a Feature
+```bash
+# 1. Create parent issue
+"Create issue 'Implement user dashboard' with label 'epic'"
+
+# 2. Create sub-tasks
+"Create sub-issue for #100 titled 'Design dashboard UI'"
+"Create sub-issue for #100 titled 'Implement API endpoints'"
+"Create sub-issue for #100 titled 'Add unit tests'"
+"Create sub-issue for #100 titled 'Write documentation'"
+
+# 3. Add all to project board
+"Add all sub-issues of #100 to the current sprint project"
+```
+
+#### Organizing Existing Issues
+```bash
+# 1. Create a parent issue for organization
+"Create issue 'Q1 Performance Improvements' as an epic"
+
+# 2. Link existing issues as sub-issues
+"Add issue #45 as sub-issue of #200"  # Database optimization
+"Add issue #67 as sub-issue of #200"  # Cache implementation
+"Add issue #89 as sub-issue of #200"  # Query optimization
+
+# 3. Reorder by priority
+"Reorder sub-issues for #200: #89, #45, #67"
+```
+
+### Best Practices
+
+1. **Use Clear Hierarchies**: Keep parent issues high-level, sub-issues specific
+2. **Consistent Labeling**: Sub-issues inherit parent labels by default
+3. **Progress Tracking**: Close sub-issues to track parent progress
+4. **Avoid Deep Nesting**: GitHub supports one level of sub-issues only
+5. **Projects Integration**: Use bulk-add for better project management
+
+### Technical Notes
+
+- **API Implementation**: Uses GitHub REST API with preview headers (PyGithub doesn't support sub-issues)
+- **Parameter Naming**: API uses `sub_issue_id` but accepts issue numbers for current repository
+- **Limitations**: One level of hierarchy only (no sub-sub-issues)
+- **Permissions**: Requires write access to both parent and sub-issues
 
 ## 🔍 Analysis Features
 

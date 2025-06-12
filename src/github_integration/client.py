@@ -257,14 +257,21 @@ class GitHubClient:
             logger.error(f"Failed to list repositories: {e}")
             raise
     
-    def get_issues(self, state: str = "open", labels: Optional[List[str]] = None, 
-                   limit: Optional[int] = None) -> List[Dict[str, Any]]:
+    def get_issues(self, state: str = "open", labels: Optional[List[str]] = None,
+                   milestone: Optional[str] = None, assignee: Optional[str] = None,
+                   since: Optional[str] = None, sort: str = "created",
+                   direction: str = "desc", limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """
-        Get issues from current repository.
+        Get issues from current repository with enhanced filtering.
         
         Args:
             state: Issue state (open, closed, all)
             labels: Filter by labels
+            milestone: Filter by milestone (title or number)
+            assignee: Filter by assignee username (or "none" for unassigned)
+            since: Filter by created/updated date (ISO format)
+            sort: Sort by (created, updated, comments)
+            direction: Sort direction (asc, desc)
             limit: Maximum number of issues
             
         Returns:
@@ -274,10 +281,52 @@ class GitHubClient:
             raise ValueError("No repository set. Call set_repository() first.")
         
         try:
+            # Build filter parameters
+            filter_params = {
+                "state": state,
+                "labels": labels or [],
+                "sort": sort,
+                "direction": direction
+            }
+            
+            # Handle milestone filter
+            if milestone is not None:
+                # Try to parse as number first
+                try:
+                    milestone_num = int(milestone)
+                    milestone_obj = self._retry_request(
+                        self._current_repo.get_milestone, milestone_num
+                    )
+                    filter_params["milestone"] = milestone_obj
+                except (ValueError, Exception):
+                    # If not a number, search by title
+                    milestones = self._retry_request(
+                        self._current_repo.get_milestones, state="all"
+                    )
+                    for ms in milestones:
+                        if ms.title == milestone:
+                            filter_params["milestone"] = ms
+                            break
+                    else:
+                        logger.warning(f"Milestone '{milestone}' not found")
+            
+            # Handle assignee filter
+            if assignee is not None:
+                if assignee.lower() == "none":
+                    filter_params["assignee"] = "none"
+                else:
+                    filter_params["assignee"] = assignee
+            
+            # Handle since filter
+            if since is not None:
+                from datetime import datetime
+                filter_params["since"] = datetime.fromisoformat(
+                    since.replace('Z', '+00:00')
+                )
+            
             issues = self._retry_request(
                 self._current_repo.get_issues,
-                state=state,
-                labels=labels or []
+                **filter_params
             )
             
             result = []
@@ -438,6 +487,237 @@ class GitHubClient:
             
         except Exception as e:
             logger.error(f"Failed to add comment to issue {issue_number}: {e}")
+            raise
+    
+    def update_issue(self, issue_number: int, **kwargs) -> Dict[str, Any]:
+        """
+        Update issue properties.
+        
+        Args:
+            issue_number: Issue number to update
+            **kwargs: Properties to update (title, body, state, labels, assignees, milestone)
+                     All parameters are optional - only specified fields will be updated
+            
+        Returns:
+            Updated issue information
+        """
+        if not self._current_repo:
+            raise ValueError("No repository set. Call set_repository() first.")
+        
+        try:
+            issue = self._retry_request(self._current_repo.get_issue, issue_number)
+            
+            # Build update parameters
+            update_params = {}
+            
+            if 'title' in kwargs:
+                update_params['title'] = kwargs['title']
+            
+            if 'body' in kwargs:
+                update_params['body'] = kwargs['body']
+            
+            if 'state' in kwargs:
+                update_params['state'] = kwargs['state']
+                # Handle state_reason for closing
+                if kwargs['state'] == 'closed' and 'state_reason' in kwargs:
+                    update_params['state_reason'] = kwargs['state_reason']
+            
+            if 'labels' in kwargs:
+                update_params['labels'] = kwargs['labels']
+            
+            if 'assignees' in kwargs:
+                update_params['assignees'] = kwargs['assignees']
+            
+            if 'milestone' in kwargs:
+                # milestone can be a number or None to remove
+                if kwargs['milestone'] is not None:
+                    milestone = self._retry_request(
+                        self._current_repo.get_milestone, 
+                        kwargs['milestone']
+                    )
+                    update_params['milestone'] = milestone
+                else:
+                    update_params['milestone'] = None
+            
+            # Apply updates
+            if update_params:
+                self._retry_request(issue.edit, **update_params)
+            
+            # Refresh issue data
+            issue = self._retry_request(self._current_repo.get_issue, issue_number)
+            
+            return {
+                "number": issue.number,
+                "title": issue.title,
+                "body": issue.body,
+                "state": issue.state,
+                "labels": [label.name for label in issue.labels],
+                "assignees": [assignee.login for assignee in issue.assignees],
+                "author": issue.user.login if issue.user else None,
+                "created_at": issue.created_at.isoformat() if issue.created_at else None,
+                "updated_at": issue.updated_at.isoformat() if issue.updated_at else None,
+                "comments_count": issue.comments,
+                "url": issue.html_url,
+                "milestone": issue.milestone.title if issue.milestone else None
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to update issue {issue_number}: {e}")
+            raise
+    
+    def close_issue(self, issue_number: int, reason: str = "completed", 
+                   comment: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Close a GitHub issue with state reason.
+        
+        Args:
+            issue_number: Issue number to close
+            reason: Close reason (completed, not_planned, duplicate)
+            comment: Optional comment to add before closing
+            
+        Returns:
+            Updated issue information
+        """
+        if not self._current_repo:
+            raise ValueError("No repository set. Call set_repository() first.")
+        
+        # Validate reason
+        valid_reasons = ["completed", "not_planned", "duplicate"]
+        if reason not in valid_reasons:
+            raise ValueError(f"Invalid close reason. Must be one of: {', '.join(valid_reasons)}")
+        
+        try:
+            # Add comment if provided
+            if comment:
+                self.add_comment(issue_number, comment)
+            
+            # Close the issue with reason
+            return self.update_issue(
+                issue_number, 
+                state="closed",
+                state_reason=reason
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to close issue {issue_number}: {e}")
+            raise
+    
+    def assign_issue(self, issue_number: int, assignees: List[str], 
+                    operation: str = "add") -> Dict[str, Any]:
+        """
+        Assign or unassign users to/from an issue.
+        
+        Args:
+            issue_number: Issue number
+            assignees: List of usernames to assign/unassign
+            operation: "add" to assign, "remove" to unassign
+            
+        Returns:
+            Updated issue information
+        """
+        if not self._current_repo:
+            raise ValueError("No repository set. Call set_repository() first.")
+        
+        if operation not in ["add", "remove"]:
+            raise ValueError("Operation must be 'add' or 'remove'")
+        
+        try:
+            issue = self._retry_request(self._current_repo.get_issue, issue_number)
+            
+            if operation == "add":
+                # Add assignees
+                self._retry_request(issue.add_to_assignees, *assignees)
+            else:
+                # Remove assignees
+                self._retry_request(issue.remove_from_assignees, *assignees)
+            
+            # Refresh and return issue data
+            issue = self._retry_request(self._current_repo.get_issue, issue_number)
+            
+            return {
+                "number": issue.number,
+                "title": issue.title,
+                "body": issue.body,
+                "state": issue.state,
+                "labels": [label.name for label in issue.labels],
+                "assignees": [assignee.login for assignee in issue.assignees],
+                "author": issue.user.login if issue.user else None,
+                "created_at": issue.created_at.isoformat() if issue.created_at else None,
+                "updated_at": issue.updated_at.isoformat() if issue.updated_at else None,
+                "comments_count": issue.comments,
+                "url": issue.html_url,
+                "milestone": issue.milestone.title if issue.milestone else None
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to assign/unassign issue {issue_number}: {e}")
+            raise
+    
+    def search_issues(self, query: str, sort: Optional[str] = None,
+                     order: str = "desc") -> List[Dict[str, Any]]:
+        """
+        Search issues using GitHub's search API.
+        
+        Args:
+            query: Search query using GitHub search syntax
+            sort: Sort by (comments, created, updated)
+            order: Sort order (asc, desc)
+            
+        Returns:
+            List of issue information matching the search
+            
+        Example queries:
+            - "is:issue is:open milestone:v0.3.5"
+            - "is:issue assignee:@me label:bug"
+            - "is:issue is:open no:assignee"
+        """
+        if not self._github:
+            raise ValueError("GitHub client not initialized")
+        
+        try:
+            # Add repo qualifier if not present
+            repo_qualifier = f"repo:{self._current_repo.full_name}" if self._current_repo else ""
+            if repo_qualifier and "repo:" not in query:
+                query = f"{repo_qualifier} {query}"
+            
+            # Build search parameters
+            search_params = {"order": order}
+            if sort:
+                search_params["sort"] = sort
+            
+            # Perform search
+            search_results = self._retry_request(
+                self._github.search_issues,
+                query=query,
+                **search_params
+            )
+            
+            result = []
+            for issue in search_results:
+                # Skip pull requests
+                if issue.pull_request:
+                    continue
+                
+                result.append({
+                    "number": issue.number,
+                    "title": issue.title,
+                    "body": issue.body,
+                    "state": issue.state,
+                    "labels": [label.name for label in issue.labels],
+                    "assignees": [assignee.login for assignee in issue.assignees],
+                    "author": issue.user.login if issue.user else None,
+                    "created_at": issue.created_at.isoformat() if issue.created_at else None,
+                    "updated_at": issue.updated_at.isoformat() if issue.updated_at else None,
+                    "comments_count": issue.comments,
+                    "url": issue.html_url,
+                    "repository": issue.repository.full_name,
+                    "milestone": issue.milestone.title if issue.milestone else None
+                })
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to search issues: {e}")
             raise
     
     def create_pull_request(self, title: str, body: str, head: str, base: str = "main",
@@ -833,6 +1113,177 @@ class GitHubClient:
         }
         
         return self._retry_request(self._make_rest_request, "PATCH", endpoint, data)
+    
+    def list_milestones(self, state: str = "open", sort: str = "due_on", 
+                       direction: str = "asc") -> List[Dict[str, Any]]:
+        """
+        List repository milestones.
+        
+        Args:
+            state: State of milestones (open, closed, all)
+            sort: Sort by (due_on, completeness)
+            direction: Sort direction (asc, desc)
+            
+        Returns:
+            List of milestone information
+        """
+        if not self._current_repo:
+            raise ValueError("No repository set. Call set_repository() first.")
+        
+        try:
+            milestones = self._retry_request(
+                self._current_repo.get_milestones,
+                state=state,
+                sort=sort,
+                direction=direction
+            )
+            
+            result = []
+            for milestone in milestones:
+                result.append({
+                    "number": milestone.number,
+                    "title": milestone.title,
+                    "description": milestone.description,
+                    "state": milestone.state,
+                    "due_on": milestone.due_on.isoformat() if milestone.due_on else None,
+                    "created_at": milestone.created_at.isoformat() if milestone.created_at else None,
+                    "updated_at": milestone.updated_at.isoformat() if milestone.updated_at else None,
+                    "closed_at": milestone.closed_at.isoformat() if milestone.closed_at else None,
+                    "open_issues": milestone.open_issues,
+                    "closed_issues": milestone.closed_issues,
+                    "url": milestone.url
+                })
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to list milestones: {e}")
+            raise
+    
+    def create_milestone(self, title: str, description: Optional[str] = None,
+                        due_on: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Create a new milestone.
+        
+        Args:
+            title: Milestone title
+            description: Milestone description
+            due_on: Due date in ISO format (YYYY-MM-DD)
+            
+        Returns:
+            Created milestone information
+        """
+        if not self._current_repo:
+            raise ValueError("No repository set. Call set_repository() first.")
+        
+        try:
+            # Parse due date if provided
+            due_date = None
+            if due_on:
+                from datetime import datetime
+                due_date = datetime.fromisoformat(due_on.replace('Z', '+00:00'))
+            
+            milestone = self._retry_request(
+                self._current_repo.create_milestone,
+                title=title,
+                description=description or "",
+                due_on=due_date
+            )
+            
+            return {
+                "number": milestone.number,
+                "title": milestone.title,
+                "description": milestone.description,
+                "state": milestone.state,
+                "due_on": milestone.due_on.isoformat() if milestone.due_on else None,
+                "created_at": milestone.created_at.isoformat() if milestone.created_at else None,
+                "updated_at": milestone.updated_at.isoformat() if milestone.updated_at else None,
+                "closed_at": milestone.closed_at.isoformat() if milestone.closed_at else None,
+                "open_issues": milestone.open_issues,
+                "closed_issues": milestone.closed_issues,
+                "url": milestone.url
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to create milestone: {e}")
+            raise
+    
+    def update_milestone(self, number: int, **kwargs) -> Dict[str, Any]:
+        """
+        Update milestone properties.
+        
+        Args:
+            number: Milestone number
+            **kwargs: Properties to update (title, description, due_on, state)
+            
+        Returns:
+            Updated milestone information
+        """
+        if not self._current_repo:
+            raise ValueError("No repository set. Call set_repository() first.")
+        
+        try:
+            milestone = self._retry_request(self._current_repo.get_milestone, number)
+            
+            # Build update parameters
+            update_params = {}
+            
+            if 'title' in kwargs:
+                update_params['title'] = kwargs['title']
+            
+            if 'description' in kwargs:
+                update_params['description'] = kwargs['description']
+            
+            if 'state' in kwargs:
+                update_params['state'] = kwargs['state']
+            
+            if 'due_on' in kwargs:
+                if kwargs['due_on']:
+                    from datetime import datetime
+                    update_params['due_on'] = datetime.fromisoformat(
+                        kwargs['due_on'].replace('Z', '+00:00')
+                    )
+                else:
+                    update_params['due_on'] = None
+            
+            # Apply updates - milestone.edit requires title as first parameter
+            if update_params:
+                # Get current title if not updating it
+                title = update_params.pop('title', milestone.title)
+                self._retry_request(milestone.edit, title, **update_params)
+            
+            # Refresh milestone data
+            milestone = self._retry_request(self._current_repo.get_milestone, number)
+            
+            return {
+                "number": milestone.number,
+                "title": milestone.title,
+                "description": milestone.description,
+                "state": milestone.state,
+                "due_on": milestone.due_on.isoformat() if milestone.due_on else None,
+                "created_at": milestone.created_at.isoformat() if milestone.created_at else None,
+                "updated_at": milestone.updated_at.isoformat() if milestone.updated_at else None,
+                "closed_at": milestone.closed_at.isoformat() if milestone.closed_at else None,
+                "open_issues": milestone.open_issues,
+                "closed_issues": milestone.closed_issues,
+                "url": milestone.url
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to update milestone {number}: {e}")
+            raise
+    
+    def close_milestone(self, number: int) -> Dict[str, Any]:
+        """
+        Close a milestone.
+        
+        Args:
+            number: Milestone number
+            
+        Returns:
+            Updated milestone information
+        """
+        return self.update_milestone(number, state="closed")
 
 
 # Global client instance

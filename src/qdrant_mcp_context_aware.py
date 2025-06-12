@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     from . import __version__
 except ImportError:
-    __version__ = "0.3.4.post4"  # Fallback version
+    __version__ = "0.3.4.post5"  # Fallback version
 
 # Load environment variables from the MCP server directory
 from dotenv import load_dotenv
@@ -5253,28 +5253,39 @@ def github_switch_repository(owner: str, repo: str) -> Dict[str, Any]:
 
 
 @mcp.tool()
-def github_fetch_issues(state: str = "open", labels: Optional[List[str]] = None, 
-                       limit: Optional[int] = None) -> Dict[str, Any]:
+def github_fetch_issues(state: str = "open", labels: Optional[List[str]] = None,
+                       milestone: Optional[str] = None, assignee: Optional[str] = None,
+                       since: Optional[str] = None, sort: str = "created",
+                       direction: str = "desc", limit: Optional[int] = None) -> Dict[str, Any]:
     """
-    Fetch GitHub issues from current repository.
+    Fetch GitHub issues from current repository with enhanced filtering.
     
     WHEN TO USE THIS TOOL:
     - User asks to "show issues" or "list bugs"
     - Looking for work items or tasks
     - User asks "what issues are open?"
-    - Filtering issues by label or state
+    - Filtering issues by label, milestone, or assignee
+    - Finding unassigned issues ("assignee=none")
     - Before analyzing or working on issues
     
     This tool automatically:
     - Fetches issues from current repository
     - Filters by state (open/closed/all)
     - Filters by labels if specified
+    - Filters by milestone (name or number)
+    - Filters by assignee (username or "none")
+    - Filters by date (created/updated since)
     - Returns issue titles, numbers, and metadata
     - Includes assignees and timestamps
     
     Args:
         state: Issue state (open, closed, all)
         labels: Filter by labels
+        milestone: Filter by milestone (title or number)
+        assignee: Filter by assignee username (or "none" for unassigned)
+        since: Filter by created/updated date (ISO format)
+        sort: Sort by (created, updated, comments)
+        direction: Sort direction (asc, desc)
         limit: Maximum number of issues
         
     Returns:
@@ -5286,7 +5297,11 @@ def github_fetch_issues(state: str = "open", labels: Optional[List[str]] = None,
             return error
         github_client, _, _, _, _ = instances
         
-        issues = github_client.get_issues(state=state, labels=labels, limit=limit)
+        issues = github_client.get_issues(
+            state=state, labels=labels, milestone=milestone,
+            assignee=assignee, since=since, sort=sort,
+            direction=direction, limit=limit
+        )
         
         console_logger.info(
             f"Fetched {len(issues)} issues",
@@ -6678,6 +6693,501 @@ def github_add_sub_issues_to_project(project_id: str, parent_issue_number: int) 
         
     except Exception as e:
         error_msg = f"Failed to add sub-issues to project: {str(e)}"
+        console_logger.error(error_msg)
+        return {"error": error_msg}
+
+
+# Enhanced GitHub Issue Management Tools (v0.3.4.post5)
+
+@mcp.tool()
+def github_close_issue(issue_number: int, reason: str = "completed",
+                      comment: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Close a GitHub issue with state reason.
+    
+    WHEN TO USE THIS TOOL:
+    - User asks to "close issue #X"
+    - Marking issues as completed/wontfix/duplicate
+    - Closing issues with explanatory comments
+    - Batch closing related issues
+    
+    This tool automatically:
+    - Adds optional comment before closing
+    - Sets appropriate close reason
+    - Updates issue state to closed
+    - Returns updated issue information
+    
+    Args:
+        issue_number: Issue number to close
+        reason: Close reason (completed, not_planned, duplicate)
+        comment: Optional comment to add before closing
+        
+    Returns:
+        Updated issue information
+    """
+    try:
+        error, instances = validate_github_prerequisites(require_repo=True)
+        if error:
+            return error
+        github_client, _, _, _, _ = instances
+        
+        result = github_client.close_issue(issue_number, reason=reason, comment=comment)
+        
+        console_logger.info(
+            f"Closed issue #{issue_number} with reason: {reason}",
+            extra={
+                "operation": "github_close_issue",
+                "issue_number": issue_number,
+                "reason": reason
+            }
+        )
+        
+        return {
+            "success": True,
+            "issue": result,
+            "message": f"Issue #{issue_number} closed as {reason}"
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to close issue: {str(e)}"
+        console_logger.error(error_msg)
+        return {"error": error_msg}
+
+
+@mcp.tool()
+def github_assign_issue(issue_number: int, assignees: List[str],
+                       operation: str = "add") -> Dict[str, Any]:
+    """
+    Assign or unassign users to/from a GitHub issue.
+    
+    WHEN TO USE THIS TOOL:
+    - User asks to "assign issue #X to @user"
+    - User asks to "unassign @user from issue #X"
+    - Managing workload distribution
+    - Claiming issues for work
+    
+    This tool automatically:
+    - Validates usernames exist
+    - Adds or removes assignees
+    - Updates issue assignee list
+    - Returns updated issue information
+    
+    Args:
+        issue_number: Issue number
+        assignees: List of usernames to assign/unassign
+        operation: "add" to assign, "remove" to unassign
+        
+    Returns:
+        Updated issue information
+    """
+    try:
+        error, instances = validate_github_prerequisites(require_repo=True)
+        if error:
+            return error
+        github_client, _, _, _, _ = instances
+        
+        result = github_client.assign_issue(issue_number, assignees, operation)
+        
+        action = "assigned to" if operation == "add" else "unassigned from"
+        console_logger.info(
+            f"Users {assignees} {action} issue #{issue_number}",
+            extra={
+                "operation": "github_assign_issue",
+                "issue_number": issue_number,
+                "assignees": assignees,
+                "action": operation
+            }
+        )
+        
+        return {
+            "success": True,
+            "issue": result,
+            "message": f"Users {', '.join(assignees)} {action} issue #{issue_number}"
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to assign/unassign issue: {str(e)}"
+        console_logger.error(error_msg)
+        return {"error": error_msg}
+
+
+@mcp.tool()
+def github_update_issue(issue_number: int, title: Optional[str] = None,
+                       body: Optional[str] = None, labels: Optional[List[str]] = None,
+                       milestone: Optional[int] = None, assignees: Optional[List[str]] = None,
+                       state: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Update issue properties (title, body, labels, milestone, assignees).
+    
+    WHEN TO USE THIS TOOL:
+    - User asks to "update issue #X title/description"
+    - User asks to "add labels to issue #X"
+    - User asks to "set milestone for issue #X"
+    - Bulk updating issue properties
+    
+    This tool automatically:
+    - Updates only specified fields
+    - Validates milestone exists
+    - Preserves unspecified fields
+    - Returns updated issue information
+    
+    Args:
+        issue_number: Issue number to update
+        title: New title (optional)
+        body: New body/description (optional)
+        labels: New labels list (optional)
+        milestone: Milestone number (optional, None to remove)
+        assignees: New assignees list (optional)
+        state: New state (optional)
+        
+    Returns:
+        Updated issue information
+    """
+    try:
+        error, instances = validate_github_prerequisites(require_repo=True)
+        if error:
+            return error
+        github_client, _, _, _, _ = instances
+        
+        # Build kwargs for update
+        update_kwargs = {}
+        if title is not None:
+            update_kwargs['title'] = title
+        if body is not None:
+            update_kwargs['body'] = body
+        if labels is not None:
+            update_kwargs['labels'] = labels
+        if milestone is not None:
+            update_kwargs['milestone'] = milestone
+        if assignees is not None:
+            update_kwargs['assignees'] = assignees
+        if state is not None:
+            update_kwargs['state'] = state
+        
+        result = github_client.update_issue(issue_number, **update_kwargs)
+        
+        console_logger.info(
+            f"Updated issue #{issue_number}",
+            extra={
+                "operation": "github_update_issue",
+                "issue_number": issue_number,
+                "updated_fields": list(update_kwargs.keys())
+            }
+        )
+        
+        return {
+            "success": True,
+            "issue": result,
+            "updated_fields": list(update_kwargs.keys()),
+            "message": f"Issue #{issue_number} updated successfully"
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to update issue: {str(e)}"
+        console_logger.error(error_msg)
+        return {"error": error_msg}
+
+
+@mcp.tool()
+def github_search_issues(query: str, sort: Optional[str] = None,
+                        order: str = "desc", limit: Optional[int] = None) -> Dict[str, Any]:
+    """
+    Search issues using GitHub's search API with advanced queries.
+    
+    WHEN TO USE THIS TOOL:
+    - User provides complex search criteria
+    - User asks for "issues created after date X"
+    - User asks for "unassigned bugs in milestone Y"
+    - Advanced filtering beyond basic fetch_issues
+    
+    This tool automatically:
+    - Uses GitHub search syntax
+    - Adds repository qualifier if needed
+    - Filters out pull requests
+    - Returns matching issues
+    
+    Args:
+        query: Search query using GitHub syntax
+        sort: Sort by (comments, created, updated)
+        order: Sort order (asc, desc)
+        limit: Maximum results (applied after fetching)
+        
+    Returns:
+        List of matching issues
+        
+    Example queries:
+    - "is:issue is:open milestone:v0.3.5"
+    - "is:issue assignee:@me label:bug"
+    - "is:issue is:open no:assignee"
+    - "is:issue created:>2025-01-01"
+    """
+    try:
+        error, instances = validate_github_prerequisites()
+        if error:
+            return error
+        github_client, _, _, _, _ = instances
+        
+        issues = github_client.search_issues(query, sort=sort, order=order)
+        
+        # Apply limit if specified
+        if limit and len(issues) > limit:
+            issues = issues[:limit]
+        
+        console_logger.info(
+            f"Search found {len(issues)} issues",
+            extra={
+                "operation": "github_search_issues",
+                "query": query,
+                "count": len(issues)
+            }
+        )
+        
+        return {
+            "issues": issues,
+            "count": len(issues),
+            "query": query,
+            "sort": sort,
+            "order": order
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to search issues: {str(e)}"
+        console_logger.error(error_msg)
+        return {"error": error_msg}
+
+
+# Milestone Management Tools
+
+@mcp.tool()
+def github_list_milestones(state: str = "open", sort: str = "due_on",
+                          direction: str = "asc") -> Dict[str, Any]:
+    """
+    List repository milestones for release planning.
+    
+    WHEN TO USE THIS TOOL:
+    - User asks to "list milestones"
+    - User asks "what releases are planned?"
+    - Planning version releases
+    - Before creating or updating milestones
+    
+    This tool automatically:
+    - Lists all milestones by state
+    - Shows progress (open/closed issues)
+    - Includes due dates
+    - Sorts by due date or completeness
+    
+    Args:
+        state: Milestone state (open, closed, all)
+        sort: Sort by (due_on, completeness)
+        direction: Sort direction (asc, desc)
+        
+    Returns:
+        List of milestone information
+    """
+    try:
+        error, instances = validate_github_prerequisites(require_repo=True)
+        if error:
+            return error
+        github_client, _, _, _, _ = instances
+        
+        milestones = github_client.list_milestones(state=state, sort=sort, direction=direction)
+        
+        console_logger.info(
+            f"Listed {len(milestones)} milestones",
+            extra={
+                "operation": "github_list_milestones",
+                "state": state,
+                "count": len(milestones)
+            }
+        )
+        
+        return {
+            "milestones": milestones,
+            "count": len(milestones),
+            "state": state,
+            "repository": github_client.get_current_repository().full_name
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to list milestones: {str(e)}"
+        console_logger.error(error_msg)
+        return {"error": error_msg}
+
+
+@mcp.tool()
+def github_create_milestone(title: str, description: Optional[str] = None,
+                          due_on: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Create a new milestone for release planning.
+    
+    WHEN TO USE THIS TOOL:
+    - User asks to "create milestone for v0.3.5"
+    - Planning new releases
+    - Setting up version targets
+    - Organizing issues by release
+    
+    This tool automatically:
+    - Creates milestone with title
+    - Sets optional description
+    - Sets optional due date
+    - Returns milestone details
+    
+    Args:
+        title: Milestone title
+        description: Milestone description
+        due_on: Due date in ISO format (YYYY-MM-DD)
+        
+    Returns:
+        Created milestone information
+    """
+    try:
+        error, instances = validate_github_prerequisites(require_repo=True)
+        if error:
+            return error
+        github_client, _, _, _, _ = instances
+        
+        milestone = github_client.create_milestone(title=title, description=description, due_on=due_on)
+        
+        console_logger.info(
+            f"Created milestone '{title}'",
+            extra={
+                "operation": "github_create_milestone",
+                "title": title,
+                "number": milestone["number"]
+            }
+        )
+        
+        return {
+            "success": True,
+            "milestone": milestone,
+            "message": f"Milestone '{title}' created successfully"
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to create milestone: {str(e)}"
+        console_logger.error(error_msg)
+        return {"error": error_msg}
+
+
+@mcp.tool()
+def github_update_milestone(number: int, title: Optional[str] = None,
+                          description: Optional[str] = None,
+                          due_on: Optional[str] = None,
+                          state: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Update milestone properties.
+    
+    WHEN TO USE THIS TOOL:
+    - User asks to "update milestone #X"
+    - Changing milestone due dates
+    - Updating milestone descriptions
+    - Closing completed milestones
+    
+    This tool automatically:
+    - Updates only specified fields
+    - Preserves unspecified fields
+    - Handles date formatting
+    - Returns updated milestone
+    
+    Args:
+        number: Milestone number
+        title: New title (optional)
+        description: New description (optional)
+        due_on: New due date in ISO format (optional)
+        state: New state (open/closed) (optional)
+        
+    Returns:
+        Updated milestone information
+    """
+    try:
+        error, instances = validate_github_prerequisites(require_repo=True)
+        if error:
+            return error
+        github_client, _, _, _, _ = instances
+        
+        # Build kwargs for update
+        update_kwargs = {}
+        if title is not None:
+            update_kwargs['title'] = title
+        if description is not None:
+            update_kwargs['description'] = description
+        if due_on is not None:
+            update_kwargs['due_on'] = due_on
+        if state is not None:
+            update_kwargs['state'] = state
+        
+        milestone = github_client.update_milestone(number, **update_kwargs)
+        
+        console_logger.info(
+            f"Updated milestone #{number}",
+            extra={
+                "operation": "github_update_milestone",
+                "number": number,
+                "updated_fields": list(update_kwargs.keys())
+            }
+        )
+        
+        return {
+            "success": True,
+            "milestone": milestone,
+            "updated_fields": list(update_kwargs.keys()),
+            "message": f"Milestone #{number} updated successfully"
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to update milestone: {str(e)}"
+        console_logger.error(error_msg)
+        return {"error": error_msg}
+
+
+@mcp.tool()
+def github_close_milestone(number: int) -> Dict[str, Any]:
+    """
+    Close a completed milestone.
+    
+    WHEN TO USE THIS TOOL:
+    - User asks to "close milestone #X"
+    - Milestone work is complete
+    - After a release is shipped
+    - Archiving old milestones
+    
+    This tool automatically:
+    - Sets milestone state to closed
+    - Preserves all other properties
+    - Updates closed timestamp
+    - Returns milestone details
+    
+    Args:
+        number: Milestone number to close
+        
+    Returns:
+        Updated milestone information
+    """
+    try:
+        error, instances = validate_github_prerequisites(require_repo=True)
+        if error:
+            return error
+        github_client, _, _, _, _ = instances
+        
+        milestone = github_client.close_milestone(number)
+        
+        console_logger.info(
+            f"Closed milestone #{number}",
+            extra={
+                "operation": "github_close_milestone",
+                "number": number,
+                "title": milestone["title"]
+            }
+        )
+        
+        return {
+            "success": True,
+            "milestone": milestone,
+            "message": f"Milestone #{number} '{milestone['title']}' closed successfully"
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to close milestone: {str(e)}"
         console_logger.error(error_msg)
         return {"error": error_msg}
 

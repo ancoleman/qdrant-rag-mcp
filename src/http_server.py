@@ -45,7 +45,10 @@ from qdrant_mcp_context_aware import (
     github_smart_add_project_item,
     # GitHub Sub-Issues functions (v0.3.4.post4)
     github_list_sub_issues, github_add_sub_issue, github_remove_sub_issue,
-    github_create_sub_issue, github_reorder_sub_issues, github_add_sub_issues_to_project
+    github_create_sub_issue, github_reorder_sub_issues, github_add_sub_issues_to_project,
+    # Enhanced GitHub Issue Management functions (v0.3.4.post5)
+    github_close_issue, github_assign_issue, github_update_issue, github_search_issues,
+    github_list_milestones, github_create_milestone, github_update_milestone, github_close_milestone
 )
 
 @asynccontextmanager
@@ -60,7 +63,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Qdrant RAG Server HTTP API", 
-    version="0.3.4.post4",
+    version="0.3.4.post5",
     lifespan=lifespan
 )
 
@@ -166,6 +169,11 @@ class GitHubSwitchRepositoryRequest(BaseModel):
 class GitHubFetchIssuesRequest(BaseModel):
     state: Optional[str] = "open"
     labels: Optional[List[str]] = None
+    milestone: Optional[str] = None
+    assignee: Optional[str] = None
+    since: Optional[str] = None
+    sort: str = "created"
+    direction: str = "desc"
     limit: Optional[int] = None
 
 class GitHubGetIssueRequest(BaseModel):
@@ -256,6 +264,53 @@ class GitHubReorderSubIssuesRequest(BaseModel):
 class GitHubAddSubIssuesToProjectRequest(BaseModel):
     project_id: str
     parent_issue_number: int
+
+# Enhanced GitHub Issue Management Request Models (v0.3.4.post5)
+
+class GitHubCloseIssueRequest(BaseModel):
+    issue_number: int
+    reason: str = "completed"
+    comment: Optional[str] = None
+
+class GitHubAssignIssueRequest(BaseModel):
+    issue_number: int
+    assignees: List[str]
+    operation: str = "add"
+
+class GitHubUpdateIssueRequest(BaseModel):
+    issue_number: int
+    title: Optional[str] = None
+    body: Optional[str] = None
+    labels: Optional[List[str]] = None
+    milestone: Optional[int] = None
+    assignees: Optional[List[str]] = None
+    state: Optional[str] = None
+
+class GitHubSearchIssuesRequest(BaseModel):
+    query: str
+    sort: Optional[str] = None
+    order: str = "desc"
+    limit: Optional[int] = None
+
+class GitHubListMilestonesRequest(BaseModel):
+    state: str = "open"
+    sort: str = "due_on"
+    direction: str = "asc"
+
+class GitHubCreateMilestoneRequest(BaseModel):
+    title: str
+    description: Optional[str] = None
+    due_on: Optional[str] = None
+
+class GitHubUpdateMilestoneRequest(BaseModel):
+    number: int
+    title: Optional[str] = None
+    description: Optional[str] = None
+    due_on: Optional[str] = None
+    state: Optional[str] = None
+
+class GitHubCloseMilestoneRequest(BaseModel):
+    number: int
 
 # Startup is now handled by lifespan context manager
 
@@ -569,9 +624,14 @@ async def github_switch_repository_endpoint(request: GitHubSwitchRepositoryReque
 async def github_fetch_issues_endpoint(
     state: Optional[str] = "open",
     labels: Optional[str] = None,
+    milestone: Optional[str] = None,
+    assignee: Optional[str] = None,
+    since: Optional[str] = None,
+    sort: str = "created",
+    direction: str = "desc",
     limit: Optional[int] = None
 ):
-    """Fetch GitHub issues from current repository"""
+    """Fetch GitHub issues from current repository with enhanced filtering"""
     try:
         # Parse labels from comma-separated string
         labels_list = labels.split(",") if labels else None
@@ -579,6 +639,11 @@ async def github_fetch_issues_endpoint(
         result = github_fetch_issues(
             state=state,
             labels=labels_list,
+            milestone=milestone,
+            assignee=assignee,
+            since=since,
+            sort=sort,
+            direction=direction,
             limit=limit
         )
         
@@ -1071,6 +1136,177 @@ async def github_add_sub_issues_to_project_endpoint(request: GitHubAddSubIssuesT
             project_id=request.project_id,
             parent_issue_number=request.parent_issue_number
         )
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Enhanced GitHub Issue Management Endpoints (v0.3.4.post5)
+
+@app.patch("/github/issues/{issue_number}/close")
+async def github_close_issue_endpoint(issue_number: int, request: GitHubCloseIssueRequest):
+    """Close a GitHub issue with state reason"""
+    try:
+        result = github_close_issue(
+            issue_number=issue_number,
+            reason=request.reason,
+            comment=request.comment
+        )
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/github/issues/{issue_number}/assignees")
+async def github_assign_issue_endpoint(issue_number: int, request: GitHubAssignIssueRequest):
+    """Assign or unassign users to/from a GitHub issue"""
+    try:
+        result = github_assign_issue(
+            issue_number=issue_number,
+            assignees=request.assignees,
+            operation=request.operation
+        )
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.patch("/github/issues/{issue_number}")
+async def github_update_issue_endpoint(issue_number: int, request: GitHubUpdateIssueRequest):
+    """Update issue properties"""
+    try:
+        result = github_update_issue(
+            issue_number=issue_number,
+            title=request.title,
+            body=request.body,
+            labels=request.labels,
+            milestone=request.milestone,
+            assignees=request.assignees,
+            state=request.state
+        )
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/github/issues/search")
+async def github_search_issues_endpoint(request: GitHubSearchIssuesRequest):
+    """Search issues using GitHub's search API"""
+    try:
+        result = github_search_issues(
+            query=request.query,
+            sort=request.sort,
+            order=request.order,
+            limit=request.limit
+        )
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Milestone Management Endpoints
+
+@app.get("/github/milestones")
+async def github_list_milestones_endpoint(
+    state: str = "open",
+    sort: str = "due_on",
+    direction: str = "asc"
+):
+    """List repository milestones"""
+    try:
+        result = github_list_milestones(
+            state=state,
+            sort=sort,
+            direction=direction
+        )
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/github/milestones")
+async def github_create_milestone_endpoint(request: GitHubCreateMilestoneRequest):
+    """Create a new milestone"""
+    try:
+        result = github_create_milestone(
+            title=request.title,
+            description=request.description,
+            due_on=request.due_on
+        )
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.patch("/github/milestones/{number}")
+async def github_update_milestone_endpoint(number: int, request: GitHubUpdateMilestoneRequest):
+    """Update milestone properties"""
+    try:
+        result = github_update_milestone(
+            number=number,
+            title=request.title,
+            description=request.description,
+            due_on=request.due_on,
+            state=request.state
+        )
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/github/milestones/{number}")
+async def github_close_milestone_endpoint(number: int):
+    """Close a milestone"""
+    try:
+        result = github_close_milestone(number=number)
         
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])

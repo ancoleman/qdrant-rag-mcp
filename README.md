@@ -1,16 +1,21 @@
 # Qdrant RAG MCP Server
 
-A context-aware Model Context Protocol (MCP) server that provides semantic search capabilities across your codebase using Qdrant vector database. Now with **intelligent GitHub issue resolution** (v0.3.0) and **GitHub Projects V2 management** (v0.3.4). Designed to work seamlessly with Claude Code.
+A context-aware Model Context Protocol (MCP) server that provides semantic search capabilities across your codebase using Qdrant vector database. Now with **intelligent GitHub issue resolution** (v0.3.0), **GitHub Projects V2 management** (v0.3.4), and **hierarchical sub-issues support** (v0.3.4.post4). Designed to work seamlessly with Claude Code.
 
 > **Why MCP RAG?** This server enables AI agents to efficiently work with entire codebases while using 95%+ fewer tokens. [Learn how →](docs/reference/why-mcp-rag-agentic-coding.md)
 
 ## 🌟 Features
 
-### 🆕 GitHub Integration (v0.3.0) + Projects V2 (v0.3.4)
+### 🆕 GitHub Integration (v0.3.0) + Projects V2 (v0.3.4) + Sub-Issues (v0.3.4.post4)
 - **🤖 Intelligent Issue Resolution**: RAG-powered GitHub issue analysis and automated fix generation
 - **🔄 End-to-End Workflows**: Analyze issues → Generate fixes → Create PRs with dry-run safety
 - **📋 GitHub Projects V2 Management**: Create projects, manage roadmaps, track progress with custom dashboards
-- **🎯 24 GitHub MCP Tools**: Complete issue lifecycle + 8 new project management tools via natural language
+- **🎯 29 GitHub MCP Tools**: Complete issue lifecycle + 8 project management tools + 5 sub-issues tools via natural language
+- **📑 Hierarchical Sub-Issues**: Break down complex work with parent/child issue relationships
+  - List, add, remove, create, and reorder sub-issues
+  - Bulk add sub-issues to Projects V2 with smart field assignment
+  - Re-parenting support for reorganizing work
+  - Automatic issue number to ID conversion for intuitive usage
 - **💬 Issue Comments**: Add comments to existing issues for workflow updates and collaboration
 - **🧠 Smart Project Assignment**: RAG-enhanced field assignment based on issue content analysis
 - **📊 Project Templates**: Pre-built templates for roadmaps, bug tracking, and feature planning

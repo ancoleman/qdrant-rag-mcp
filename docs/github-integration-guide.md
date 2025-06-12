@@ -1030,6 +1030,106 @@ Parameters:
 5. **Clear Close Reasons**: Always specify why issues are closed
 6. **Automation**: Use search queries to find issues needing attention
 
+## 📋 Migration Guide for Enhanced Issue Management
+
+If you're upgrading to v0.3.4.post5, here's how to leverage the new features with your existing issues:
+
+### Creating Milestones for Existing Releases
+
+```bash
+# 1. List your releases/versions that need milestones
+"Show me all closed issues with label 'release'"
+
+# 2. Create milestones for past releases (documentation purposes)
+"Create milestone 'v0.3.0 - GitHub Integration' as already completed"
+"Create milestone 'v0.3.4 - GitHub Projects V2'"
+
+# 3. Create milestones for upcoming releases
+"Create milestone 'v0.3.5 - Adaptive Search Intelligence' due July 15th"
+"Create milestone 'v0.3.6 - Query Enhancement' due August 30th"
+```
+
+### Bulk Update Issues with Milestones
+
+```bash
+# 1. Find issues for a specific release
+"Search for issues: is:issue label:v0.3.5"
+
+# 2. Update each issue with the appropriate milestone
+"Update issue #100 with milestone v0.3.5"
+"Update issue #101 with milestone v0.3.5"
+"Update issue #102 with milestone v0.3.5"
+
+# 3. Verify milestone assignment
+"Show all issues in milestone v0.3.5"
+```
+
+### Setting Up Release Views
+
+```bash
+# 1. Create release dashboard project
+"Create project 'Release Dashboard' from roadmap template"
+
+# 2. Add all issues from current milestone
+"Show all issues in milestone v0.3.5"
+"Add issue #100 to project with smart field assignment"
+
+# 3. Set up milestone-based filters in project
+# (Use GitHub UI to create views filtered by milestone)
+```
+
+### Organizing Unassigned Work
+
+```bash
+# 1. Find all unassigned issues
+"Show all unassigned open issues"
+"Search for issues: is:open no:assignee no:milestone"
+
+# 2. Triage and assign milestones
+"Update issue #200 with milestone v0.3.6 and labels 'enhancement'"
+"Assign issue #200 to developer1"
+
+# 3. Defer non-priority items
+"Close issue #201 as not_planned with comment 'Deferred to future release'"
+```
+
+### Troubleshooting Common Issues
+
+#### "Milestone not found" Error
+- **Cause**: Milestone name doesn't match exactly or doesn't exist
+- **Solution**: List milestones first to verify exact names
+```bash
+"List all open milestones"
+"Update issue #123 with milestone 'Exact Milestone Name'"
+```
+
+#### Bulk Operations Timing Out
+- **Cause**: Too many operations in sequence
+- **Solution**: Use search to filter first, then update in smaller batches
+```bash
+"Search for issues: is:open label:bug no:milestone"
+# Update 5-10 at a time rather than all at once
+```
+
+#### Assignment Conflicts
+- **Cause**: Trying to assign users who don't have repository access
+- **Solution**: Verify user has access before assigning
+```bash
+"List repository collaborators"  # Use GitHub UI
+"Assign issue #123 to valid-username"
+```
+
+#### Search Not Finding Expected Issues
+- **Cause**: Incorrect search syntax or filters
+- **Solution**: Start with simple queries and add filters gradually
+```bash
+# Start simple
+"Search for issues: is:issue is:open"
+# Add filters one at a time
+"Search for issues: is:issue is:open label:bug"
+"Search for issues: is:issue is:open label:bug milestone:v0.3.5"
+```
+
 ## 🔍 Analysis Features
 
 ### Issue Classification

@@ -4920,6 +4920,35 @@ def health_check() -> Dict[str, Any]:
             "error": str(e)
         }
     
+    # Check GitHub integration status
+    try:
+        if GITHUB_AVAILABLE:
+            # Try to get GitHub client - it will check authentication
+            github = get_github_client()
+            if github and github.health_check():
+                github_health = github.health_check()
+                health_status["services"]["github"] = github_health.get("github", {
+                    "status": "healthy",
+                    "authenticated_user": github_health.get("authenticated_user"),
+                    "rate_limit": github_health.get("rate_limit"),
+                    "current_repository": github_health.get("current_repository")
+                })
+            else:
+                health_status["services"]["github"] = {
+                    "status": "not_configured",
+                    "message": "GitHub client not initialized"
+                }
+        else:
+            health_status["services"]["github"] = {
+                "status": "not_available",
+                "message": "PyGithub not installed"
+            }
+    except Exception as e:
+        health_status["services"]["github"] = {
+            "status": "error",
+            "message": str(e)
+        }
+    
     # Log health check result
     console_logger.info(
         f"Health check completed: {health_status['status']}",
@@ -4928,7 +4957,8 @@ def health_check() -> Dict[str, Any]:
             "status": health_status["status"],
             "qdrant_status": health_status["services"].get("qdrant", {}).get("status", "unknown"),
             "model_status": health_status["services"].get("embedding_model", {}).get("status", "unknown"),
-            "memory_status": health_status["services"].get("memory_manager", {}).get("status", "unknown")
+            "memory_status": health_status["services"].get("memory_manager", {}).get("status", "unknown"),
+            "github_status": health_status["services"].get("github", {}).get("status", "unknown")
         }
     )
     

@@ -724,7 +724,7 @@ class GitHubClient:
         
         Args:
             parent_issue_number: The parent issue number
-            sub_issue_id: The sub-issue ID to link
+            sub_issue_id: The sub-issue number (for same repo) or ID (for cross-repo)
             replace_parent: Whether to replace the current parent (re-parenting)
             
         Returns:
@@ -733,9 +733,20 @@ class GitHubClient:
         if not self._current_repo:
             raise ValueError("No repository set. Use set_repository() first.")
         
+        # If sub_issue_id looks like an issue number (small number), get the actual ID
+        if sub_issue_id < 1000000:  # Likely an issue number, not an ID
+            try:
+                sub_issue = self._current_repo.get_issue(sub_issue_id)
+                actual_sub_issue_id = sub_issue.id
+            except Exception:
+                # If we can't get the issue, assume it's already an ID
+                actual_sub_issue_id = sub_issue_id
+        else:
+            actual_sub_issue_id = sub_issue_id
+        
         endpoint = f"/repos/{self._current_repo.owner.login}/{self._current_repo.name}/issues/{parent_issue_number}/sub_issues"
         data = {
-            "sub_issue_id": sub_issue_id,
+            "sub_issue_id": actual_sub_issue_id,
             "replace_parent": replace_parent
         }
         
@@ -765,7 +776,7 @@ class GitHubClient:
         
         Args:
             parent_issue_number: The parent issue number
-            sub_issue_id: The sub-issue ID to unlink
+            sub_issue_id: The sub-issue number (for same repo) or ID (for cross-repo)
             
         Returns:
             Dict containing the operation result
@@ -773,8 +784,19 @@ class GitHubClient:
         if not self._current_repo:
             raise ValueError("No repository set. Use set_repository() first.")
         
+        # If sub_issue_id looks like an issue number (small number), get the actual ID
+        if sub_issue_id < 1000000:  # Likely an issue number, not an ID
+            try:
+                sub_issue = self._current_repo.get_issue(sub_issue_id)
+                actual_sub_issue_id = sub_issue.id
+            except Exception:
+                # If we can't get the issue, assume it's already an ID
+                actual_sub_issue_id = sub_issue_id
+        else:
+            actual_sub_issue_id = sub_issue_id
+        
         # The DELETE endpoint uses query parameter for sub_issue_id
-        endpoint = f"/repos/{self._current_repo.owner.login}/{self._current_repo.name}/issues/{parent_issue_number}/sub_issue?sub_issue_id={sub_issue_id}"
+        endpoint = f"/repos/{self._current_repo.owner.login}/{self._current_repo.name}/issues/{parent_issue_number}/sub_issue?sub_issue_id={actual_sub_issue_id}"
         
         return self._retry_request(self._make_rest_request, "DELETE", endpoint)
     
@@ -784,7 +806,7 @@ class GitHubClient:
         
         Args:
             parent_issue_number: The parent issue number
-            sub_issue_ids: Ordered list of sub-issue IDs
+            sub_issue_ids: Ordered list of sub-issue numbers (for same repo) or IDs
             
         Returns:
             Dict containing the operation result
@@ -792,9 +814,22 @@ class GitHubClient:
         if not self._current_repo:
             raise ValueError("No repository set. Use set_repository() first.")
         
+        # Convert issue numbers to IDs if needed
+        actual_sub_issue_ids = []
+        for sub_id in sub_issue_ids:
+            if sub_id < 1000000:  # Likely an issue number, not an ID
+                try:
+                    sub_issue = self._current_repo.get_issue(sub_id)
+                    actual_sub_issue_ids.append(sub_issue.id)
+                except Exception:
+                    # If we can't get the issue, assume it's already an ID
+                    actual_sub_issue_ids.append(sub_id)
+            else:
+                actual_sub_issue_ids.append(sub_id)
+        
         endpoint = f"/repos/{self._current_repo.owner.login}/{self._current_repo.name}/issues/{parent_issue_number}/sub_issues/priority"
         data = {
-            "sub_issue_ids": sub_issue_ids
+            "sub_issue_ids": actual_sub_issue_ids
         }
         
         return self._retry_request(self._make_rest_request, "PATCH", endpoint, data)

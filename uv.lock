@@ -1741,7 +1741,7 @@ wheels = [
 
 [[package]]
 name = "qdrant-rag-mcp"
-version = "0.3.4.post3"
+version = "0.3.4.post4"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },

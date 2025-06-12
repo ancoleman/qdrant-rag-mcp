@@ -46,12 +46,20 @@ This release adds comprehensive GitHub sub-issues (task lists) support, enabling
   - Tests all sub-issue operations including Projects V2 integration
   - Includes cleanup functionality
 
+### Fixed
+
+- **Automatic Issue Number to ID Conversion**: Sub-issue methods now automatically convert issue numbers to IDs
+  - GitHub's sub-issues API requires numeric issue IDs (e.g., 3138402433)
+  - Methods now detect when a number < 1000000 is passed and fetch the actual ID
+  - Improves user experience by allowing natural issue number usage (e.g., #39 instead of 3138402433)
+  - Applied to `add_sub_issue`, `remove_sub_issue`, and `reorder_sub_issues` methods
+
 ### Technical Details
 
 - **Implementation Strategy**: Since PyGithub doesn't support GitHub's sub-issues API, we implemented direct REST API calls using the requests library
-- **API Compatibility**: Uses GitHub's task list preview API with appropriate headers
+- **API Compatibility**: Uses GitHub's task list preview API with appropriate headers (generally available as of January 2025)
 - **Projects Integration**: Sub-issues can be bulk-added to Projects V2 with automatic field assignment
-- **Parameter Naming**: The API uses `sub_issue_id` but accepts issue numbers for current repository
+- **Parameter Handling**: The API requires `sub_issue_id` parameter with numeric IDs, but our methods accept issue numbers for convenience
 
 ### Use Cases
 

@@ -1,6 +1,6 @@
-# GitHub Integration Guide - v0.3.0
+# GitHub Integration Guide - v0.3.0 (Updated for v0.3.4.post5)
 
-This guide covers the GitHub issue resolution capabilities added in v0.3.0, including setup, authentication, and usage examples.
+This guide covers the GitHub issue resolution capabilities added in v0.3.0, enhanced issue management features (v0.3.4.post5), and usage examples including milestones, advanced filtering, and complete issue lifecycle management.
 
 ## Table of Contents
 
@@ -11,6 +11,7 @@ This guide covers the GitHub issue resolution capabilities added in v0.3.0, incl
 - [🛠️ Configuration](#️-configuration)
 - [📚 Usage Examples](#-usage-examples)
 - [📋 Sub-Issues Management](#-sub-issues-management-v034post4)
+- [📋 Enhanced Issue Management](#-enhanced-issue-management-v034post5)
 - [🔍 Analysis Features](#-analysis-features)
 - [🚀 Token Optimization](#-token-optimization)
 - [🛡️ Safety Features](#️-safety-features)
@@ -678,6 +679,357 @@ curl -X POST http://localhost:8081/github/add_sub_issues_to_project \
 - **Limitations**: One level of hierarchy only (no sub-sub-issues)
 - **Permissions**: Requires write access to both parent and sub-issues
 
+## 📋 Enhanced Issue Management (v0.3.4.post5)
+
+The v0.3.4.post5 release adds comprehensive issue lifecycle management tools, milestone support, and advanced filtering capabilities for complete release management workflows.
+
+### Issue Lifecycle Management
+
+#### Close Issues with State Reasons
+```bash
+# Via Claude Code (MCP)
+"Close issue #123 as completed"
+"Close issue #456 as not planned with comment 'Duplicate of #123'"
+"Close issue #789 as duplicate"
+
+# Via HTTP API
+curl -X PATCH http://localhost:8081/github/issues/123/close \
+  -H "Content-Type: application/json" \
+  -d '{
+    "reason": "completed",
+    "comment": "Fixed in PR #124"
+  }'
+
+# State reasons:
+# - completed: Issue was resolved
+# - not_planned: Won't be implemented
+# - duplicate: Duplicate of another issue
+```
+
+#### Assign/Unassign Users
+```bash
+# Via Claude Code
+"Assign issue #123 to developer1 and developer2"
+"Unassign developer1 from issue #123"
+"Assign issue #456 to @me"
+
+# Via HTTP API - Assign users
+curl -X POST http://localhost:8081/github/issues/123/assignees \
+  -H "Content-Type: application/json" \
+  -d '{
+    "assignees": ["developer1", "developer2"],
+    "operation": "add"
+  }'
+
+# Unassign users
+curl -X POST http://localhost:8081/github/issues/123/assignees \
+  -H "Content-Type: application/json" \
+  -d '{
+    "assignees": ["developer1"],
+    "operation": "remove"
+  }'
+```
+
+#### Update Issue Properties
+```bash
+# Via Claude Code
+"Update issue #123 title to 'Critical: Authentication bug'"
+"Add labels 'priority-high' and 'security' to issue #123"
+"Set milestone v0.3.5 for issue #123"
+
+# Via HTTP API - Update multiple properties
+curl -X PATCH http://localhost:8081/github/issues/123 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Critical: Authentication bug",
+    "body": "Updated description with more details...",
+    "labels": ["bug", "priority-high", "security"],
+    "milestone": 1,
+    "assignees": ["developer1", "developer2"]
+  }'
+
+# Remove milestone
+curl -X PATCH http://localhost:8081/github/issues/123 \
+  -H "Content-Type: application/json" \
+  -d '{"milestone": null}'
+```
+
+### Milestone Management
+
+#### List Milestones
+```bash
+# Via Claude Code
+"List all open milestones"
+"Show milestones sorted by completeness"
+"List all milestones including closed ones"
+
+# Via HTTP API
+curl "http://localhost:8081/github/milestones?state=open&sort=due_on&direction=asc"
+
+# Response example:
+{
+  "milestones": [
+    {
+      "number": 1,
+      "title": "v0.3.5 - Adaptive Search Intelligence",
+      "description": "Smart query understanding and optimization",
+      "state": "open",
+      "due_on": "2025-07-01T00:00:00Z",
+      "open_issues": 15,
+      "closed_issues": 5,
+      "completion_percentage": 25
+    }
+  ]
+}
+```
+
+#### Create Milestones
+```bash
+# Via Claude Code
+"Create milestone 'v0.3.5 - Adaptive Search Intelligence' due July 1st"
+"Create milestone for Q2 2025 release"
+
+# Via HTTP API
+curl -X POST http://localhost:8081/github/milestones \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "v0.3.5 - Adaptive Search Intelligence",
+    "description": "Implement smart query understanding and dynamic optimization",
+    "due_on": "2025-07-01"
+  }'
+```
+
+#### Update/Close Milestones
+```bash
+# Via Claude Code
+"Update milestone #1 due date to August 1st"
+"Close milestone #1 as completed"
+
+# Via HTTP API - Update
+curl -X PATCH http://localhost:8081/github/milestones/1 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "v0.3.5 - Extended deadline",
+    "due_on": "2025-08-01"
+  }'
+
+# Close milestone
+curl -X DELETE http://localhost:8081/github/milestones/1
+```
+
+### Enhanced Issue Filtering
+
+The `github_fetch_issues` tool now supports advanced filtering:
+
+#### Filter by Milestone
+```bash
+# Via Claude Code
+"Show all issues in milestone v0.3.5"
+"List open issues in milestone #1"
+
+# Via HTTP API - By milestone name
+curl "http://localhost:8081/github/issues?milestone=v0.3.5&state=open"
+
+# By milestone number
+curl "http://localhost:8081/github/issues?milestone=1&state=open"
+```
+
+#### Filter by Assignee
+```bash
+# Via Claude Code
+"Show issues assigned to developer1"
+"List unassigned issues"
+"Show issues assigned to me"
+
+# Via HTTP API - Assigned to specific user
+curl "http://localhost:8081/github/issues?assignee=developer1"
+
+# Unassigned issues
+curl "http://localhost:8081/github/issues?assignee=none"
+```
+
+#### Filter by Date Range
+```bash
+# Via Claude Code
+"Show issues created after January 1st, 2025"
+"List issues updated since last week"
+
+# Via HTTP API - ISO date format
+curl "http://localhost:8081/github/issues?since=2025-01-01T00:00:00Z"
+```
+
+#### Sort and Order
+```bash
+# Via Claude Code
+"Show issues sorted by most recently updated"
+"List issues sorted by comment count descending"
+
+# Via HTTP API
+curl "http://localhost:8081/github/issues?sort=updated&direction=desc"
+curl "http://localhost:8081/github/issues?sort=comments&direction=desc"
+
+# Sort options: created, updated, comments
+# Direction: asc, desc
+```
+
+#### Combined Filters
+```bash
+# Via Claude Code
+"Show unassigned bugs in milestone v0.3.5 sorted by priority"
+
+# Via HTTP API - Complex query
+curl "http://localhost:8081/github/issues?state=open&labels=bug&milestone=v0.3.5&assignee=none&sort=created&direction=desc"
+```
+
+### Advanced Search with GitHub Syntax
+
+The `github_search_issues` tool supports full GitHub search syntax:
+
+```bash
+# Via Claude Code
+"Search for issues: is:open milestone:v0.3.5 label:priority-high"
+"Find all unassigned bugs created this month"
+"Search for issues mentioning 'performance' in authentication module"
+
+# Via HTTP API
+curl -X POST http://localhost:8081/github/issues/search \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "is:issue is:open milestone:v0.3.5 label:priority-high",
+    "sort": "created",
+    "order": "desc"
+  }'
+
+# Common search patterns:
+# - "is:issue is:open no:assignee" - Unassigned open issues
+# - "is:issue label:bug created:>2025-01-01" - Recent bugs
+# - "is:issue is:open milestone:\"v0.3.5\"" - Issues in specific milestone
+# - "is:issue assignee:@me state:open" - My open issues
+```
+
+### Complete Workflow Examples
+
+#### Release Management Workflow
+```bash
+# 1. Create milestone for release
+"Create milestone 'v0.3.6 - Query Enhancement' due August 15th"
+
+# 2. List all issues for planning
+"Show all open enhancement issues sorted by priority"
+
+# 3. Assign issues to milestone
+"Update issue #201 with milestone v0.3.6"
+"Update issue #202 with milestone v0.3.6"
+"Update issue #203 with milestone v0.3.6"
+
+# 4. Assign developers
+"Assign issue #201 to developer1"
+"Assign issue #202 to developer2"
+"Assign issue #203 to developer1 and developer2"
+
+# 5. Track progress
+"Show all issues in milestone v0.3.6"
+"List completed issues in milestone v0.3.6"
+
+# 6. Close completed work
+"Close issue #201 as completed with comment 'Implemented in PR #250'"
+"Close issue #202 as completed"
+
+# 7. Close milestone when done
+"Close milestone #2 as completed"
+```
+
+#### Team Workload Management
+```bash
+# 1. View unassigned work
+"Show all unassigned open issues"
+"List unassigned bugs with high priority"
+
+# 2. Check developer workload
+"Show issues assigned to developer1"
+"List open issues assigned to developer2 in current milestone"
+
+# 3. Balance assignments
+"Unassign developer1 from issue #123"
+"Assign issue #123 to developer2"
+
+# 4. Bulk operations
+"Search for issues: is:open assignee:developer1 label:low-priority"
+"Update issue #456 removing developer1 from assignees"
+```
+
+#### Issue Triage Workflow
+```bash
+# 1. Find untriaged issues
+"Search for issues: is:open no:label no:milestone"
+
+# 2. Classify and prioritize
+"Update issue #300 with labels 'bug', 'priority-high'"
+"Set milestone v0.3.5 for issue #300"
+"Assign issue #300 to developer1"
+
+# 3. Handle duplicates
+"Close issue #301 as duplicate with comment 'Duplicate of #300'"
+
+# 4. Defer issues
+"Close issue #302 as not_planned with comment 'Out of scope for current roadmap'"
+```
+
+### API Reference for New Tools
+
+#### Close Issue
+**Tool**: `github_close_issue`
+**HTTP**: `PATCH /github/issues/{id}/close`
+
+Parameters:
+- `issue_number` (required): Issue to close
+- `reason` (optional): "completed", "not_planned", "duplicate" (default: "completed")
+- `comment` (optional): Comment to add before closing
+
+#### Assign/Unassign Issue
+**Tool**: `github_assign_issue`
+**HTTP**: `POST /github/issues/{id}/assignees`
+
+Parameters:
+- `issue_number` (required): Issue number
+- `assignees` (required): List of usernames
+- `operation` (optional): "add" or "remove" (default: "add")
+
+#### Update Issue
+**Tool**: `github_update_issue`
+**HTTP**: `PATCH /github/issues/{id}`
+
+Parameters:
+- `issue_number` (required): Issue to update
+- `title` (optional): New title
+- `body` (optional): New description
+- `state` (optional): "open" or "closed"
+- `labels` (optional): List of labels
+- `assignees` (optional): List of assignees
+- `milestone` (optional): Milestone number or null
+
+#### Search Issues
+**Tool**: `github_search_issues`
+**HTTP**: `POST /github/issues/search`
+
+Parameters:
+- `query` (required): GitHub search syntax query
+- `sort` (optional): "comments", "created", "updated"
+- `order` (optional): "asc" or "desc" (default: "desc")
+
+#### Milestone Operations
+**Tools**: `github_list_milestones`, `github_create_milestone`, `github_update_milestone`, `github_close_milestone`
+**HTTP**: Various endpoints under `/github/milestones`
+
+### Best Practices for Issue Management
+
+1. **Consistent Labeling**: Use a standard label taxonomy (e.g., type/bug, priority/high)
+2. **Milestone Planning**: Create milestones before sprint/release planning
+3. **Assignment Balance**: Monitor workload across team members
+4. **Regular Triage**: Schedule regular issue triage sessions
+5. **Clear Close Reasons**: Always specify why issues are closed
+6. **Automation**: Use search queries to find issues needing attention
+
 ## 🔍 Analysis Features
 
 ### Issue Classification
@@ -904,13 +1256,14 @@ export QDRANT_LOG_LEVEL=DEBUG
 
 ### Complete Tool Coverage
 
-The GitHub integration provides 10 MCP tools with corresponding HTTP endpoints:
+The GitHub integration provides 29 MCP tools with corresponding HTTP endpoints:
 
+#### Core GitHub Tools (v0.3.0)
 | MCP Tool | HTTP Endpoint | Purpose |
 |----------|---------------|---------|
 | `github_list_repositories` | `GET /github/repositories` | List user/org repositories |
 | `github_switch_repository` | `POST /github/switch_repository` | Set repository context |
-| `github_fetch_issues` | `GET /github/issues` | Fetch repository issues |
+| `github_fetch_issues` | `GET /github/issues` | Fetch repository issues (enhanced in v0.3.4.post5) |
 | `github_get_issue` | `GET /github/issues/{id}` | Get issue details |
 | `github_create_issue` | `POST /github/issues` | Create new issues |
 | `github_add_comment` | `POST /github/issues/{id}/comment` | Add comments to issues |
@@ -918,6 +1271,40 @@ The GitHub integration provides 10 MCP tools with corresponding HTTP endpoints:
 | `github_suggest_fix` | `POST /github/issues/{id}/suggest_fix` | Generate fix suggestions |
 | `github_create_pull_request` | `POST /github/pull_requests` | Create pull requests |
 | `github_resolve_issue` | `POST /github/issues/{id}/resolve` | End-to-end resolution |
+
+#### Enhanced Issue Management (v0.3.4.post5)
+| MCP Tool | HTTP Endpoint | Purpose |
+|----------|---------------|---------|
+| `github_close_issue` | `PATCH /github/issues/{id}/close` | Close issues with state reasons |
+| `github_assign_issue` | `POST /github/issues/{id}/assignees` | Assign/unassign users |
+| `github_update_issue` | `PATCH /github/issues/{id}` | Update any issue property |
+| `github_search_issues` | `POST /github/issues/search` | Advanced search with GitHub syntax |
+| `github_list_milestones` | `GET /github/milestones` | List repository milestones |
+| `github_create_milestone` | `POST /github/milestones` | Create milestones |
+| `github_update_milestone` | `PATCH /github/milestones/{number}` | Update milestone properties |
+| `github_close_milestone` | `DELETE /github/milestones/{number}` | Close milestones |
+
+#### Projects V2 Management (v0.3.4)
+| MCP Tool | HTTP Endpoint | Purpose |
+|----------|---------------|---------|
+| `github_list_projects` | `GET /github/projects` | List GitHub Projects V2 |
+| `github_create_project` | `POST /github/projects` | Create new projects |
+| `github_get_project` | `GET /github/projects/{number}` | Get project details |
+| `github_add_project_item` | `POST /github/projects/{id}/items` | Add issues/PRs to projects |
+| `github_update_project_item` | `PATCH /github/projects/{id}/items/{item_id}` | Update item fields |
+| `github_create_project_field` | `POST /github/projects/{id}/fields` | Create custom fields |
+| `github_get_project_status` | `GET /github/projects/{id}/status` | Get project metrics |
+| `github_delete_project` | `DELETE /github/projects/{id}` | Delete projects |
+
+#### Sub-Issues Management (v0.3.4.post4)
+| MCP Tool | HTTP Endpoint | Purpose |
+|----------|---------------|---------|
+| `github_list_sub_issues` | `POST /github/list_sub_issues` | List sub-issues |
+| `github_add_sub_issue` | `POST /github/add_sub_issue` | Add sub-issue relationship |
+| `github_remove_sub_issue` | `POST /github/remove_sub_issue` | Remove sub-issue |
+| `github_create_sub_issue` | `POST /github/create_sub_issue` | Create and link sub-issue |
+| `github_reorder_sub_issues` | `POST /github/reorder_sub_issues` | Reorder sub-issues |
+| `github_add_sub_issues_to_project` | `POST /github/add_sub_issues_to_project` | Bulk add to projects |
 
 ### Repository Tools
 

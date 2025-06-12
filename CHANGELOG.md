@@ -7,6 +7,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.4.post5] - 2025-06-12
+
+### 🚀 Enhanced GitHub Issue Management
+
+This release adds comprehensive issue lifecycle management tools, milestone support, and advanced filtering capabilities, enabling complete release management workflows directly from Claude Code.
+
+### Added
+
+- **7 New Core Issue Management MCP Tools**:
+  - `github_close_issue` - Close issues with state reasons (completed/not_planned/duplicate)
+  - `github_assign_issue` - Assign/unassign users to/from issues
+  - `github_update_issue` - Update any issue property (title, body, labels, milestone, assignees)
+  - `github_list_milestones` - List repository milestones with sorting
+  - `github_create_milestone` - Create milestones with due dates
+  - `github_update_milestone` - Update milestone properties
+  - `github_close_milestone` - Close completed milestones
+
+- **Enhanced Issue Filtering**:
+  - Added milestone parameter to `github_fetch_issues` (supports name or number)
+  - Added assignee parameter (supports username or "none" for unassigned)
+  - Added date range filtering with since parameter (ISO format)
+  - Added sort options (created, updated, comments)
+  - Added direction control (asc, desc)
+  - Full backward compatibility maintained
+
+- **Advanced Search Capabilities**:
+  - `github_search_issues` - Full GitHub Search API support
+  - Supports complete GitHub search syntax
+  - Automatic repository qualifier injection
+  - Pull request filtering
+  - Examples: `"is:issue is:open milestone:v0.3.5 label:priority-high"`
+
+- **HTTP API Endpoints**:
+  - PATCH `/github/issues/{id}` - Update issue properties
+  - PATCH `/github/issues/{id}/close` - Close issue with reason
+  - POST `/github/issues/{id}/assignees` - Manage assignees
+  - GET `/github/milestones` - List milestones
+  - POST `/github/milestones` - Create milestone
+  - PATCH `/github/milestones/{number}` - Update milestone
+  - DELETE `/github/milestones/{number}` - Close milestone
+  - POST `/github/issues/search` - Advanced search
+  - Enhanced GET `/github/issues` with new filtering parameters
+
+### Fixed
+
+- Fixed PyGithub `milestone.edit()` API issue where title parameter was required even when not updating it
+- Improved error handling for milestone filtering when milestone doesn't exist
+
+### Changed
+
+- Updated `GitHubClient.get_issues()` to support all new filtering parameters
+- Enhanced HTTP server to v0.3.4.post5 with new request models
+- Improved milestone handling to support both name and number references
+
+### Technical Details
+
+- **GitHubClient Methods Added**:
+  - `close_issue(issue_number, reason, comment)`
+  - `assign_issue(issue_number, assignees, operation)`
+  - `update_issue(issue_number, **kwargs)`
+  - `search_issues(query, sort, order)`
+  - `list_milestones(state, sort, direction)`
+  - `create_milestone(title, description, due_on)`
+  - `update_milestone(number, **kwargs)`
+  - `close_milestone(number)`
+
+- **Integration**: Fully compatible with existing GitHub integration (v0.3.0), Projects V2 (v0.3.4), and Sub-Issues (v0.3.4.post4)
+
 ## [0.3.4.post4] - 2025-06-11
 
 ### 🎯 GitHub Sub-Issues Support

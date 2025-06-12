@@ -309,7 +309,7 @@ You: "How do I test the HTTP API?"
 Claude: [Uses: qdrant-rag:search "test http api curl"]
 [Finds: test scripts and documentation]
 
-You can test the HTTP API using scripts/test_http_api.sh which includes:
+You can test the HTTP API using tests/integration/http_api/test_http_api.sh which includes:
 
 ```bash
 # Test search endpoint

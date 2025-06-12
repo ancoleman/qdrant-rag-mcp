@@ -429,10 +429,10 @@ Use the provided test script:
 
 ```bash
 # Run all project tests
-./scripts/test_github_projects_http_api.sh
+./tests/integration/github/test_github_projects_http_api.sh
 
 # Test smart add functionality
-./scripts/test_github_projects_smart_add.sh
+./tests/integration/github/test_github_projects_smart_add.sh
 ```
 
 ### Manual Testing Flow

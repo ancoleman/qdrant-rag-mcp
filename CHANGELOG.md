@@ -110,7 +110,7 @@ This release adds comprehensive GitHub sub-issues (task lists) support, enabling
   - POST `/github/add_sub_issues_to_project`
 
 - **Testing Infrastructure**:
-  - `test_github_sub_issues_api.sh` - Comprehensive test script
+  - `tests/integration/github/test_github_sub_issues_api.sh` - Comprehensive test script
   - Tests all sub-issue operations including Projects V2 integration
   - Includes cleanup functionality
 
@@ -859,7 +859,7 @@ Added comprehensive GitHub issue resolution capabilities that transform the RAG 
   - Integration with existing RAG workflows
 
 - **Testing Infrastructure**:
-  - `scripts/test_github_http_api.sh` - Comprehensive HTTP API testing script
+  - `tests/integration/github/test_github_http_api.sh` - Comprehensive HTTP API testing script
   - Updated CLAUDE.md with GitHub integration examples
   - Complete MCP tool testing patterns and natural language examples
 

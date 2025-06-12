@@ -82,13 +82,14 @@ This directory contains utility scripts for the Qdrant RAG MCP Server. Each scri
 ./scripts/qdrant-logs --tail 100 --export json > debug.json
 ```
 
-### `test_http_api.sh`
+### `test_http_api.sh` (Moved)
 **Purpose**: Test HTTP API endpoints
 - Comprehensive API testing suite
 - Tests indexing and search functionality
 - **When to use**: Debugging HTTP API issues, verifying server functionality
+- **Note**: This script has been moved to `tests/integration/http_api/test_http_api.sh`
 ```bash
-./scripts/test_http_api.sh
+./tests/integration/http_api/test_http_api.sh
 ```
 
 ### `fix_qdrant.sh`
@@ -156,6 +157,16 @@ export QDRANT_RAG_AUTO_INDEX=true  # Enable
 # Custom debounce time (default: 3 seconds)
 export QDRANT_RAG_DEBOUNCE=5.0
 ```
+
+## Test Scripts
+
+The integration test scripts have been reorganized to `tests/integration/`:
+- **HTTP API Tests**: `tests/integration/http_api/test_http_api.sh`
+- **GitHub Integration Tests**: `tests/integration/github/test_github_http_api.sh`
+- **GitHub Projects Tests**: `tests/integration/github/test_github_projects_http_api.sh`
+- **GitHub Smart Add Tests**: `tests/integration/github/test_github_projects_smart_add.sh`
+- **GitHub Enhanced Issues Tests**: `tests/integration/github/test_github_enhanced_issues_api.sh`
+- **GitHub Sub-Issues Tests**: `tests/integration/github/test_github_sub_issues_api.sh`
 
 ## Deprecated Scripts
 

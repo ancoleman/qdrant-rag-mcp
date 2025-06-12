@@ -9,6 +9,10 @@ This directory contains all tests for the Qdrant RAG MCP Server, organized by ca
   
 - **integration/**: Integration tests that test multiple components
   - Documentation indexing, specialized embeddings, progressive context, etc.
+  - **http_api/**: HTTP API endpoint tests (shell scripts)
+    - General API tests for indexing and search operations
+  - **github/**: GitHub integration tests (shell scripts)
+    - Issue management, milestones, projects, sub-issues
   
 - **performance/**: Performance and memory tests
   - Model memory usage, search performance, Apple Silicon optimization
@@ -67,6 +71,22 @@ uv run python tests/debug/debug_model_loading.py
 uv run python tests/debug/test_dimension_mismatch.py
 ```
 
+### Running shell script tests:
+```bash
+# HTTP API tests
+./tests/integration/http_api/test_http_api.sh
+
+# GitHub integration tests
+./tests/integration/github/test_github_http_api.sh
+./tests/integration/github/test_github_enhanced_issues_api.sh
+./tests/integration/github/test_github_projects_http_api.sh
+./tests/integration/github/test_github_projects_smart_add.sh
+./tests/integration/github/test_github_sub_issues_api.sh
+
+# Note: Ensure HTTP server is running before running these tests
+python src/http_server.py
+```
+
 ## Test Categories
 
 ### Unit Tests
@@ -84,6 +104,14 @@ Tests that involve multiple components:
 - `test_documentation_*.py` - Documentation indexing
 - `test_smart_reindex*.py` - Smart reindexing functionality
 - `test_progressive_*.py` - Progressive context features
+
+Shell script integration tests:
+- `http_api/test_http_api.sh` - HTTP API endpoint tests
+- `github/test_github_http_api.sh` - Basic GitHub API tests
+- `github/test_github_enhanced_issues_api.sh` - Enhanced issue management (v0.3.4.post5)
+- `github/test_github_projects_http_api.sh` - GitHub Projects V2 tests
+- `github/test_github_projects_smart_add.sh` - Smart project automation
+- `github/test_github_sub_issues_api.sh` - Sub-issue management
 
 ### Performance Tests
 Tests focused on performance and resource usage:

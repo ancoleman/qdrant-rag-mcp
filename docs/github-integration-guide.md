@@ -386,15 +386,15 @@ Use the provided script for comprehensive HTTP API testing:
 
 ```bash
 # Make the script executable
-chmod +x scripts/test_github_http_api.sh
+chmod +x tests/integration/github/test_github_http_api.sh
 
 # Run comprehensive tests
-./scripts/test_github_http_api.sh
+./tests/integration/github/test_github_http_api.sh
 
 # Test specific operations
-./scripts/test_github_http_api.sh --test-auth
-./scripts/test_github_http_api.sh --test-issues  
-./scripts/test_github_http_api.sh --test-analysis
+./tests/integration/github/test_github_http_api.sh --test-auth
+./tests/integration/github/test_github_http_api.sh --test-issues  
+./tests/integration/github/test_github_http_api.sh --test-analysis
 ```
 
 ### Basic MCP Workflow
@@ -1643,16 +1643,16 @@ Use the testing script for comprehensive validation:
 
 ```bash
 # Run all tests
-./scripts/test_github_http_api.sh
+./tests/integration/github/test_github_http_api.sh
 
 # Test authentication only
-./scripts/test_github_http_api.sh --auth-only
+./tests/integration/github/test_github_http_api.sh --auth-only
 
 # Test issue operations only  
-./scripts/test_github_http_api.sh --issues-only
+./tests/integration/github/test_github_http_api.sh --issues-only
 
 # Test analysis workflow only
-./scripts/test_github_http_api.sh --analysis-only
+./tests/integration/github/test_github_http_api.sh --analysis-only
 ```
 
 ## 🔄 Integration with Existing Workflows

@@ -63,7 +63,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Qdrant RAG Server HTTP API", 
-    version="0.3.4.post5",
+    version="0.3.4.post6",
     lifespan=lifespan
 )
 

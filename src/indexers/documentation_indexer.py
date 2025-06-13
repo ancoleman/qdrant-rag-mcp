@@ -30,6 +30,14 @@ class DocumentationIndexer:
             chunk_size: Target size for chunks (characters)
             chunk_overlap: Overlap between chunks for context
         """
+        # Validate parameters to prevent division by zero
+        if chunk_size <= 0:
+            raise ValueError("chunk_size must be positive")
+        if chunk_overlap < 0:
+            raise ValueError("chunk_overlap must be non-negative")
+        if chunk_overlap >= chunk_size:
+            raise ValueError("chunk_overlap must be less than chunk_size")
+            
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.supported_extensions = {'.md', '.markdown', '.rst', '.txt', '.mdx'}
@@ -60,6 +68,11 @@ class DocumentationIndexer:
                 content = f.read()
         except Exception as e:
             logger.error(f"Error reading documentation file {file_path}: {e}")
+            return []
+        
+        # Handle empty files gracefully
+        if not content or not content.strip():
+            logger.warning(f"Documentation file {file_path} is empty")
             return []
         
         # Extract metadata

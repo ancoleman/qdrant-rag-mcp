@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     from . import __version__
 except ImportError:
-    __version__ = "0.3.4.post5"  # Fallback version
+    __version__ = "0.3.4.post6"  # Fallback version
 
 # Load environment variables from the MCP server directory
 from dotenv import load_dotenv
@@ -1353,6 +1353,20 @@ def detect_changes(directory: str = ".") -> Dict[str, Any]:
             }
         }
         
+        # For large result sets, show samples instead of full lists
+        if len(added_files) > 20:
+            result["added_sample"] = sorted(added_files)[:10]
+            result["added"] = f"[{len(added_files)} files - showing first 10]"
+        if len(modified_files) > 20:
+            result["modified_sample"] = sorted(modified_files)[:10]
+            result["modified"] = f"[{len(modified_files)} files - showing first 10]"
+        if len(unchanged_files) > 50:
+            result["unchanged_sample"] = sorted(unchanged_files)[:10]
+            result["unchanged"] = f"[{len(unchanged_files)} files - showing first 10]"
+        if len(deleted_files) > 20:
+            result["deleted_sample"] = sorted(deleted_files)[:10]
+            result["deleted"] = f"[{len(deleted_files)} files - showing first 10]"
+        
         # Add debug logging
         if len(added_files) > 50:  # Suspicious number of "new" files
             logger.warning(f"Large number of files marked as added: {len(added_files)}. "
@@ -1934,7 +1948,7 @@ def load_ragignore_patterns(directory: Path) -> Tuple[Set[str], Set[str]]:
     return exclude_dirs, exclude_patterns
 
 @mcp.tool()
-def index_directory(directory: str = None, patterns: List[str] = None, recursive: bool = True) -> Dict[str, Any]:
+def index_directory(directory: str = None, patterns: List[str] = None, recursive: bool = True, clear_existing: bool = False) -> Dict[str, Any]:
     """
     Index files in a directory.
     
@@ -1955,11 +1969,13 @@ def index_directory(directory: str = None, patterns: List[str] = None, recursive
         directory: Directory to index (REQUIRED - must be absolute path or will be resolved from client's context)
         patterns: File patterns to include (optional - defaults to common code/config/doc patterns)
         recursive: Whether to search recursively (default: True)
+        clear_existing: If True, clear all project collections before indexing (default: False)
     """
     try:
         if patterns is None:
             patterns = ["*.py", "*.js", "*.ts", "*.jsx", "*.tsx", "*.java", "*.go", "*.rs", 
                        "*.sh", "*.bash", "*.zsh", "*.fish",  # Shell scripts
+                       "*.tf", "*.tfvars",  # Terraform files
                        "*.json", "*.yaml", "*.yml", "*.xml", "*.toml", "*.ini",
                        "*.md", "*.markdown", "*.rst", "*.txt",  # Documentation files
                        ".gitignore", ".dockerignore", ".prettierrc*", ".eslintrc*", 
@@ -1999,6 +2015,23 @@ def index_directory(directory: str = None, patterns: List[str] = None, recursive
         
         # Get current project info based on the directory being indexed
         current_project = get_current_project(client_directory=str(dir_path))
+        
+        # Clear existing collections if requested
+        cleared_collections = []
+        if clear_existing and current_project:
+            console_logger.info(f"Clearing existing collections for project: {current_project['name']}")
+            clear_result = clear_project_collections()
+            
+            # Check if clear had errors
+            if clear_result.get("errors"):
+                return {
+                    "error": "Failed to clear some collections",
+                    "clear_errors": clear_result["errors"],
+                    "directory": directory
+                }
+            
+            cleared_collections = clear_result.get("cleared_collections", [])
+            console_logger.info(f"Cleared {len(cleared_collections)} collections")
         
         # Load exclusion patterns from .ragignore file
         exclude_dirs, exclude_patterns = load_ragignore_patterns(dir_path)
@@ -2164,7 +2197,7 @@ def index_directory(directory: str = None, patterns: List[str] = None, recursive
                 except Exception as e:
                     console_logger.warning(f"Failed to build BM25 index for {collection_name}: {e}")
         
-        return {
+        result = {
             "indexed_files": indexed_files,
             "total": len(indexed_files),
             "collections": list(collections_used),
@@ -2172,6 +2205,13 @@ def index_directory(directory: str = None, patterns: List[str] = None, recursive
             "directory": str(dir_path),
             "errors": errors if errors else None
         }
+        
+        # Add cleared collections info if applicable
+        if clear_existing and cleared_collections:
+            result["cleared_collections"] = cleared_collections
+            result["message"] = f"Cleared {len(cleared_collections)} collections and indexed {len(indexed_files)} files"
+        
+        return result
         
     except Exception as e:
         return {"error": str(e), "directory": directory}
@@ -2325,8 +2365,12 @@ def reindex_directory(
             if files_to_index:
                 console_logger.info(f"Indexing {len(files_to_index)} changed files ({len(added_files)} added, {len(modified_files)} modified)")
                 
-                for file_path in files_to_index:
+                for idx, file_path in enumerate(files_to_index, 1):
                     try:
+                        # Log progress every 10 files or for important files
+                        if idx % 10 == 0 or len(files_to_index) <= 20:
+                            console_logger.info(f"Processing file {idx}/{len(files_to_index)}: {file_path}")
+                        
                         # If file was modified, delete existing chunks first
                         if file_path in modified_files:
                             path_obj = Path(file_path)
@@ -2355,6 +2399,8 @@ def reindex_directory(
                             indexed_files.append(file_path)
                             if "collection" in result:
                                 collections_used.add(result["collection"])
+                            # Log successful indexing for debugging
+                            console_logger.debug(f"Successfully indexed: {file_path} ({result.get('chunks', 0)} chunks)")
                         else:
                             indexing_errors.append({
                                 "file": file_path,
@@ -2393,6 +2439,12 @@ def reindex_directory(
                     "modified": len(modified_files),
                     "deleted": len(deleted_files),
                     "unchanged": len(unchanged_files)
+                },
+                "files": {
+                    "added": sorted(added_files)[:10],  # Show first 10
+                    "modified": sorted(modified_files)[:10],  # Show first 10
+                    "deleted": sorted(deleted_files)[:10],  # Show first 10
+                    "more_files": len(files_to_index) > 10 or len(deleted_files) > 10
                 },
                 "indexed_files": indexed_files,
                 "total_indexed": len(indexed_files),
@@ -4413,7 +4465,13 @@ def index_config(file_path: str, force_global: bool = False) -> Dict[str, Any]:
         # Process chunks one by one to avoid batch processing issues with specialized embeddings
         for idx, chunk in enumerate(chunks):
             # Use embeddings manager with config content type
-            embedding_array = embeddings_manager.encode(chunk.content, content_type="config")
+            try:
+                chunk_content = chunk.content if hasattr(chunk, 'content') else chunk.get('content', '')
+            except (AttributeError, KeyError) as e:
+                get_logger().error(f"Error accessing chunk content at index {idx}: {e}")
+                continue
+                
+            embedding_array = embeddings_manager.encode(chunk_content, content_type="config")
             
             # Handle both 1D and 2D arrays - if 2D with single row, extract it
             if embedding_array.ndim == 2 and embedding_array.shape[0] == 1:
@@ -4421,8 +4479,12 @@ def index_config(file_path: str, force_global: bool = False) -> Dict[str, Any]:
             else:
                 embedding = embedding_array.tolist()
             
+            # Get chunk attributes safely
+            chunk_index = chunk.chunk_index if hasattr(chunk, 'chunk_index') else chunk.get('chunk_index', idx)
+            chunk_metadata = chunk.metadata if hasattr(chunk, 'metadata') else chunk.get('metadata', {})
+            
             # Generate unique chunk ID
-            chunk_id = hashlib.md5(f"{abs_path}_{chunk.chunk_index}".encode()).hexdigest()
+            chunk_id = hashlib.md5(f"{abs_path}_{chunk_index}".encode()).hexdigest()
             
             point = PointStruct(
                 id=chunk_id,
@@ -4430,11 +4492,11 @@ def index_config(file_path: str, force_global: bool = False) -> Dict[str, Any]:
                 payload={
                     "file_path": str(abs_path),
                     "display_path": display_path,
-                    "chunk_index": chunk.chunk_index,
-                    "file_type": chunk.metadata.get("file_type", ""),
-                    "path": chunk.metadata.get("path", ""),
-                    "content": chunk.content,
-                    "value": chunk.metadata.get("value", ""),
+                    "chunk_index": chunk_index,
+                    "file_type": chunk_metadata.get("file_type", ""),
+                    "path": chunk_metadata.get("path", ""),
+                    "content": chunk_content,
+                    "value": chunk_metadata.get("value", ""),
                     "project": collection_name.rsplit('_', 1)[0],
                     "modified_at": mod_time,
                     "file_hash": file_hash
@@ -4452,15 +4514,20 @@ def index_config(file_path: str, force_global: bool = False) -> Dict[str, Any]:
             # Update BM25 index
             hybrid_searcher = get_hybrid_searcher()
             documents = []
-            for chunk in chunks:
+            for idx, chunk in enumerate(chunks):
+                # Get chunk attributes safely
+                chunk_content = chunk.content if hasattr(chunk, 'content') else chunk.get('content', '')
+                chunk_index = chunk.chunk_index if hasattr(chunk, 'chunk_index') else chunk.get('chunk_index', idx)
+                chunk_metadata = chunk.metadata if hasattr(chunk, 'metadata') else chunk.get('metadata', {})
+                
                 doc = {
-                    "id": f"{str(abs_path)}_{chunk.chunk_index}",
-                    "content": chunk.content,
+                    "id": f"{str(abs_path)}_{chunk_index}",
+                    "content": chunk_content,
                     "file_path": str(abs_path),
-                    "chunk_index": chunk.chunk_index,
-                    "file_type": chunk.metadata.get("file_type", ""),
-                    "path": chunk.metadata.get("path", ""),
-                    "value": chunk.metadata.get("value", "")
+                    "chunk_index": chunk_index,
+                    "file_type": chunk_metadata.get("file_type", ""),
+                    "path": chunk_metadata.get("path", ""),
+                    "value": chunk_metadata.get("value", "")
                 }
                 documents.append(doc)
             
@@ -4474,11 +4541,19 @@ def index_config(file_path: str, force_global: bool = False) -> Dict[str, Any]:
             )
             
             for point in scroll_result[0]:
+                # Safely access payload fields
+                file_path = point.payload.get("file_path", "")
+                chunk_index = point.payload.get("chunk_index", 0)
+                
+                # Skip points without required fields
+                if not file_path:
+                    continue
+                    
                 doc = {
-                    "id": f"{point.payload['file_path']}_{point.payload['chunk_index']}",
+                    "id": f"{file_path}_{chunk_index}",
                     "content": point.payload.get("content", ""),
-                    "file_path": point.payload.get("file_path", ""),
-                    "chunk_index": point.payload.get("chunk_index", 0),
+                    "file_path": file_path,
+                    "chunk_index": chunk_index,
                     "file_type": point.payload.get("file_type", ""),
                     "path": point.payload.get("path", ""),
                     "value": point.payload.get("value", "")
@@ -4491,11 +4566,21 @@ def index_config(file_path: str, force_global: bool = False) -> Dict[str, Any]:
             "indexed": len(chunks),
             "file_path": display_path,
             "collection": collection_name,
-            "file_type": chunks[0].metadata.get("file_type", "unknown") if chunks else "unknown",
+            "file_type": (chunks[0].metadata.get("file_type", "unknown") 
+                         if chunks and hasattr(chunks[0], 'metadata') 
+                         else chunks[0].get('metadata', {}).get("file_type", "unknown") 
+                         if chunks and isinstance(chunks[0], dict) 
+                         else "unknown"),
             "project_context": current_project["name"] if current_project else "global"
         }
         
+    except KeyError as e:
+        get_logger().error(f"KeyError in index_config for {file_path}: {e}")
+        # Use file_path parameter instead of abs_path which might not be defined
+        return {"error": f"Configuration key error: {e}", "file_path": file_path}
     except Exception as e:
+        get_logger().error(f"Error indexing config file {file_path}: {e}")
+        # Use file_path parameter instead of abs_path which might not be defined
         return {"error": str(e), "file_path": file_path}
 
 @mcp.tool()

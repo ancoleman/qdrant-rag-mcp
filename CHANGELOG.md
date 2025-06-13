@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.4.post6] - 2025-06-13
+
+### 🐛 Bug Fixes
+
+- **Fixed YAML/YML file indexing**: Resolved KeyError `'file_path'` that prevented YAML configuration files from being indexed properly when collections contained existing data
+- **Fixed documentation indexing**: Added parameter validation to prevent division by zero errors when indexing documentation files
+- **Fixed empty file handling**: Documentation indexer now gracefully handles empty files instead of failing
+- **Improved error handling**: Enhanced chunk attribute access with proper fallbacks and more informative error messages
+
+### Added
+
+- **Terraform file support**: Added `.tf` and `.tfvars` file patterns to default indexing patterns
+- **Clear collections option**: Added `clear_existing` parameter to `index_directory` for full reindexing without stale data
+
+### Technical Changes
+
+- Added safe attribute access using `hasattr()` checks in `index_config` method
+- Added chunk_size validation in DocumentationIndexer to ensure positive values
+- Fixed error return values to use the original file_path parameter instead of potentially undefined variables
+- Fixed unsafe dictionary access in BM25 index building that caused KeyError when processing existing collection points
+- Added empty content check in DocumentationIndexer to handle empty files gracefully
+- Improved error reporting with specific exception handling
+
 ## [0.3.4.post5] - 2025-06-12
 
 ### 🚀 Enhanced GitHub Issue Management

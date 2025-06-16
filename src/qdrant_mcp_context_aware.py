@@ -66,6 +66,8 @@ from utils.context_tracking import SessionContextTracker, SessionStore, check_co
 from utils.model_registry import get_model_registry
 # Import memory manager
 from utils.memory_manager import get_memory_manager
+# Import core decorators
+from core.decorators import github_operation, get_github_instances
 
 # Configure basic console logging for startup messages
 logging.basicConfig(
@@ -1261,13 +1263,17 @@ def detect_changes(directory: str = ".") -> Dict[str, Any]:
         # Scan current filesystem
         current_files = {}  # file_path -> hash
         
-        # Define patterns to include (similar to indexing logic)
+        # Define patterns to include (must match index_directory patterns)
         include_patterns = [
             "*.py", "*.js", "*.ts", "*.jsx", "*.tsx", "*.java", "*.cpp", "*.c", "*.h",
             "*.go", "*.rs", "*.php", "*.rb", "*.swift", "*.kt", "*.scala", "*.sh",
+            "*.bash", "*.zsh", "*.fish",  # Shell scripts
+            "*.tf", "*.tfvars",  # Terraform files
             "*.json", "*.yaml", "*.yml", "*.toml", "*.ini", "*.cfg", "*.conf",
             "*.xml", "*.env", "*.properties", "*.config",
-            "*.md", "*.markdown", "*.rst", "*.txt", "*.mdx"
+            "*.md", "*.markdown", "*.rst", "*.txt", "*.mdx",
+            ".gitignore", ".dockerignore", ".prettierrc*", ".eslintrc*", 
+            ".editorconfig", ".npmrc", ".yarnrc", ".ragignore"
         ]
         
         # Load exclude patterns from .ragignore if available
@@ -5243,6 +5249,7 @@ def validate_github_prerequisites(require_projects=False, require_repo=False):
 
 # GitHub MCP Tools
 @mcp.tool()
+@github_operation("list repositories")
 def github_list_repositories(owner: Optional[str] = None) -> Dict[str, Any]:
     """
     List GitHub repositories for a user/organization.
@@ -5266,28 +5273,18 @@ def github_list_repositories(owner: Optional[str] = None) -> Dict[str, Any]:
     Returns:
         List of repository information
     """
-    try:
-        error, instances = validate_github_prerequisites()
-        if error:
-            return error
-        github_client, _, _, _, _ = instances
-        repositories = github_client.list_repositories(owner)
-        
-        console_logger.info(f"Listed {len(repositories)} repositories for {owner or 'authenticated user'}")
-        
-        return {
-            "repositories": repositories,
-            "count": len(repositories),
-            "owner": owner or "authenticated_user"
-        }
-        
-    except Exception as e:
-        error_msg = f"Failed to list repositories: {str(e)}"
-        console_logger.error(error_msg)
-        return {"error": error_msg}
+    github_client, _, _, _, _ = get_github_instances()
+    repositories = github_client.list_repositories(owner)
+    
+    return {
+        "repositories": repositories,
+        "count": len(repositories),
+        "owner": owner or "authenticated_user"
+    }
 
 
 @mcp.tool()
+@github_operation("switch repository")
 def github_switch_repository(owner: str, repo: str) -> Dict[str, Any]:
     """
     Switch to a different GitHub repository context.
@@ -5313,61 +5310,35 @@ def github_switch_repository(owner: str, repo: str) -> Dict[str, Any]:
     Returns:
         Repository information and switch status
     """
-    try:
-        error, instances = validate_github_prerequisites()
-        if error:
-            return error
-        github_client, _, _, _, _ = instances
-        repository = github_client.set_repository(owner, repo)
-        
-        # Optional: Auto-index repository if configured
-        config = get_config()
-        if config.get("github", {}).get("repository", {}).get("auto_index_on_switch", True):
-            try:
-                # This would trigger repository indexing - placeholder for now
-                console_logger.info(f"Auto-indexing enabled for {owner}/{repo} (feature not yet implemented)")
-            except Exception as e:
-                console_logger.warning(f"Auto-indexing failed for {owner}/{repo}: {e}")
-        
-        console_logger.info(
-            f"Switched to repository {owner}/{repo}",
-            extra={
-                "operation": "github_switch_repository",
-                "owner": owner,
-                "repo": repo,
-                "full_name": repository.full_name
-            }
-        )
-        
-        return {
-            "repository": {
-                "owner": owner,
-                "name": repo,
-                "full_name": repository.full_name,
-                "description": repository.description,
-                "private": repository.private,
-                "language": repository.language,
-                "stars": repository.stargazers_count,
-                "forks": repository.forks_count
-            },
-            "message": f"Successfully switched to {owner}/{repo}"
-        }
-        
-    except Exception as e:
-        error_msg = f"Failed to switch repository: {str(e)}"
-        console_logger.error(
-            error_msg,
-            extra={
-                "operation": "github_switch_repository",
-                "error": str(e),
-                "owner": owner,
-                "repo": repo
-            }
-        )
-        return {"error": error_msg}
+    github_client, _, _, _, _ = get_github_instances()
+    repository = github_client.set_repository(owner, repo)
+    
+    # Optional: Auto-index repository if configured
+    config = get_config()
+    if config.get("github", {}).get("repository", {}).get("auto_index_on_switch", True):
+        try:
+            # This would trigger repository indexing - placeholder for now
+            console_logger.info(f"Auto-indexing enabled for {owner}/{repo} (feature not yet implemented)")
+        except Exception as e:
+            console_logger.warning(f"Auto-indexing failed for {owner}/{repo}: {e}")
+    
+    return {
+        "repository": {
+            "owner": owner,
+            "name": repo,
+            "full_name": repository.full_name,
+            "description": repository.description,
+            "private": repository.private,
+            "language": repository.language,
+            "stars": repository.stargazers_count,
+            "forks": repository.forks_count
+        },
+        "message": f"Successfully switched to {owner}/{repo}"
+    }
 
 
 @mcp.tool()
+@github_operation("fetch issues", require_repo=True)
 def github_fetch_issues(state: str = "open", labels: Optional[List[str]] = None,
                        milestone: Optional[str] = None, assignee: Optional[str] = None,
                        since: Optional[str] = None, sort: str = "created",
@@ -5406,51 +5377,35 @@ def github_fetch_issues(state: str = "open", labels: Optional[List[str]] = None,
     Returns:
         List of issue information
     """
-    try:
-        error, instances = validate_github_prerequisites(require_repo=True)
-        if error:
-            return error
-        github_client, _, _, _, _ = instances
-        
-        issues = github_client.get_issues(
-            state=state, labels=labels, milestone=milestone,
-            assignee=assignee, since=since, sort=sort,
-            direction=direction, limit=limit
-        )
-        
-        console_logger.info(
-            f"Fetched {len(issues)} issues",
-            extra={
-                "operation": "github_fetch_issues",
-                "state": state,
-                "labels": labels,
-                "count": len(issues)
-            }
-        )
-        
-        return {
-            "issues": issues,
-            "count": len(issues),
+    github_client, _, _, _, _ = get_github_instances()
+    
+    issues = github_client.get_issues(
+        state=state, labels=labels, milestone=milestone,
+        assignee=assignee, since=since, sort=sort,
+        direction=direction, limit=limit
+    )
+    
+    console_logger.info(
+        f"Fetched {len(issues)} issues",
+        extra={
+            "operation": "github_fetch_issues",
             "state": state,
             "labels": labels,
-            "repository": github_client.get_current_repository().full_name
+            "count": len(issues)
         }
-        
-    except Exception as e:
-        error_msg = f"Failed to fetch issues: {str(e)}"
-        console_logger.error(
-            error_msg,
-            extra={
-                "operation": "github_fetch_issues",
-                "error": str(e),
-                "state": state,
-                "labels": labels
-            }
-        )
-        return {"error": error_msg}
+    )
+    
+    return {
+        "issues": issues,
+        "count": len(issues),
+        "state": state,
+        "labels": labels,
+        "repository": github_client.get_current_repository().full_name
+    }
 
 
 @mcp.tool()
+@github_operation("get issue", require_repo=True)
 def github_get_issue(issue_number: int) -> Dict[str, Any]:
     """
     Get detailed information about a specific GitHub issue.
@@ -5475,44 +5430,27 @@ def github_get_issue(issue_number: int) -> Dict[str, Any]:
     Returns:
         Detailed issue information
     """
-    try:
-        # Validate prerequisites
-        error, instances = validate_github_prerequisites(require_repo=True)
-        if error:
-            return error
-        
-        github_client, _, _, _, _ = instances
-        
-        issue = github_client.get_issue(issue_number)
-        
-        console_logger.info(
-            f"Retrieved issue #{issue_number}",
-            extra={
-                "operation": "github_get_issue",
-                "issue_number": issue_number,
-                "title": issue["title"]
-            }
-        )
-        
-        return {
-            "issue": issue,
-            "repository": github_client.get_current_repository().full_name
+    github_client, _, _, _, _ = get_github_instances()
+    
+    issue = github_client.get_issue(issue_number)
+    
+    console_logger.info(
+        f"Retrieved issue #{issue_number}",
+        extra={
+            "operation": "github_get_issue",
+            "issue_number": issue_number,
+            "title": issue["title"]
         }
-        
-    except Exception as e:
-        error_msg = f"Failed to get issue #{issue_number}: {str(e)}"
-        console_logger.error(
-            error_msg,
-            extra={
-                "operation": "github_get_issue",
-                "error": str(e),
-                "issue_number": issue_number
-            }
-        )
-        return {"error": error_msg}
+    )
+    
+    return {
+        "issue": issue,
+        "repository": github_client.get_current_repository().full_name
+    }
 
 
 @mcp.tool()
+@github_operation("create issue", require_repo=True)
 def github_create_issue(title: str, body: str = "", labels: Optional[List[str]] = None,
                        assignees: Optional[List[str]] = None) -> Dict[str, Any]:
     """
@@ -5541,48 +5479,46 @@ def github_create_issue(title: str, body: str = "", labels: Optional[List[str]] 
     Returns:
         Created issue information
     """
-    try:
-        error, instances = validate_github_prerequisites(require_repo=True)
-        if error:
-            return error
-        github_client, _, _, _, _ = instances
-        
-        issue = github_client.create_issue(title, body, labels, assignees)
-        
-        console_logger.info(
-            f"Created issue #{issue['number']}: {title}",
-            extra={
-                "operation": "github_create_issue",
-                "issue_number": issue["number"],
-                "title": title,
-                "labels": labels or [],
-                "assignees": assignees or []
-            }
-        )
-        
-        return {
-            "issue": issue,
-            "repository": github_client.get_current_repository().full_name,
-            "message": f"Successfully created issue #{issue['number']}"
+    github_client, _, _, _, _ = get_github_instances()
+    
+    issue = github_client.create_issue(title, body, labels, assignees)
+    
+    console_logger.info(
+        f"Created issue #{issue['number']}: {title}",
+        extra={
+            "operation": "github_create_issue",
+            "issue_number": issue["number"],
+            "title": title,
+            "labels": labels or [],
+            "assignees": assignees or []
         }
-        
-    except Exception as e:
-        error_msg = f"Failed to create issue: {str(e)}"
-        console_logger.error(
-            error_msg,
-            extra={
-                "operation": "github_create_issue",
-                "error": str(e),
-                "title": title
-            }
-        )
-        return {"error": error_msg}
+    )
+    
+    return {
+        "issue": issue,
+        "repository": github_client.get_current_repository().full_name,
+        "message": f"Successfully created issue #{issue['number']}"
+    }
 
 
 @mcp.tool()
+@github_operation("add comment", require_repo=True)
 def github_add_comment(issue_number: int, body: str) -> Dict[str, Any]:
     """
     Add a comment to an existing GitHub issue.
+    
+    WHEN TO USE THIS TOOL:
+    - User asks to "add a comment to issue #X"
+    - User wants to "comment on issue #X"
+    - Providing updates or feedback on an issue
+    - Adding additional context or information
+    - Responding to issue discussions
+    
+    This tool automatically:
+    - Adds comment to the specified issue
+    - Returns comment ID and creation time
+    - Updates issue activity timestamp
+    - Notifies issue watchers
     
     Args:
         issue_number: Issue number to comment on
@@ -5591,40 +5527,24 @@ def github_add_comment(issue_number: int, body: str) -> Dict[str, Any]:
     Returns:
         Comment information
     """
-    try:
-        error, instances = validate_github_prerequisites(require_repo=True)
-        if error:
-            return error
-        github_client, _, _, _, _ = instances
-        
-        comment = github_client.add_comment(issue_number, body)
-        
-        console_logger.info(
-            f"Added comment to issue #{issue_number}",
-            extra={
-                "operation": "github_add_comment",
-                "issue_number": issue_number,
-                "comment_id": comment["id"]
-            }
-        )
-        
-        return {
-            "comment": comment,
-            "repository": github_client.get_current_repository().full_name,
-            "message": f"Successfully added comment to issue #{issue_number}"
+    github_client, _, _, _, _ = get_github_instances()
+    
+    comment = github_client.add_comment(issue_number, body)
+    
+    console_logger.info(
+        f"Added comment to issue #{issue_number}",
+        extra={
+            "operation": "github_add_comment",
+            "issue_number": issue_number,
+            "comment_id": comment["id"]
         }
-        
-    except Exception as e:
-        error_msg = f"Failed to add comment: {str(e)}"
-        console_logger.error(
-            error_msg,
-            extra={
-                "operation": "github_add_comment",
-                "error": str(e),
-                "issue_number": issue_number
-            }
-        )
-        return {"error": error_msg}
+    )
+    
+    return {
+        "comment": comment,
+        "repository": github_client.get_current_repository().full_name,
+        "message": f"Successfully added comment to issue #{issue_number}"
+    }
 
 
 @mcp.tool()
@@ -5745,66 +5665,63 @@ def github_suggest_fix(issue_number: int) -> Dict[str, Any]:
 
 
 @mcp.tool()
+@github_operation("create pull request", require_repo=True)
 def github_create_pull_request(title: str, body: str, head: str, base: str = "main",
                               files: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
     """
     Create a GitHub pull request.
     
+    WHEN TO USE THIS TOOL:
+    - User asks to "create a pull request" or "create a PR"
+    - User wants to submit code changes for review
+    - After making changes on a feature branch
+    - User provides PR title, description, and branch names
+    - Proposing changes to be merged
+    
+    This tool automatically:
+    - Creates a pull request in the current repository
+    - Sets source (head) and target (base) branches
+    - Includes PR description and metadata
+    - Returns PR number and URL
+    - Enables code review workflow
+    
     Args:
         title: PR title
         body: PR description
-        head: Head branch
-        base: Base branch (default: main)
+        head: Head branch (source branch with changes)
+        base: Base branch (target branch, default: main)
         files: List of files to include (for reference only)
         
     Returns:
         Pull request information
     """
-    try:
-        error, instances = validate_github_prerequisites(require_repo=True)
-        if error:
-            return error
-        github_client, _, _, _, _ = instances
-        
-        # Create pull request
-        pr = github_client.create_pull_request(
-            title=title,
-            body=body,
-            head=head,
-            base=base,
-            files=files
-        )
-        
-        console_logger.info(
-            f"Created pull request #{pr['number']}",
-            extra={
-                "operation": "github_create_pull_request",
-                "pr_number": pr["number"],
-                "title": title,
-                "head": head,
-                "base": base
-            }
-        )
-        
-        return {
-            "pull_request": pr,
-            "repository": github_client.get_current_repository().full_name,
-            "message": f"Successfully created PR #{pr['number']}"
+    github_client, _, _, _, _ = get_github_instances()
+    
+    # Create pull request
+    pr = github_client.create_pull_request(
+        title=title,
+        body=body,
+        head=head,
+        base=base,
+        files=files
+    )
+    
+    console_logger.info(
+        f"Created pull request #{pr['number']}",
+        extra={
+            "operation": "github_create_pull_request",
+            "pr_number": pr["number"],
+            "title": title,
+            "head": head,
+            "base": base
         }
-        
-    except Exception as e:
-        error_msg = f"Failed to create pull request: {str(e)}"
-        console_logger.error(
-            error_msg,
-            extra={
-                "operation": "github_create_pull_request",
-                "error": str(e),
-                "title": title,
-                "head": head,
-                "base": base
-            }
-        )
-        return {"error": error_msg}
+    )
+    
+    return {
+        "pull_request": pr,
+        "repository": github_client.get_current_repository().full_name,
+        "message": f"Successfully created PR #{pr['number']}"
+    }
 
 
 @mcp.tool()
@@ -5856,6 +5773,7 @@ def github_resolve_issue(issue_number: int, dry_run: bool = True) -> Dict[str, A
 
 # GitHub Projects V2 tools (v0.3.4)
 @mcp.tool()
+@github_operation("list projects", require_projects=True)
 def github_list_projects(owner: Optional[str] = None, limit: int = 20) -> Dict[str, Any]:
     """
     List GitHub Projects V2 for a user or organization.
@@ -5877,49 +5795,41 @@ def github_list_projects(owner: Optional[str] = None, limit: int = 20) -> Dict[s
     Returns:
         List of projects with details
     """
-    try:
-        error, instances = validate_github_prerequisites(require_projects=True)
-        if error:
-            return error
-        github_client, _, _, _, projects_manager = instances
-        
-        # Use current repo owner if not specified
-        if not owner:
-            current_repo = github_client.get_current_repository()
-            if current_repo:
-                owner = current_repo.owner.login
-            else:
-                # Try to get authenticated user
-                try:
-                    user = github_client._github.get_user()
-                    owner = user.login
-                except:
-                    return {
-                        "error": "No owner specified",
-                        "message": "Specify an owner or switch to a repository"
-                    }
-        
-        # List projects
-        projects = run_async_in_thread(
-            projects_manager.list_projects(owner, limit)
-        )
-        
-        console_logger.info(f"Listed {len(projects)} projects for {owner}")
-        
-        return {
-            "success": True,
-            "owner": owner,
-            "count": len(projects),
-            "projects": projects
-        }
-        
-    except Exception as e:
-        error_msg = f"Failed to list projects: {str(e)}"
-        console_logger.error(error_msg)
-        return {"error": error_msg}
+    github_client, _, _, _, projects_manager = get_github_instances()
+    
+    # Use current repo owner if not specified
+    if not owner:
+        current_repo = github_client.get_current_repository()
+        if current_repo:
+            owner = current_repo.owner.login
+        else:
+            # Try to get authenticated user
+            try:
+                user = github_client._github.get_user()
+                owner = user.login
+            except:
+                return {
+                    "error": "No owner specified",
+                    "message": "Specify an owner or switch to a repository"
+                }
+    
+    # List projects
+    projects = run_async_in_thread(
+        projects_manager.list_projects(owner, limit)
+    )
+    
+    console_logger.info(f"Listed {len(projects)} projects for {owner}")
+    
+    return {
+        "success": True,
+        "owner": owner,
+        "count": len(projects),
+        "projects": projects
+    }
 
 
 @mcp.tool()
+@github_operation("create project", require_projects=True)
 def github_create_project(title: str, body: Optional[str] = None, owner: Optional[str] = None) -> Dict[str, Any]:
     """
     Create a new GitHub Project V2.
@@ -5936,52 +5846,43 @@ def github_create_project(title: str, body: Optional[str] = None, owner: Optiona
         The body parameter is accepted but not used due to GitHub API limitations.
         Consider adding a custom field after creation if descriptions are needed.
     """
-    try:
-        error, instances = validate_github_prerequisites(require_projects=True)
-        if error:
-            return error
-        github_client, _, _, _, projects_manager = instances
-        
-        # Use current repo owner if not specified
-        if not owner:
-            current_repo = github_client.get_current_repository()
-            if not current_repo:
-                return {
-                    "error": "No repository context set", 
-                    "message": "Use github_switch_repository first or specify owner"
-                }
-            owner = current_repo.owner.login
-        
-        # Create project (async function needs to be run in event loop)
-        project = run_async_in_thread(
-            projects_manager.create_project(owner, title, body)
-        )
-        
-        console_logger.info(f"Created GitHub project '{title}' for {owner}")
-        
-        response = {
-            "success": True,
-            "project": {
-                "id": project["id"],
-                "number": project["number"],
-                "title": project["title"],
-                "description": None,  # GitHub Projects V2 doesn't support descriptions at creation
-                "url": project["url"],
-                "owner": owner,
-                "created_at": project["createdAt"]
+    github_client, _, _, _, projects_manager = get_github_instances()
+    
+    # Use current repo owner if not specified
+    if not owner:
+        current_repo = github_client.get_current_repository()
+        if not current_repo:
+            return {
+                "error": "No repository context set", 
+                "message": "Use github_switch_repository first or specify owner"
             }
+        owner = current_repo.owner.login
+    
+    # Create project (async function needs to be run in event loop)
+    project = run_async_in_thread(
+        projects_manager.create_project(owner, title, body)
+    )
+    
+    console_logger.info(f"Created GitHub project '{title}' for {owner}")
+    
+    response = {
+        "success": True,
+        "project": {
+            "id": project["id"],
+            "number": project["number"],
+            "title": project["title"],
+            "description": None,  # GitHub Projects V2 doesn't support descriptions at creation
+            "url": project["url"],
+            "owner": owner,
+            "created_at": project["createdAt"]
         }
+    }
+    
+    # Add note if description was requested
+    if body:
+        response["note"] = "GitHub Projects V2 API doesn't support descriptions at creation time. Consider adding a custom field after creation."
         
-        # Add note if description was requested
-        if body:
-            response["note"] = "GitHub Projects V2 API doesn't support descriptions at creation time. Consider adding a custom field after creation."
-            
-        return response
-        
-    except Exception as e:
-        error_msg = f"Failed to create project: {str(e)}"
-        console_logger.error(error_msg)
-        return {"error": error_msg}
+    return response
 
 
 @mcp.tool()

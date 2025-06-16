@@ -68,14 +68,49 @@ Transform our RAG server from a basic semantic search tool into an advanced, tok
   - ✅ Enhanced filtering with milestone, assignee, date range, sort options
   - ✅ Advanced search with GitHub Search API support
   - ✅ All corresponding HTTP endpoints
+- ✅ **Critical Bug Fixes (v0.3.4.post6)** - Indexing stability improvements
+  - ✅ Fixed YAML/YML file indexing KeyError preventing configuration indexing
+  - ✅ Fixed documentation indexing division by zero errors
+  - ✅ Fixed empty file handling in documentation indexer
+  - ✅ Added Terraform file support (.tf, .tfvars) to default patterns
+  - ✅ Added clear_existing parameter for clean reindexing
+  - ✅ Improved error handling with safe attribute access
+  - ✅ Fixed BM25 index building KeyError for existing collections
 
 ### In Progress
+
+#### v0.3.4.post7: Code Quality Enhancement (1-2 weeks)
+- **Status**: 🚧 In Progress
+- **Focus**: Major code quality improvements and consolidation
+- **Planned Deliverables**:
+  - 📋 GitHub operation decorator to eliminate ~500 lines of duplicate error handling
+  - 📋 HTTP endpoint base handler to standardize API responses
+  - 📋 Batch processing implementation for 3-5x performance improvement
+  - 📋 Caching layer for expensive operations (issue analysis, embeddings)
+  - 📋 Complete MCP tool documentation (16 tools missing "WHEN TO USE")
+  - 📋 Remove dead code (unused schema extraction, debug files)
+  - 📋 Code reorganization with core abstractions
+  - 📋 Performance optimizations (async operations, streaming results)
+- **Benefits**: 
+  - 30-40% reduction in code duplication
+  - 3-5x performance improvement for batch operations
+  - Better maintainability and consistency
+  - 100% documentation coverage for public APIs
+- **Implementation Plan**: [Code Quality Enhancement Plan](./code-quality-enhancement-plan.md)
 
 ### Upcoming
 - 📋 Adaptive Search Intelligence - v0.3.5 (Smart query understanding)
 - 📋 Query Enhancement - v0.3.6 (+35% recall)
 - 📋 MCP Server Optimizations - v0.4.1+ (Performance improvements)
 - 📋 Semantic Compression - v0.5.x (Advanced token reduction)
+- 📋 Strategic Analysis Foundation - v0.6.0 (Analytics infrastructure)
+- 📋 Issue Pattern Analysis - v0.6.1 (Issue clustering and trends)
+- 📋 Technical Debt Intelligence - v0.6.2 (Debt detection and prioritization)
+- 📋 Strategic Planning Assistant - v0.6.3 (Synthesized recommendations)
+- 📋 Analytics Optimization - v0.6.4 (Performance and token efficiency)
+- 📋 Predictive Analytics - v0.7.0 (Velocity and complexity forecasting)
+- 📋 Architecture Analysis - v0.7.1 (Dependency and modularity insights)
+- 📋 Team Analytics - v0.7.2 (Ownership and collaboration patterns)
 
 ## 📊 Current State vs. Target State
 
@@ -728,8 +763,58 @@ The foundation is complete. Next phase focuses on project management, optimizati
 - **Performance Optimization**: -50% search latency, batch operations, streaming responses (v0.4.1+)
 - **Semantic Compression**: LLM-based compression for ultra-large codebases (v0.5.x)
 
+## 🎯 Strategic Analysis Vision (v0.6.x+)
+
+### The Next Evolution: From Search to Intelligence
+
+After achieving our advanced RAG goals, the next major evolution introduces **Strategic Analysis** - transforming our system from a "code finder" to a "project intelligence platform" that helps teams make better decisions about what to build next.
+
+### Key Innovation: Token-Efficient Analytics
+
+Unlike our current issue analyzer that can burn through an entire context window, strategic analysis uses:
+- **Pre-computed metrics** stored outside conversations
+- **Hierarchical summaries** (200 → 800 → 2000 tokens)
+- **Background processing** for expensive computations
+- **Progressive disclosure** controlled by users
+
+### Capabilities Unlocked
+
+#### v0.6.x: Strategic Analysis Foundation
+- **Code Health Metrics**: Complexity, churn, test coverage tracking
+- **Issue Pattern Analysis**: Clustering similar issues, identifying trends
+- **Technical Debt Intelligence**: Hotspot detection, prioritized refactoring
+- **Strategic Planning**: Synthesized recommendations for next sprint
+
+#### v0.7.x: Advanced Intelligence
+- **Predictive Analytics**: Velocity forecasting, bug rate predictions
+- **Architecture Analysis**: Dependency insights, modularity scoring
+- **Team Analytics**: Expertise mapping, collaboration patterns
+
+### Example: Next Sprint Planning (250 tokens vs 50,000+)
+
+```
+User: "suggest next priority"
+
+Response:
+Priority: Refactor authentication module
+Reason: 3 open issues + blocking SSO feature + complexity score 8.5
+Effort: 3-5 days
+Impact: Unblocks 5 features, reduces support tickets by ~30%
+[Expand for details...]
+```
+
+### Implementation Strategy
+
+1. **Analytics Storage**: SQLite for metrics, JSON for summaries
+2. **Background Processing**: GitHub Actions for nightly updates
+3. **Incremental Updates**: Hook into existing reindex operations
+4. **Token Budget**: <500 tokens per strategic query
+
+This positions our RAG server as not just a search tool, but a strategic partner in software development decision-making.
+
 ## 📚 Related Documentation
 
+- [Strategic Analysis Release Plan](./strategic-analysis-release-plan.md) - Detailed plan for v0.6.x+ strategic features
 - [Progressive Context Implementation Plan](./progressive-context/progressive-context-implementation-plan.md) - Detailed plan for v0.3.2 progressive context feature
 - [Context Tracking Implementation Plan](./context-tracking-implementation-plan.md) - Detailed plan for v0.3.1 context tracking feature
 - [AST Chunking Implementation](./ast-chunking-implementation.md) - Technical details of AST-based code parsing

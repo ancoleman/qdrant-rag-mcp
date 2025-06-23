@@ -4,6 +4,7 @@ Qdrant RAG MCP Server - Context-Aware Version
 Automatically scopes to current project unless explicitly overridden
 Supports optional file watching for auto-reindexing
 """
+# Standard library imports
 import os
 import sys
 import hashlib
@@ -12,9 +13,13 @@ import time
 import argparse
 import fnmatch
 import gc
+import logging
+import traceback
+import shutil
+import asyncio
+import concurrent.futures
 from typing import Dict, List, Optional, Any, Set, Tuple, Callable
 from pathlib import Path
-import logging
 from datetime import datetime
 
 # Add src directory to Python path
@@ -26,8 +31,20 @@ try:
 except ImportError:
     __version__ = "0.3.4.post6"  # Fallback version
 
-# Load environment variables from the MCP server directory
+# Third-party imports
 from dotenv import load_dotenv
+from qdrant_client import QdrantClient
+from qdrant_client.http.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
+from mcp.server.fastmcp import FastMCP
+
+# Try to import optional dependencies
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+
+# Load environment variables from the MCP server directory
 mcp_server_dir = Path(__file__).parent.parent
 env_path = mcp_server_dir / ".env"
 if env_path.exists():
@@ -42,32 +59,30 @@ if 'SENTENCE_TRANSFORMERS_HOME' in os.environ:
     if not os.environ.get('HF_HUB_CACHE'):
         os.environ['HF_HUB_CACHE'] = cache_dir
 
-# MCP imports
-from mcp.server.fastmcp import FastMCP
+# Local application imports
+# Note: These imports must come after dotenv loading and HF cache setup
+# to ensure environment variables are properly configured
+from utils.logging import get_project_logger, get_error_logger, log_operation
+from utils.hybrid_search import get_hybrid_searcher
+from utils.enhanced_ranker import get_enhanced_ranker
+from utils.file_hash import calculate_file_hash, get_file_info
+from config import get_config
+from utils.progressive_context import get_progressive_manager
+from utils.context_tracking import SessionContextTracker, SessionStore, check_context_usage
+from utils.model_registry import get_model_registry
+from utils.memory_manager import get_memory_manager
+from utils.embeddings import get_embeddings_manager
+from core.decorators import github_operation, get_github_instances
+from indexers import CodeIndexer, ConfigIndexer, DocumentationIndexer
+from utils.dependency_resolver import DependencyResolver
+from github_integration.client import get_github_client
+from github_integration.issue_analyzer import get_issue_analyzer
+from github_integration.code_generator import get_code_generator
+from github_integration.workflows import get_github_workflows
+from github_integration import PROJECTS_AVAILABLE, get_projects_manager
 
 # Initialize FastMCP server
 mcp = FastMCP("qdrant-rag-context")
-
-# Import project-aware logging
-from utils.logging import get_project_logger, get_error_logger, log_operation
-# Import hybrid search
-from utils.hybrid_search import get_hybrid_searcher
-# Import enhanced ranker
-from utils.enhanced_ranker import get_enhanced_ranker
-# Import file hash utilities
-from utils.file_hash import calculate_file_hash, get_file_info
-# Import configuration
-from config import get_config
-# Import progressive context
-from utils.progressive_context import get_progressive_manager
-# Import context tracking
-from utils.context_tracking import SessionContextTracker, SessionStore, check_context_usage
-# Import model registry
-from utils.model_registry import get_model_registry
-# Import memory manager
-from utils.memory_manager import get_memory_manager
-# Import core decorators
-from core.decorators import github_operation, get_github_instances
 
 # Configure basic console logging for startup messages
 logging.basicConfig(
@@ -518,10 +533,6 @@ def ensure_collection(collection_name: str, embedding_dimension: Optional[int] =
     """
     client = get_qdrant_client()
     
-    from qdrant_client.http.models import Distance, VectorParams
-    from utils.model_registry import get_model_registry
-    from utils.embeddings import get_embeddings_manager
-    
     def check_and_create():
         existing = [c.name for c in client.get_collections().collections]
         
@@ -567,7 +578,6 @@ def ensure_collection(collection_name: str, embedding_dimension: Optional[int] =
             }
             
             # Store metadata as a special point with zero vector
-            from qdrant_client.http.models import PointStruct
             metadata_point = PointStruct(
                 id=metadata_point_id,
                 vector=[0.0] * final_dimension,  # Dummy vector
@@ -631,7 +641,6 @@ def get_collection_metadata(collection_name: str) -> Optional[Dict[str, Any]]:
             pass
         
         # Fall back to model registry
-        from utils.model_registry import get_model_registry
         registry = get_model_registry()
         collection_info = registry.get_collection_info(collection_name)
         
@@ -747,7 +756,6 @@ def get_embeddings_manager_instance():
     """
     global _embeddings_manager
     if _embeddings_manager is None:
-        from utils.embeddings import get_embeddings_manager
         config = get_config()
         _embeddings_manager = get_embeddings_manager(config)
     return _embeddings_manager
@@ -756,7 +764,6 @@ def get_qdrant_client():
     """Get or create Qdrant client with connection validation"""
     global _qdrant_client
     if _qdrant_client is None:
-        from qdrant_client import QdrantClient
         
         host = os.getenv("QDRANT_HOST", "localhost")
         port = int(os.getenv("QDRANT_PORT", "6333"))
@@ -780,7 +787,6 @@ def get_embedding_model():
     a wrapper around the unified embeddings manager.
     """
     # Get the unified embeddings manager
-    from utils.embeddings import get_embeddings_manager
     config = get_config()
     return get_embeddings_manager(config)
 
@@ -788,7 +794,6 @@ def get_code_indexer():
     """Get or create code indexer"""
     global _code_indexer
     if _code_indexer is None:
-        from indexers import CodeIndexer
         _code_indexer = CodeIndexer()
     return _code_indexer
 
@@ -796,7 +801,6 @@ def get_config_indexer():
     """Get or create config indexer"""
     global _config_indexer
     if _config_indexer is None:
-        from indexers import ConfigIndexer
         _config_indexer = ConfigIndexer()
     return _config_indexer
 
@@ -804,7 +808,6 @@ def get_documentation_indexer():
     """Get or create documentation indexer"""
     global _documentation_indexer
     if _documentation_indexer is None:
-        from indexers import DocumentationIndexer
         config = get_config()
         
         # Get documentation-specific chunk settings
@@ -1084,7 +1087,6 @@ def delete_file_chunks(file_path: str, collection_name: Optional[str] = None) ->
             }
         
         # Create filter for the specific file
-        from qdrant_client.http.models import Filter, FieldCondition, MatchValue
         filter_condition = Filter(
             must=[FieldCondition(key="file_path", match=MatchValue(value=str(abs_path)))]
         )
@@ -1155,8 +1157,6 @@ def detect_changes(directory: str = ".") -> Dict[str, Any]:
     logger = get_logger()
     
     try:
-        import os
-        from pathlib import Path
         
         # Input validation
         if not directory or not isinstance(directory, str):
@@ -1444,7 +1444,6 @@ def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
                 "details": "Path traversal or system file access attempted"
             }
         
-        from qdrant_client.http.models import PointStruct
         
         console_logger.info(f"Starting index_code for {file_path}", extra={
             "operation": "index_code",
@@ -1524,7 +1523,8 @@ def index_code(file_path: str, force_global: bool = False) -> Dict[str, Any]:
                 "chunk_type": chunk.metadata.get("chunk_type", "general"),
                 "project": collection_name.rsplit('_', 1)[0],
                 "modified_at": mod_time,
-                "file_hash": file_hash
+                "file_hash": file_hash,
+                "embedding_model": embeddings_manager.get_model_name("code")
             }
             
             # Add hierarchical metadata if available
@@ -1682,8 +1682,6 @@ def index_documentation(file_path: str, force_global: bool = False) -> Dict[str,
                 "details": "Path traversal or system file access attempted"
             }
         
-        from qdrant_client.http.models import PointStruct
-        
         abs_path = Path(file_path).resolve()
         
         # Check if file exists
@@ -1776,7 +1774,8 @@ def index_documentation(file_path: str, force_global: bool = False) -> Dict[str,
                 "external_links": chunk['metadata'].get('external_links', []),
                 "modified_at": chunk['metadata'].get('modified_at', ''),
                 "file_hash": file_hash,
-                "collection": collection_name
+                "collection": collection_name,
+                "embedding_model": embeddings_manager.get_model_name("documentation")
             }
                     
             # Add frontmatter if present
@@ -2155,7 +2154,6 @@ def index_directory(directory: str = None, patterns: List[str] = None, recursive
                 if files_processed > 0:
                     embeddings_manager = get_embeddings_manager_instance()
                     if hasattr(embeddings_manager, 'use_specialized') and embeddings_manager.use_specialized:
-                        import gc
                         gc.collect()
                         logger.debug(f"Cleared memory before processing {group_name} files")
                 
@@ -2166,7 +2164,6 @@ def index_directory(directory: str = None, patterns: List[str] = None, recursive
                             embeddings_manager = get_embeddings_manager_instance()
                             if hasattr(embeddings_manager, 'use_specialized') and embeddings_manager.use_specialized:
                                 # Run garbage collection
-                                import gc
                                 gc.collect()
                                 logger.debug(f"Performed memory cleanup after {files_processed} files")
                         
@@ -3017,7 +3014,6 @@ def search(
         # Handle dependency inclusion if requested
         if include_dependencies and all_results:
             try:
-                from utils.dependency_resolver import DependencyResolver
                 
                 # Collect unique file paths from results
                 result_files = set()
@@ -3078,7 +3074,6 @@ def search(
             dependency_graph = {}
             if include_dependencies:
                 try:
-                    from utils.dependency_resolver import DependencyResolver
                     for collection in search_collections:
                         if "_code" in collection:
                             resolver = DependencyResolver(qdrant_client, collection)
@@ -3161,7 +3156,6 @@ def search(
         return result
         
     except Exception as e:
-        import traceback
         duration_ms = (time.time() - start_time) * 1000
         tb_str = traceback.format_exc()
         console_logger.error(f"Failed search: {query[:50]}... - {str(e)}", extra={
@@ -3247,8 +3241,6 @@ def search_code(
     # If progressive mode is requested and enabled, use progressive context manager
     if progressive_mode and progressive_enabled:
         try:
-            # Import here to avoid circular imports
-            from utils.progressive_context import get_progressive_manager
             
             # Get services
             embeddings_manager = get_embeddings_manager_instance()
@@ -3366,7 +3358,6 @@ def search_code(
         # Build filter if language specified
         filter_dict = None
         if language:
-            from qdrant_client.http.models import Filter, FieldCondition, MatchValue
             filter_dict = Filter(
                 must=[FieldCondition(key="language", match=MatchValue(value=language))]
             )
@@ -3400,7 +3391,6 @@ def search_code(
         # Handle dependency inclusion if requested
         if include_dependencies and all_results:
             try:
-                from utils.dependency_resolver import DependencyResolver
                 
                 # Collect unique file paths from results
                 result_files = set()
@@ -3470,7 +3460,6 @@ def search_code(
             dependency_graph = {}
             if include_dependencies:
                 try:
-                    from utils.dependency_resolver import DependencyResolver
                     for collection in search_collections:
                         if "_code" in collection:
                             resolver = DependencyResolver(qdrant_client, collection)
@@ -3583,7 +3572,6 @@ def search_code(
         }
         
     except Exception as e:
-        import traceback
         tb_str = traceback.format_exc()
         console_logger.error(f"Code search failed", extra={
             "operation": "search_code",
@@ -3811,7 +3799,6 @@ def search_docs(
         # Build filter if doc_type specified
         filter_dict = None
         if doc_type:
-            from qdrant_client.http.models import Filter, FieldCondition, MatchValue
             filter_dict = Filter(
                 must=[FieldCondition(key="doc_type", match=MatchValue(value=doc_type.lower()))]
             )
@@ -3973,7 +3960,6 @@ def search_docs(
         }
         
     except Exception as e:
-        import traceback
         duration_ms = (time.time() - start_time) * 1000
         tb_str = traceback.format_exc()
         console_logger.error(f"Documentation search failed", extra={
@@ -4419,8 +4405,6 @@ def index_config(file_path: str, force_global: bool = False) -> Dict[str, Any]:
     - Handles environment variables
     """
     try:
-        from qdrant_client.http.models import PointStruct
-        
         # Resolve to absolute path
         abs_path = Path(file_path).resolve()
         if not abs_path.exists():
@@ -4505,7 +4489,8 @@ def index_config(file_path: str, force_global: bool = False) -> Dict[str, Any]:
                     "value": chunk_metadata.get("value", ""),
                     "project": collection_name.rsplit('_', 1)[0],
                     "modified_at": mod_time,
-                    "file_hash": file_hash
+                    "file_hash": file_hash,
+                    "embedding_model": embeddings_manager.get_model_name("config")
                 }
             )
             points.append(point)
@@ -4807,7 +4792,6 @@ def trigger_memory_cleanup(aggressive: bool = False) -> Dict[str, Any]:
                 }
         
         # Force garbage collection
-        import gc
         gc.collect()
         gc.collect()  # Run twice
         
@@ -4907,7 +4891,6 @@ def health_check() -> Dict[str, Any]:
     
     # Check disk space
     try:
-        import shutil
         disk_usage = shutil.disk_usage("/")
         free_gb = disk_usage.free / (1024 ** 3)
         total_gb = disk_usage.total / (1024 ** 3)
@@ -4930,7 +4913,7 @@ def health_check() -> Dict[str, Any]:
     
     # Check memory usage
     try:
-        import psutil
+        # psutil imported conditionally at module level
         memory = psutil.virtual_memory()
         health_status["system"]["memory"] = {
             "available_gb": round(memory.available / (1024 ** 3), 2),
@@ -5058,11 +5041,7 @@ def health_check() -> Dict[str, Any]:
 
 # GitHub Integration - Import modules with graceful fallback
 try:
-    from github_integration.client import get_github_client
-    from github_integration.issue_analyzer import get_issue_analyzer
-    from github_integration.code_generator import get_code_generator
-    from github_integration.workflows import get_github_workflows
-    from github_integration import PROJECTS_AVAILABLE, get_projects_manager
+    # Already imported at module level
     GITHUB_AVAILABLE = True
 except ImportError:
     GITHUB_AVAILABLE = False
@@ -5078,7 +5057,7 @@ _github_workflows = None
 _projects_manager = None
 
 
-def get_github_instances():
+def _create_github_instances():
     """Get or create GitHub service instances."""
     global _github_client, _issue_analyzer, _code_generator, _github_workflows, _projects_manager
     
@@ -5135,8 +5114,6 @@ def run_async_in_thread(coro):
     Returns:
         The result of the coroutine
     """
-    import asyncio
-    import concurrent.futures
     
     try:
         loop = asyncio.get_event_loop()
@@ -5230,7 +5207,7 @@ def validate_github_prerequisites(require_projects=False, require_repo=False):
             return error, None
     
     # Get GitHub instances
-    github_client, issue_analyzer, code_generator, workflows, projects_manager = get_github_instances()
+    github_client, issue_analyzer, code_generator, workflows, projects_manager = _create_github_instances()
     
     # Check repository context if required
     if require_repo:
@@ -5548,6 +5525,7 @@ def github_add_comment(issue_number: int, body: str) -> Dict[str, Any]:
 
 
 @mcp.tool()
+@github_operation("analyze issue", require_repo=True)
 def github_analyze_issue(issue_number: int) -> Dict[str, Any]:
     """
     Perform comprehensive analysis of a GitHub issue using RAG search.
@@ -5571,41 +5549,26 @@ def github_analyze_issue(issue_number: int) -> Dict[str, Any]:
     Returns:
         Analysis results with search results and recommendations
     """
-    try:
-        error, instances = validate_github_prerequisites(require_repo=True)
-        if error:
-            return error
-        github_client, _, _, workflows, _ = instances
-        
-        # Run analysis workflow
-        result = workflows.analyze_issue_workflow(issue_number)
-        
-        console_logger.info(
-            f"Analyzed issue #{issue_number}",
-            extra={
-                "operation": "github_analyze_issue",
-                "issue_number": issue_number,
-                "workflow_status": result.get("workflow_status"),
-                "confidence": result.get("analysis", {}).get("analysis", {}).get("confidence_score", 0)
-            }
-        )
-        
-        return result
-        
-    except Exception as e:
-        error_msg = f"Failed to analyze issue #{issue_number}: {str(e)}"
-        console_logger.error(
-            error_msg,
-            extra={
-                "operation": "github_analyze_issue",
-                "error": str(e),
-                "issue_number": issue_number
-            }
-        )
-        return {"error": error_msg}
+    github_client, _, _, workflows, _ = get_github_instances()
+    
+    # Run analysis workflow
+    result = workflows.analyze_issue_workflow(issue_number)
+    
+    console_logger.info(
+        f"Analyzed issue #{issue_number}",
+        extra={
+            "operation": "github_analyze_issue",
+            "issue_number": issue_number,
+            "workflow_status": result.get("workflow_status"),
+            "confidence": result.get("analysis", {}).get("analysis", {}).get("confidence_score", 0)
+        }
+    )
+    
+    return result
 
 
 @mcp.tool()
+@github_operation("suggest fix", require_repo=True)
 def github_suggest_fix(issue_number: int) -> Dict[str, Any]:
     """
     Generate fix suggestions for a GitHub issue using RAG analysis.
@@ -5629,39 +5592,23 @@ def github_suggest_fix(issue_number: int) -> Dict[str, Any]:
     Returns:
         Fix suggestions and implementation plan
     """
-    try:
-        error, instances = validate_github_prerequisites(require_repo=True)
-        if error:
-            return error
-        github_client, _, _, workflows, _ = instances
-        
-        # Run fix suggestion workflow
-        result = workflows.suggest_fix_workflow(issue_number)
-        
-        console_logger.info(
-            f"Generated fix suggestions for issue #{issue_number}",
-            extra={
-                "operation": "github_suggest_fix",
-                "issue_number": issue_number,
-                "workflow_status": result.get("workflow_status"),
-                "fix_count": len(result.get("suggestions", {}).get("fixes", [])),
-                "confidence": result.get("suggestions", {}).get("confidence_level", "unknown")
-            }
-        )
-        
-        return result
-        
-    except Exception as e:
-        error_msg = f"Failed to generate fix suggestions for issue #{issue_number}: {str(e)}"
-        console_logger.error(
-            error_msg,
-            extra={
-                "operation": "github_suggest_fix",
-                "error": str(e),
-                "issue_number": issue_number
-            }
-        )
-        return {"error": error_msg}
+    _, _, _, workflows, _ = get_github_instances()
+    
+    # Run fix suggestion workflow
+    result = workflows.suggest_fix_workflow(issue_number)
+    
+    console_logger.info(
+        f"Generated fix suggestions for issue #{issue_number}",
+        extra={
+            "operation": "github_suggest_fix",
+            "issue_number": issue_number,
+            "workflow_status": result.get("workflow_status"),
+            "fix_count": len(result.get("suggestions", {}).get("fixes", [])),
+            "confidence": result.get("suggestions", {}).get("confidence_level", "unknown")
+        }
+    )
+    
+    return result
 
 
 @mcp.tool()
@@ -5725,6 +5672,7 @@ def github_create_pull_request(title: str, body: str, head: str, base: str = "ma
 
 
 @mcp.tool()
+@github_operation("resolve issue", require_repo=True)
 def github_resolve_issue(issue_number: int, dry_run: bool = True) -> Dict[str, Any]:
     """
     Attempt to resolve a GitHub issue with automated analysis and PR creation.
@@ -5736,39 +5684,22 @@ def github_resolve_issue(issue_number: int, dry_run: bool = True) -> Dict[str, A
     Returns:
         Resolution workflow results
     """
-    try:
-        error, instances = validate_github_prerequisites(require_repo=True)
-        if error:
-            return error
-        github_client, _, _, workflows, _ = instances
-        
-        # Run complete resolution workflow
-        result = workflows.resolve_issue_workflow(issue_number, dry_run=dry_run)
-        
-        console_logger.info(
-            f"Issue resolution workflow for #{issue_number} (dry_run={dry_run})",
-            extra={
-                "operation": "github_resolve_issue",
-                "issue_number": issue_number,
-                "dry_run": dry_run,
-                "workflow_status": result.get("workflow_status")
-            }
-        )
-        
-        return result
-        
-    except Exception as e:
-        error_msg = f"Failed to resolve issue #{issue_number}: {str(e)}"
-        console_logger.error(
-            error_msg,
-            extra={
-                "operation": "github_resolve_issue",
-                "error": str(e),
-                "issue_number": issue_number,
-                "dry_run": dry_run
-            }
-        )
-        return {"error": error_msg}
+    _, _, _, workflows, _ = get_github_instances()
+    
+    # Run complete resolution workflow
+    result = workflows.resolve_issue_workflow(issue_number, dry_run=dry_run)
+    
+    console_logger.info(
+        f"Issue resolution workflow for #{issue_number} (dry_run={dry_run})",
+        extra={
+            "operation": "github_resolve_issue",
+            "issue_number": issue_number,
+            "dry_run": dry_run,
+            "workflow_status": result.get("workflow_status")
+        }
+    )
+    
+    return result
 
 
 # GitHub Projects V2 tools (v0.3.4)
@@ -5886,6 +5817,7 @@ def github_create_project(title: str, body: Optional[str] = None, owner: Optiona
 
 
 @mcp.tool()
+@github_operation("get project", require_projects=True)
 def github_get_project(number: int, owner: Optional[str] = None) -> Dict[str, Any]:
     """
     Get GitHub Project V2 details.
@@ -5897,59 +5829,51 @@ def github_get_project(number: int, owner: Optional[str] = None) -> Dict[str, An
     Returns:
         Project details including fields and item counts
     """
-    try:
-        error, instances = validate_github_prerequisites(require_projects=True)
-        if error:
-            return error
-        github_client, _, _, _, projects_manager = instances
-        
-        # Use current repo owner if not specified
-        if not owner:
-            current_repo = github_client.get_current_repository()
-            if not current_repo:
-                return {
-                    "error": "No repository context set",
-                    "message": "Use github_switch_repository first or specify owner"
-                }
-            owner = current_repo.owner.login
-        
-        # Get project details
-        project = run_async_in_thread(
-            projects_manager.get_project(owner, number)
-        )
-        
-        console_logger.info(f"Retrieved project #{number} for {owner}")
-        
-        return {
-            "success": True,
-            "project": {
-                "id": project["id"],
-                "number": project["number"],
-                "title": project["title"],
-                "description": project.get("shortDescription", ""),
-                "url": project["url"],
-                "item_count": project["items"]["totalCount"],
-                "fields": [
-                    {
-                        "id": field["id"],
-                        "name": field["name"],
-                        "type": field["dataType"],
-                        "options": field.get("options", [])
-                    }
-                    for field in project["fields"]["nodes"]
-                ],
-                "created_at": project["createdAt"],
-                "updated_at": project["updatedAt"]
+    github_client, _, _, _, projects_manager = get_github_instances()
+    
+    # Use current repo owner if not specified
+    if not owner:
+        current_repo = github_client.get_current_repository()
+        if not current_repo:
+            return {
+                "error": "No repository context set",
+                "message": "Use github_switch_repository first or specify owner"
             }
+        owner = current_repo.owner.login
+    
+    # Get project details
+    project = run_async_in_thread(
+        projects_manager.get_project(owner, number)
+    )
+    
+    console_logger.info(f"Retrieved project #{number} for {owner}")
+    
+    return {
+        "success": True,
+        "project": {
+            "id": project["id"],
+            "number": project["number"],
+            "title": project["title"],
+            "description": project.get("shortDescription", ""),
+            "url": project["url"],
+            "item_count": project["items"]["totalCount"],
+            "fields": [
+                {
+                    "id": field["id"],
+                    "name": field["name"],
+                    "type": field["dataType"],
+                    "options": field.get("options", [])
+                }
+                for field in project["fields"]["nodes"]
+            ],
+            "created_at": project["createdAt"],
+            "updated_at": project["updatedAt"]
         }
-        
-    except Exception as e:
-        error_msg = f"Failed to get project: {str(e)}"
-        console_logger.error(error_msg)
-        return {"error": error_msg}
+    }
 
 
 @mcp.tool()
+@github_operation("add project item", require_projects=True, require_repo=True)
 def github_add_project_item(project_id: str, issue_number: int) -> Dict[str, Any]:
     """
     Add an issue or PR to a GitHub Project V2.
@@ -5961,57 +5885,49 @@ def github_add_project_item(project_id: str, issue_number: int) -> Dict[str, Any
     Returns:
         Added item information
     """
+    github_client, _, _, _, projects_manager = get_github_instances()
+    
+    current_repo = github_client.get_current_repository()
+    
+    # Get the issue/PR to add
     try:
-        error, instances = validate_github_prerequisites(require_projects=True, require_repo=True)
-        if error:
-            return error
-        github_client, _, _, _, projects_manager = instances
-        
-        current_repo = github_client.get_current_repository()
-        
-        # Get the issue/PR to add
+        issue = current_repo.get_issue(issue_number)
+        content_id = issue.node_id
+    except Exception:
         try:
-            issue = current_repo.get_issue(issue_number)
-            content_id = issue.node_id
+            pr = current_repo.get_pull(issue_number)
+            content_id = pr.node_id
         except Exception:
-            try:
-                pr = current_repo.get_pull(issue_number)
-                content_id = pr.node_id
-            except Exception:
-                return {
-                    "error": f"Issue/PR #{issue_number} not found",
-                    "message": "Check the issue/PR number"
-                }
-        
-        # Add to project
-        item = run_async_in_thread(
-            projects_manager.add_item_to_project(project_id, content_id)
-        )
-        
-        console_logger.info(f"Added {item['content']['title']} to project")
-        
-        return {
-            "success": True,
-            "item": {
-                "id": item["id"],
-                "type": item["type"],
-                "content": {
-                    "id": item["content"]["id"],
-                    "number": item["content"]["number"],
-                    "title": item["content"]["title"],
-                    "url": item["content"]["url"]
-                },
-                "created_at": item["createdAt"]
+            return {
+                "error": f"Issue/PR #{issue_number} not found",
+                "message": "Check the issue/PR number"
             }
+    
+    # Add to project
+    item = run_async_in_thread(
+        projects_manager.add_item_to_project(project_id, content_id)
+    )
+    
+    console_logger.info(f"Added {item['content']['title']} to project")
+    
+    return {
+        "success": True,
+        "item": {
+            "id": item["id"],
+            "type": item["type"],
+            "content": {
+                "id": item["content"]["id"],
+                "number": item["content"]["number"],
+                "title": item["content"]["title"],
+                "url": item["content"]["url"]
+            },
+            "created_at": item["createdAt"]
         }
-        
-    except Exception as e:
-        error_msg = f"Failed to add item to project: {str(e)}"
-        console_logger.error(error_msg)
-        return {"error": error_msg}
+    }
 
 
 @mcp.tool()
+@github_operation("update project item", require_projects=True)
 def github_update_project_item(project_id: str, item_id: str, field_id: str, value: str) -> Dict[str, Any]:
     """
     Update a field value for a project item.
@@ -6025,33 +5941,25 @@ def github_update_project_item(project_id: str, item_id: str, field_id: str, val
     Returns:
         Update confirmation
     """
-    try:
-        error, instances = validate_github_prerequisites(require_projects=True)
-        if error:
-            return error
-        github_client, _, _, _, projects_manager = instances
-        
-        # Update the field
-        result = run_async_in_thread(
-            projects_manager.update_item_field(project_id, item_id, field_id, value)
-        )
-        
-        console_logger.info(f"Updated project item field {field_id} to '{value}'")
-        
-        return {
-            "success": True,
-            "item_id": result["id"],
-            "field_id": field_id,
-            "value": value
-        }
-        
-    except Exception as e:
-        error_msg = f"Failed to update item field: {str(e)}"
-        console_logger.error(error_msg)
-        return {"error": error_msg}
+    _, _, _, _, projects_manager = get_github_instances()
+    
+    # Update the field
+    result = run_async_in_thread(
+        projects_manager.update_item_field(project_id, item_id, field_id, value)
+    )
+    
+    console_logger.info(f"Updated project item field {field_id} to '{value}'")
+    
+    return {
+        "success": True,
+        "item_id": result["id"],
+        "field_id": field_id,
+        "value": value
+    }
 
 
 @mcp.tool()
+@github_operation("create project field", require_projects=True)
 def github_create_project_field(project_id: str, name: str, data_type: str, 
                                options: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
     """
@@ -6066,36 +5974,28 @@ def github_create_project_field(project_id: str, name: str, data_type: str,
     Returns:
         Created field information
     """
-    try:
-        error, instances = validate_github_prerequisites(require_projects=True)
-        if error:
-            return error
-        github_client, _, _, _, projects_manager = instances
-        
-        # Create the field
-        field = run_async_in_thread(
-            projects_manager.create_field(project_id, name, data_type, options)
-        )
-        
-        console_logger.info(f"Created project field '{name}' with type {data_type}")
-        
-        return {
-            "success": True,
-            "field": {
-                "id": field["id"],
-                "name": field["name"],
-                "type": field["dataType"],
-                "options": field.get("options", [])
-            }
+    _, _, _, _, projects_manager = get_github_instances()
+    
+    # Create the field
+    field = run_async_in_thread(
+        projects_manager.create_field(project_id, name, data_type, options)
+    )
+    
+    console_logger.info(f"Created project field '{name}' with type {data_type}")
+    
+    return {
+        "success": True,
+        "field": {
+            "id": field["id"],
+            "name": field["name"],
+            "type": field["dataType"],
+            "options": field.get("options", [])
         }
-        
-    except Exception as e:
-        error_msg = f"Failed to create project field: {str(e)}"
-        console_logger.error(error_msg)
-        return {"error": error_msg}
+    }
 
 
 @mcp.tool()
+@github_operation("create project from template", require_projects=True)
 def github_create_project_from_template(title: str, template: str, body: Optional[str] = None, 
                                         owner: Optional[str] = None) -> Dict[str, Any]:
     """
@@ -6110,58 +6010,50 @@ def github_create_project_from_template(title: str, template: str, body: Optiona
     Returns:
         Created project with configured fields
     """
-    try:
-        error, instances = validate_github_prerequisites(require_projects=True)
-        if error:
-            return error
-        github_client, _, _, _, projects_manager = instances
-        
-        # Use current repo owner if not specified
-        if not owner:
-            current_repo = github_client.get_current_repository()
-            if not current_repo:
-                return {
-                    "error": "No repository context set",
-                    "message": "Use github_switch_repository first or specify owner"
-                }
-            owner = current_repo.owner.login
-        
-        # Create project from template
-        project = run_async_in_thread(
-            projects_manager.create_project_from_template(owner, title, template, body)
-        )
-        
-        console_logger.info(f"Created project '{title}' from template '{template}'")
-        
-        return {
-            "success": True,
-            "project": {
-                "id": project["id"],
-                "number": project["number"],
-                "title": project["title"],
-                "description": project.get("shortDescription", ""),
-                "url": project["url"],
-                "owner": owner,
-                "template": template,
-                "fields": [
-                    {
-                        "id": field["id"],
-                        "name": field["name"],
-                        "type": field["dataType"],
-                        "options": field.get("options", [])
-                    }
-                    for field in project.get("fields", [])
-                ]
+    github_client, _, _, _, projects_manager = get_github_instances()
+    
+    # Use current repo owner if not specified
+    if not owner:
+        current_repo = github_client.get_current_repository()
+        if not current_repo:
+            return {
+                "error": "No repository context set",
+                "message": "Use github_switch_repository first or specify owner"
             }
+        owner = current_repo.owner.login
+    
+    # Create project from template
+    project = run_async_in_thread(
+        projects_manager.create_project_from_template(owner, title, template, body)
+    )
+    
+    console_logger.info(f"Created project '{title}' from template '{template}'")
+    
+    return {
+        "success": True,
+        "project": {
+            "id": project["id"],
+            "number": project["number"],
+            "title": project["title"],
+            "description": project.get("shortDescription", ""),
+            "url": project["url"],
+            "owner": owner,
+            "template": template,
+            "fields": [
+                {
+                    "id": field["id"],
+                    "name": field["name"],
+                    "type": field["dataType"],
+                    "options": field.get("options", [])
+                }
+                for field in project.get("fields", [])
+            ]
         }
-        
-    except Exception as e:
-        error_msg = f"Failed to create project from template: {str(e)}"
-        console_logger.error(error_msg)
-        return {"error": error_msg}
+    }
 
 
 @mcp.tool()
+@github_operation("get project status", require_projects=True)
 def github_get_project_status(project_id: str) -> Dict[str, Any]:
     """
     Get project status overview with item counts and progress.
@@ -6172,121 +6064,113 @@ def github_get_project_status(project_id: str) -> Dict[str, Any]:
     Returns:
         Project status dashboard with metrics
     """
-    try:
-        error, instances = validate_github_prerequisites(require_projects=True)
-        if error:
-            return error
-        github_client, _, _, _, projects_manager = instances
-        
-        # Get detailed project status via GraphQL
-        # Enhanced query for project status
-        status_query = """
-        query($projectId: ID!) {
-            node(id: $projectId) {
-                ... on ProjectV2 {
-                    id
-                    number
-                    title
-                    shortDescription
-                    url
-                    items(first: 100) {
-                        totalCount
-                        nodes {
-                            type
-                            content {
-                                ... on Issue {
-                                    state
-                                    closed
-                                }
-                                ... on PullRequest {
-                                    state
-                                    merged
-                                    closed
-                                }
+    _, _, _, _, projects_manager = get_github_instances()
+    
+    # Get detailed project status via GraphQL
+    # Enhanced query for project status
+    status_query = """
+    query($projectId: ID!) {
+        node(id: $projectId) {
+            ... on ProjectV2 {
+                id
+                number
+                title
+                shortDescription
+                url
+                items(first: 100) {
+                    totalCount
+                    nodes {
+                        type
+                        content {
+                            ... on Issue {
+                                state
+                                closed
+                            }
+                            ... on PullRequest {
+                                state
+                                merged
+                                closed
                             }
                         }
                     }
-                    fields(first: 20) {
-                        nodes {
-                            ... on ProjectV2Field {
-                                id
-                                name
-                                dataType
-                            }
+                }
+                fields(first: 20) {
+                    nodes {
+                        ... on ProjectV2Field {
+                            id
+                            name
+                            dataType
                         }
                     }
                 }
             }
         }
-        """
-        
-        # Handle async execution
-        data = run_async_in_thread(
-            projects_manager._execute_query(status_query, {"projectId": project_id})
-        )
-        
-        project = data["node"]
-        if not project:
-            return {"error": "Project not found"}
-        
-        # Calculate statistics
-        items = project["items"]["nodes"]
-        total_items = project["items"]["totalCount"]
-        
-        issue_stats = {"open": 0, "closed": 0}
-        pr_stats = {"open": 0, "closed": 0, "merged": 0}
-        
-        for item in items:
-            if item["type"] == "ISSUE":
-                if item["content"]["closed"]:
-                    issue_stats["closed"] += 1
-                else:
-                    issue_stats["open"] += 1
-            elif item["type"] == "PULL_REQUEST":
-                if item["content"]["merged"]:
-                    pr_stats["merged"] += 1
-                elif item["content"]["closed"]:
-                    pr_stats["closed"] += 1
-                else:
-                    pr_stats["open"] += 1
-        
-        console_logger.info(f"Retrieved status for project #{project['number']}")
-        
-        return {
-            "success": True,
-            "project": {
-                "id": project["id"],
-                "number": project["number"],
-                "title": project["title"],
-                "description": project.get("shortDescription", ""),
-                "url": project["url"]
-            },
-            "statistics": {
-                "total_items": total_items,
-                "issues": issue_stats,
-                "pull_requests": pr_stats,
-                "completion_rate": round(
-                    (issue_stats["closed"] + pr_stats["merged"]) / max(total_items, 1) * 100, 1
-                ) if total_items > 0 else 0
-            },
-            "fields": [
-                {
-                    "id": field["id"],
-                    "name": field["name"],
-                    "type": field["dataType"]
-                }
-                for field in project["fields"]["nodes"]
-                if field and "id" in field  # Skip empty field objects
-            ]
-        }
-        
-    except Exception as e:
-        error_msg = f"Failed to get project status: {str(e)}"
-        console_logger.error(error_msg)
-        return {"error": error_msg}
+    }
+    """
+    
+    # Handle async execution
+    data = run_async_in_thread(
+        projects_manager._execute_query(status_query, {"projectId": project_id})
+    )
+    
+    project = data["node"]
+    if not project:
+        return {"error": "Project not found"}
+    
+    # Calculate statistics
+    items = project["items"]["nodes"]
+    total_items = project["items"]["totalCount"]
+    
+    issue_stats = {"open": 0, "closed": 0}
+    pr_stats = {"open": 0, "closed": 0, "merged": 0}
+    
+    for item in items:
+        if item["type"] == "ISSUE":
+            if item["content"]["closed"]:
+                issue_stats["closed"] += 1
+            else:
+                issue_stats["open"] += 1
+        elif item["type"] == "PULL_REQUEST":
+            if item["content"]["merged"]:
+                pr_stats["merged"] += 1
+            elif item["content"]["closed"]:
+                pr_stats["closed"] += 1
+            else:
+                pr_stats["open"] += 1
+    
+    console_logger.info(f"Retrieved status for project #{project['number']}")
+    
+    return {
+        "success": True,
+        "project": {
+            "id": project["id"],
+            "number": project["number"],
+            "title": project["title"],
+            "description": project.get("shortDescription", ""),
+            "url": project["url"]
+        },
+        "statistics": {
+            "total_items": total_items,
+            "issues": issue_stats,
+            "pull_requests": pr_stats,
+            "completion_rate": round(
+                (issue_stats["closed"] + pr_stats["merged"]) / max(total_items, 1) * 100, 1
+            ) if total_items > 0 else 0
+        },
+        "fields": [
+            {
+                "id": field["id"],
+                "name": field["name"],
+                "type": field["dataType"]
+            }
+            for field in project["fields"]["nodes"]
+            if field and "id" in field  # Skip empty field objects
+        ]
+    }
 
 
 @mcp.tool()
+@github_operation("delete project", require_projects=True)
 def github_delete_project(project_id: str) -> Dict[str, Any]:
     """
     Delete a GitHub Project V2.
@@ -6306,45 +6190,33 @@ def github_delete_project(project_id: str) -> Dict[str, Any]:
     Returns:
         Deletion status with project details
     """
-    try:
-        error, instances = validate_github_prerequisites(require_projects=True)
-        if error:
-            return error
-        github_client, _, _, _, projects_manager = instances
-        
-        # Validate project ID format
-        if not project_id.startswith("PVT_"):
-            return {
-                "error": "Projects manager not available",
-                "message": "Failed to initialize GitHub Projects manager"
-            }
-        
-        # Delete the project
-        result = run_async_in_thread(
-            projects_manager.delete_project(project_id)
-        )
-        
-        console_logger.info(f"Deleted project {project_id}")
-        
+    _, _, _, _, projects_manager = get_github_instances()
+    
+    # Validate project ID format
+    if not project_id.startswith("PVT_"):
         return {
-            "success": True,
-            "deleted": result.get("deleted", True),
-            "project_id": result.get("project_id"),
-            "title": result.get("title", "Unknown"),
-            "message": result.get("message", "Project deleted successfully")
+            "error": "Projects manager not available",
+            "message": "Failed to initialize GitHub Projects manager"
         }
-        
-    except ValueError as e:
-        error_msg = f"Invalid input: {str(e)}"
-        console_logger.error(error_msg)
-        return {"error": error_msg}
-    except Exception as e:
-        error_msg = f"Failed to delete project: {str(e)}"
-        console_logger.error(error_msg)
-        return {"error": error_msg}
+    
+    # Delete the project
+    result = run_async_in_thread(
+        projects_manager.delete_project(project_id)
+    )
+    
+    console_logger.info(f"Deleted project {project_id}")
+    
+    return {
+        "success": True,
+        "deleted": result.get("deleted", True),
+        "project_id": result.get("project_id"),
+        "title": result.get("title", "Unknown"),
+        "message": result.get("message", "Project deleted successfully")
+    }
 
 
 @mcp.tool()
+@github_operation("smart add project item", require_projects=True, require_repo=True)
 def github_smart_add_project_item(project_id: str, issue_number: int) -> Dict[str, Any]:
     """
     Add an issue to a project with intelligent field assignment.
@@ -6359,44 +6231,36 @@ def github_smart_add_project_item(project_id: str, issue_number: int) -> Dict[st
     Returns:
         Item details with applied field assignments
     """
-    try:
-        error, instances = validate_github_prerequisites(require_projects=True, require_repo=True)
-        if error:
-            return error
-        github_client, _, _, _, projects_manager = instances
-        
-        current_repo = github_client.get_current_repository()
-        
-        # Execute smart add with async handling
-        result = run_async_in_thread(
-            projects_manager.smart_add_issue_to_project(
-                project_id, issue_number, current_repo
-            )
+    github_client, _, _, _, projects_manager = get_github_instances()
+    
+    current_repo = github_client.get_current_repository()
+    
+    # Execute smart add with async handling
+    result = run_async_in_thread(
+        projects_manager.smart_add_issue_to_project(
+            project_id, issue_number, current_repo
         )
-        
-        console_logger.info(f"Smart added issue #{issue_number} to project with {len(result['applied_fields'])} fields set")
-        
-        return {
-            "success": True,
-            "item": {
-                "id": result["item"]["id"],
-                "type": result["item"]["type"],
-                "issue_number": issue_number,
-                "created_at": result["item"]["createdAt"]
-            },
-            "applied_fields": result["applied_fields"],
-            "all_suggestions": result["suggestions"],
-            "message": f"Added issue #{issue_number} with {len(result['applied_fields'])} fields automatically set"
-        }
-        
-    except Exception as e:
-        error_msg = f"Failed to smart add item to project: {str(e)}"
-        console_logger.error(error_msg)
-        return {"error": error_msg}
+    )
+    
+    console_logger.info(f"Smart added issue #{issue_number} to project with {len(result['applied_fields'])} fields set")
+    
+    return {
+        "success": True,
+        "item": {
+            "id": result["item"]["id"],
+            "type": result["item"]["type"],
+            "issue_number": issue_number,
+            "created_at": result["item"]["createdAt"]
+        },
+        "applied_fields": result["applied_fields"],
+        "all_suggestions": result["suggestions"],
+        "message": f"Added issue #{issue_number} with {len(result['applied_fields'])} fields automatically set"
+    }
 
 
 # GitHub Sub-Issues tools
 @mcp.tool()
+@github_operation("list sub-issues", require_repo=True)
 def github_list_sub_issues(parent_issue_number: int) -> Dict[str, Any]:
     """
     List all sub-issues for a parent issue.
@@ -6417,31 +6281,21 @@ def github_list_sub_issues(parent_issue_number: int) -> Dict[str, Any]:
     Returns:
         List of sub-issue information with status and titles
     """
-    try:
-        error, instances = validate_github_prerequisites(require_repo=True)
-        if error:
-            return error
-        github_client, _, _, _, _ = instances
-        
-        # Get sub-issues
-        sub_issues = github_client.list_sub_issues(parent_issue_number)
-        
-        console_logger.info(f"Listed {len(sub_issues)} sub-issues for issue #{parent_issue_number}")
-        
-        return {
-            "parent_issue": parent_issue_number,
-            "sub_issues_count": len(sub_issues),
-            "sub_issues": sub_issues,
-            "message": f"Found {len(sub_issues)} sub-issues for issue #{parent_issue_number}"
-        }
-        
-    except Exception as e:
-        error_msg = f"Failed to list sub-issues: {str(e)}"
-        console_logger.error(error_msg)
-        return {"error": error_msg}
+    github_client, _, _, _, _ = get_github_instances()
+    
+    # Get sub-issues
+    sub_issues = github_client.list_sub_issues(parent_issue_number)
+    
+    return {
+        "parent_issue": parent_issue_number,
+        "sub_issues_count": len(sub_issues),
+        "sub_issues": sub_issues,
+        "message": f"Found {len(sub_issues)} sub-issues for issue #{parent_issue_number}"
+    }
 
 
 @mcp.tool()
+@github_operation("add sub-issue", require_repo=True)
 def github_add_sub_issue(parent_issue_number: int, sub_issue_number: int, replace_parent: bool = False) -> Dict[str, Any]:
     """
     Add a sub-issue relationship to a parent issue.
@@ -6464,34 +6318,26 @@ def github_add_sub_issue(parent_issue_number: int, sub_issue_number: int, replac
     Returns:
         Operation result with relationship details
     """
-    try:
-        error, instances = validate_github_prerequisites(require_repo=True)
-        if error:
-            return error
-        github_client, _, _, _, _ = instances
-        
-        # Note: GitHub sub-issues API uses issue numbers, not IDs
-        # The client method expects sub_issue_id but we're passing issue number
-        # This works because the API accepts issue numbers in the current repository
-        github_client.add_sub_issue(parent_issue_number, sub_issue_number, replace_parent)
-        
-        console_logger.info(f"Added issue #{sub_issue_number} as sub-issue of #{parent_issue_number}")
-        
-        return {
-            "success": True,
-            "parent_issue": parent_issue_number,
-            "sub_issue": sub_issue_number,
-            "replaced_parent": replace_parent,
-            "message": f"Successfully added issue #{sub_issue_number} as sub-issue of #{parent_issue_number}"
-        }
-        
-    except Exception as e:
-        error_msg = f"Failed to add sub-issue: {str(e)}"
-        console_logger.error(error_msg)
-        return {"error": error_msg}
+    github_client, _, _, _, _ = get_github_instances()
+    
+    # Note: GitHub sub-issues API uses issue numbers, not IDs
+    # The client method expects sub_issue_id but we're passing issue number
+    # This works because the API accepts issue numbers in the current repository
+    github_client.add_sub_issue(parent_issue_number, sub_issue_number, replace_parent)
+    
+    console_logger.info(f"Added issue #{sub_issue_number} as sub-issue of #{parent_issue_number}")
+    
+    return {
+        "success": True,
+        "parent_issue": parent_issue_number,
+        "sub_issue": sub_issue_number,
+        "replaced_parent": replace_parent,
+        "message": f"Successfully added issue #{sub_issue_number} as sub-issue of #{parent_issue_number}"
+    }
 
 
 @mcp.tool()
+@github_operation("remove sub-issue", require_repo=True)
 def github_remove_sub_issue(parent_issue_number: int, sub_issue_number: int) -> Dict[str, Any]:
     """
     Remove a sub-issue relationship from a parent issue.
@@ -6513,31 +6359,23 @@ def github_remove_sub_issue(parent_issue_number: int, sub_issue_number: int) -> 
     Returns:
         Operation result confirming removal
     """
-    try:
-        error, instances = validate_github_prerequisites(require_repo=True)
-        if error:
-            return error
-        github_client, _, _, _, _ = instances
-        
-        # Remove sub-issue (API accepts issue number for current repo)
-        github_client.remove_sub_issue(parent_issue_number, sub_issue_number)
-        
-        console_logger.info(f"Removed issue #{sub_issue_number} from parent #{parent_issue_number}")
-        
-        return {
-            "success": True,
-            "parent_issue": parent_issue_number,
-            "removed_sub_issue": sub_issue_number,
-            "message": f"Successfully removed issue #{sub_issue_number} from parent #{parent_issue_number}"
-        }
-        
-    except Exception as e:
-        error_msg = f"Failed to remove sub-issue: {str(e)}"
-        console_logger.error(error_msg)
-        return {"error": error_msg}
+    github_client, _, _, _, _ = get_github_instances()
+    
+    # Remove sub-issue (API accepts issue number for current repo)
+    github_client.remove_sub_issue(parent_issue_number, sub_issue_number)
+    
+    console_logger.info(f"Removed issue #{sub_issue_number} from parent #{parent_issue_number}")
+    
+    return {
+        "success": True,
+        "parent_issue": parent_issue_number,
+        "removed_sub_issue": sub_issue_number,
+        "message": f"Successfully removed issue #{sub_issue_number} from parent #{parent_issue_number}"
+    }
 
 
 @mcp.tool()
+@github_operation("create sub-issue", require_repo=True)
 def github_create_sub_issue(parent_issue_number: int, title: str, body: str = "", labels: Optional[List[str]] = None) -> Dict[str, Any]:
     """
     Create a new issue and immediately add it as a sub-issue.
@@ -6561,54 +6399,46 @@ def github_create_sub_issue(parent_issue_number: int, title: str, body: str = ""
     Returns:
         Created sub-issue information with relationship details
     """
-    try:
-        error, instances = validate_github_prerequisites(require_repo=True)
-        if error:
-            return error
-        github_client, _, _, _, _ = instances
-        
-        # Get parent issue for context
-        parent_issue = github_client.get_issue(parent_issue_number)
-        
-        # Inherit labels from parent if not specified
-        if labels is None:
-            labels = parent_issue.get("labels", [])
-        
-        # Add reference to parent in body
-        enhanced_body = f"{body}\n\n---\nSub-issue of #{parent_issue_number}" if body else f"Sub-issue of #{parent_issue_number}"
-        
-        # Create the issue
-        new_issue = github_client.create_issue(
-            title=title,
-            body=enhanced_body,
-            labels=labels
-        )
-        
-        # Add as sub-issue
-        github_client.add_sub_issue(parent_issue_number, new_issue["number"], replace_parent=False)
-        
-        console_logger.info(f"Created issue #{new_issue['number']} as sub-issue of #{parent_issue_number}")
-        
-        return {
-            "success": True,
-            "parent_issue": parent_issue_number,
-            "sub_issue": {
-                "number": new_issue["number"],
-                "title": new_issue["title"],
-                "url": new_issue["url"],
-                "state": new_issue["state"],
-                "labels": new_issue["labels"]
-            },
-            "message": f"Created issue #{new_issue['number']} as sub-issue of #{parent_issue_number}"
-        }
-        
-    except Exception as e:
-        error_msg = f"Failed to create sub-issue: {str(e)}"
-        console_logger.error(error_msg)
-        return {"error": error_msg}
+    github_client, _, _, _, _ = get_github_instances()
+    
+    # Get parent issue for context
+    parent_issue = github_client.get_issue(parent_issue_number)
+    
+    # Inherit labels from parent if not specified
+    if labels is None:
+        labels = parent_issue.get("labels", [])
+    
+    # Add reference to parent in body
+    enhanced_body = f"{body}\n\n---\nSub-issue of #{parent_issue_number}" if body else f"Sub-issue of #{parent_issue_number}"
+    
+    # Create the issue
+    new_issue = github_client.create_issue(
+        title=title,
+        body=enhanced_body,
+        labels=labels
+    )
+    
+    # Add as sub-issue
+    github_client.add_sub_issue(parent_issue_number, new_issue["number"], replace_parent=False)
+    
+    console_logger.info(f"Created issue #{new_issue['number']} as sub-issue of #{parent_issue_number}")
+    
+    return {
+        "success": True,
+        "parent_issue": parent_issue_number,
+        "sub_issue": {
+            "number": new_issue["number"],
+            "title": new_issue["title"],
+            "url": new_issue["url"],
+            "state": new_issue["state"],
+            "labels": new_issue["labels"]
+        },
+        "message": f"Created issue #{new_issue['number']} as sub-issue of #{parent_issue_number}"
+    }
 
 
 @mcp.tool()
+@github_operation("reorder sub-issues", require_repo=True)
 def github_reorder_sub_issues(parent_issue_number: int, sub_issue_numbers: List[int]) -> Dict[str, Any]:
     """
     Reorder sub-issues within a parent issue.
@@ -6630,32 +6460,24 @@ def github_reorder_sub_issues(parent_issue_number: int, sub_issue_numbers: List[
     Returns:
         Operation result with new ordering
     """
-    try:
-        error, instances = validate_github_prerequisites(require_repo=True)
-        if error:
-            return error
-        github_client, _, _, _, _ = instances
-        
-        # Note: The API accepts issue numbers for current repository
-        # Even though the parameter is named sub_issue_ids, it works with issue numbers
-        github_client.reorder_sub_issues(parent_issue_number, sub_issue_numbers)
-        
-        console_logger.info(f"Reordered {len(sub_issue_numbers)} sub-issues for issue #{parent_issue_number}")
-        
-        return {
-            "success": True,
-            "parent_issue": parent_issue_number,
-            "new_order": sub_issue_numbers,
-            "message": f"Successfully reordered {len(sub_issue_numbers)} sub-issues"
-        }
-        
-    except Exception as e:
-        error_msg = f"Failed to reorder sub-issues: {str(e)}"
-        console_logger.error(error_msg)
-        return {"error": error_msg}
+    github_client, _, _, _, _ = get_github_instances()
+    
+    # Note: The API accepts issue numbers for current repository
+    # Even though the parameter is named sub_issue_ids, it works with issue numbers
+    github_client.reorder_sub_issues(parent_issue_number, sub_issue_numbers)
+    
+    console_logger.info(f"Reordered {len(sub_issue_numbers)} sub-issues for issue #{parent_issue_number}")
+    
+    return {
+        "success": True,
+        "parent_issue": parent_issue_number,
+        "new_order": sub_issue_numbers,
+        "message": f"Successfully reordered {len(sub_issue_numbers)} sub-issues"
+    }
 
 
 @mcp.tool()
+@github_operation("add sub-issues to project", require_repo=True, require_projects=True)
 def github_add_sub_issues_to_project(project_id: str, parent_issue_number: int) -> Dict[str, Any]:
     """
     Add all sub-issues of a parent issue to a GitHub Project V2.
@@ -6677,45 +6499,37 @@ def github_add_sub_issues_to_project(project_id: str, parent_issue_number: int) 
     Returns:
         Operation result with added sub-issues and field assignments
     """
-    try:
-        error, instances = validate_github_prerequisites(require_projects=True, require_repo=True)
-        if error:
-            return error
-        github_client, _, _, _, projects_manager = instances
-        
-        current_repo = github_client.get_current_repository()
-        
-        # Execute smart add sub-issues with async handling
-        result = run_async_in_thread(
-            projects_manager.smart_add_sub_issues_to_project(
-                project_id, parent_issue_number, current_repo, github_client
-            )
+    github_client, _, _, _, projects_manager = get_github_instances()
+    
+    current_repo = github_client.get_current_repository()
+    
+    # Execute smart add sub-issues with async handling
+    result = run_async_in_thread(
+        projects_manager.smart_add_sub_issues_to_project(
+            project_id, parent_issue_number, current_repo, github_client
         )
-        
-        console_logger.info(
-            f"Added {result['added_count']} sub-issues from parent #{parent_issue_number} to project"
-        )
-        
-        return {
-            "success": True,
-            "parent_issue": parent_issue_number,
-            "project_id": project_id,
-            "added_count": result["added_count"],
-            "failed_count": result["failed_count"],
-            "sub_issues": result["sub_issues"],
-            "failed_sub_issues": result.get("failed_sub_issues", []),
-            "message": result["message"]
-        }
-        
-    except Exception as e:
-        error_msg = f"Failed to add sub-issues to project: {str(e)}"
-        console_logger.error(error_msg)
-        return {"error": error_msg}
+    )
+    
+    console_logger.info(
+        f"Added {result['added_count']} sub-issues from parent #{parent_issue_number} to project"
+    )
+    
+    return {
+        "success": True,
+        "parent_issue": parent_issue_number,
+        "project_id": project_id,
+        "added_count": result["added_count"],
+        "failed_count": result["failed_count"],
+        "sub_issues": result["sub_issues"],
+        "failed_sub_issues": result.get("failed_sub_issues", []),
+        "message": result["message"]
+    }
 
 
 # Enhanced GitHub Issue Management Tools (v0.3.4.post5)
 
 @mcp.tool()
+@github_operation("close issue", require_repo=True)
 def github_close_issue(issue_number: int, reason: str = "completed",
                       comment: Optional[str] = None) -> Dict[str, Any]:
     """
@@ -6741,36 +6555,28 @@ def github_close_issue(issue_number: int, reason: str = "completed",
     Returns:
         Updated issue information
     """
-    try:
-        error, instances = validate_github_prerequisites(require_repo=True)
-        if error:
-            return error
-        github_client, _, _, _, _ = instances
-        
-        result = github_client.close_issue(issue_number, reason=reason, comment=comment)
-        
-        console_logger.info(
-            f"Closed issue #{issue_number} with reason: {reason}",
-            extra={
-                "operation": "github_close_issue",
-                "issue_number": issue_number,
-                "reason": reason
-            }
-        )
-        
-        return {
-            "success": True,
-            "issue": result,
-            "message": f"Issue #{issue_number} closed as {reason}"
+    github_client, _, _, _, _ = get_github_instances()
+    
+    result = github_client.close_issue(issue_number, reason=reason, comment=comment)
+    
+    console_logger.info(
+        f"Closed issue #{issue_number} with reason: {reason}",
+        extra={
+            "operation": "github_close_issue",
+            "issue_number": issue_number,
+            "reason": reason
         }
-        
-    except Exception as e:
-        error_msg = f"Failed to close issue: {str(e)}"
-        console_logger.error(error_msg)
-        return {"error": error_msg}
+    )
+    
+    return {
+        "success": True,
+        "issue": result,
+        "message": f"Issue #{issue_number} closed as {reason}"
+    }
 
 
 @mcp.tool()
+@github_operation("assign issue", require_repo=True)
 def github_assign_issue(issue_number: int, assignees: List[str],
                        operation: str = "add") -> Dict[str, Any]:
     """
@@ -6796,38 +6602,30 @@ def github_assign_issue(issue_number: int, assignees: List[str],
     Returns:
         Updated issue information
     """
-    try:
-        error, instances = validate_github_prerequisites(require_repo=True)
-        if error:
-            return error
-        github_client, _, _, _, _ = instances
-        
-        result = github_client.assign_issue(issue_number, assignees, operation)
-        
-        action = "assigned to" if operation == "add" else "unassigned from"
-        console_logger.info(
-            f"Users {assignees} {action} issue #{issue_number}",
-            extra={
-                "operation": "github_assign_issue",
-                "issue_number": issue_number,
-                "assignees": assignees,
-                "action": operation
-            }
-        )
-        
-        return {
-            "success": True,
-            "issue": result,
-            "message": f"Users {', '.join(assignees)} {action} issue #{issue_number}"
+    github_client, _, _, _, _ = get_github_instances()
+    
+    result = github_client.assign_issue(issue_number, assignees, operation)
+    
+    action = "assigned to" if operation == "add" else "unassigned from"
+    console_logger.info(
+        f"Users {assignees} {action} issue #{issue_number}",
+        extra={
+            "operation": "github_assign_issue",
+            "issue_number": issue_number,
+            "assignees": assignees,
+            "action": operation
         }
-        
-    except Exception as e:
-        error_msg = f"Failed to assign/unassign issue: {str(e)}"
-        console_logger.error(error_msg)
-        return {"error": error_msg}
+    )
+    
+    return {
+        "success": True,
+        "issue": result,
+        "message": f"Users {', '.join(assignees)} {action} issue #{issue_number}"
+    }
 
 
 @mcp.tool()
+@github_operation("update issue", require_repo=True)
 def github_update_issue(issue_number: int, title: Optional[str] = None,
                        body: Optional[str] = None, labels: Optional[List[str]] = None,
                        milestone: Optional[int] = None, assignees: Optional[List[str]] = None,
@@ -6859,52 +6657,44 @@ def github_update_issue(issue_number: int, title: Optional[str] = None,
     Returns:
         Updated issue information
     """
-    try:
-        error, instances = validate_github_prerequisites(require_repo=True)
-        if error:
-            return error
-        github_client, _, _, _, _ = instances
-        
-        # Build kwargs for update
-        update_kwargs = {}
-        if title is not None:
-            update_kwargs['title'] = title
-        if body is not None:
-            update_kwargs['body'] = body
-        if labels is not None:
-            update_kwargs['labels'] = labels
-        if milestone is not None:
-            update_kwargs['milestone'] = milestone
-        if assignees is not None:
-            update_kwargs['assignees'] = assignees
-        if state is not None:
-            update_kwargs['state'] = state
-        
-        result = github_client.update_issue(issue_number, **update_kwargs)
-        
-        console_logger.info(
-            f"Updated issue #{issue_number}",
-            extra={
-                "operation": "github_update_issue",
-                "issue_number": issue_number,
-                "updated_fields": list(update_kwargs.keys())
-            }
-        )
-        
-        return {
-            "success": True,
-            "issue": result,
-            "updated_fields": list(update_kwargs.keys()),
-            "message": f"Issue #{issue_number} updated successfully"
+    github_client, _, _, _, _ = get_github_instances()
+    
+    # Build kwargs for update
+    update_kwargs = {}
+    if title is not None:
+        update_kwargs['title'] = title
+    if body is not None:
+        update_kwargs['body'] = body
+    if labels is not None:
+        update_kwargs['labels'] = labels
+    if milestone is not None:
+        update_kwargs['milestone'] = milestone
+    if assignees is not None:
+        update_kwargs['assignees'] = assignees
+    if state is not None:
+        update_kwargs['state'] = state
+    
+    result = github_client.update_issue(issue_number, **update_kwargs)
+    
+    console_logger.info(
+        f"Updated issue #{issue_number}",
+        extra={
+            "operation": "github_update_issue",
+            "issue_number": issue_number,
+            "updated_fields": list(update_kwargs.keys())
         }
-        
-    except Exception as e:
-        error_msg = f"Failed to update issue: {str(e)}"
-        console_logger.error(error_msg)
-        return {"error": error_msg}
+    )
+    
+    return {
+        "success": True,
+        "issue": result,
+        "updated_fields": list(update_kwargs.keys()),
+        "message": f"Issue #{issue_number} updated successfully"
+    }
 
 
 @mcp.tool()
+@github_operation("search issues", require_repo=True)
 def github_search_issues(query: str, sort: Optional[str] = None,
                         order: str = "desc", limit: Optional[int] = None) -> Dict[str, Any]:
     """
@@ -6937,44 +6727,36 @@ def github_search_issues(query: str, sort: Optional[str] = None,
     - "is:issue is:open no:assignee"
     - "is:issue created:>2025-01-01"
     """
-    try:
-        error, instances = validate_github_prerequisites()
-        if error:
-            return error
-        github_client, _, _, _, _ = instances
-        
-        issues = github_client.search_issues(query, sort=sort, order=order)
-        
-        # Apply limit if specified
-        if limit and len(issues) > limit:
-            issues = issues[:limit]
-        
-        console_logger.info(
-            f"Search found {len(issues)} issues",
-            extra={
-                "operation": "github_search_issues",
-                "query": query,
-                "count": len(issues)
-            }
-        )
-        
-        return {
-            "issues": issues,
-            "count": len(issues),
+    github_client, _, _, _, _ = get_github_instances()
+    
+    issues = github_client.search_issues(query, sort=sort, order=order)
+    
+    # Apply limit if specified
+    if limit and len(issues) > limit:
+        issues = issues[:limit]
+    
+    console_logger.info(
+        f"Search found {len(issues)} issues",
+        extra={
+            "operation": "github_search_issues",
             "query": query,
-            "sort": sort,
-            "order": order
+            "count": len(issues)
         }
-        
-    except Exception as e:
-        error_msg = f"Failed to search issues: {str(e)}"
-        console_logger.error(error_msg)
-        return {"error": error_msg}
+    )
+    
+    return {
+        "issues": issues,
+        "count": len(issues),
+        "query": query,
+        "sort": sort,
+        "order": order
+    }
 
 
 # Milestone Management Tools
 
 @mcp.tool()
+@github_operation("list milestones", require_repo=True)
 def github_list_milestones(state: str = "open", sort: str = "due_on",
                           direction: str = "asc") -> Dict[str, Any]:
     """
@@ -7000,37 +6782,29 @@ def github_list_milestones(state: str = "open", sort: str = "due_on",
     Returns:
         List of milestone information
     """
-    try:
-        error, instances = validate_github_prerequisites(require_repo=True)
-        if error:
-            return error
-        github_client, _, _, _, _ = instances
-        
-        milestones = github_client.list_milestones(state=state, sort=sort, direction=direction)
-        
-        console_logger.info(
-            f"Listed {len(milestones)} milestones",
-            extra={
-                "operation": "github_list_milestones",
-                "state": state,
-                "count": len(milestones)
-            }
-        )
-        
-        return {
-            "milestones": milestones,
-            "count": len(milestones),
+    github_client, _, _, _, _ = get_github_instances()
+    
+    milestones = github_client.list_milestones(state=state, sort=sort, direction=direction)
+    
+    console_logger.info(
+        f"Listed {len(milestones)} milestones",
+        extra={
+            "operation": "github_list_milestones",
             "state": state,
-            "repository": github_client.get_current_repository().full_name
+            "count": len(milestones)
         }
-        
-    except Exception as e:
-        error_msg = f"Failed to list milestones: {str(e)}"
-        console_logger.error(error_msg)
-        return {"error": error_msg}
+    )
+    
+    return {
+        "milestones": milestones,
+        "count": len(milestones),
+        "state": state,
+        "repository": github_client.get_current_repository().full_name
+    }
 
 
 @mcp.tool()
+@github_operation("create milestone", require_repo=True)
 def github_create_milestone(title: str, description: Optional[str] = None,
                           due_on: Optional[str] = None) -> Dict[str, Any]:
     """
@@ -7056,36 +6830,28 @@ def github_create_milestone(title: str, description: Optional[str] = None,
     Returns:
         Created milestone information
     """
-    try:
-        error, instances = validate_github_prerequisites(require_repo=True)
-        if error:
-            return error
-        github_client, _, _, _, _ = instances
-        
-        milestone = github_client.create_milestone(title=title, description=description, due_on=due_on)
-        
-        console_logger.info(
-            f"Created milestone '{title}'",
-            extra={
-                "operation": "github_create_milestone",
-                "title": title,
-                "number": milestone["number"]
-            }
-        )
-        
-        return {
-            "success": True,
-            "milestone": milestone,
-            "message": f"Milestone '{title}' created successfully"
+    github_client, _, _, _, _ = get_github_instances()
+    
+    milestone = github_client.create_milestone(title=title, description=description, due_on=due_on)
+    
+    console_logger.info(
+        f"Created milestone '{title}'",
+        extra={
+            "operation": "github_create_milestone",
+            "title": title,
+            "number": milestone["number"]
         }
-        
-    except Exception as e:
-        error_msg = f"Failed to create milestone: {str(e)}"
-        console_logger.error(error_msg)
-        return {"error": error_msg}
+    )
+    
+    return {
+        "success": True,
+        "milestone": milestone,
+        "message": f"Milestone '{title}' created successfully"
+    }
 
 
 @mcp.tool()
+@github_operation("update milestone", require_repo=True)
 def github_update_milestone(number: int, title: Optional[str] = None,
                           description: Optional[str] = None,
                           due_on: Optional[str] = None,
@@ -7115,48 +6881,40 @@ def github_update_milestone(number: int, title: Optional[str] = None,
     Returns:
         Updated milestone information
     """
-    try:
-        error, instances = validate_github_prerequisites(require_repo=True)
-        if error:
-            return error
-        github_client, _, _, _, _ = instances
-        
-        # Build kwargs for update
-        update_kwargs = {}
-        if title is not None:
-            update_kwargs['title'] = title
-        if description is not None:
-            update_kwargs['description'] = description
-        if due_on is not None:
-            update_kwargs['due_on'] = due_on
-        if state is not None:
-            update_kwargs['state'] = state
-        
-        milestone = github_client.update_milestone(number, **update_kwargs)
-        
-        console_logger.info(
-            f"Updated milestone #{number}",
-            extra={
-                "operation": "github_update_milestone",
-                "number": number,
-                "updated_fields": list(update_kwargs.keys())
-            }
-        )
-        
-        return {
-            "success": True,
-            "milestone": milestone,
-            "updated_fields": list(update_kwargs.keys()),
-            "message": f"Milestone #{number} updated successfully"
+    github_client, _, _, _, _ = get_github_instances()
+    
+    # Build kwargs for update
+    update_kwargs = {}
+    if title is not None:
+        update_kwargs['title'] = title
+    if description is not None:
+        update_kwargs['description'] = description
+    if due_on is not None:
+        update_kwargs['due_on'] = due_on
+    if state is not None:
+        update_kwargs['state'] = state
+    
+    milestone = github_client.update_milestone(number, **update_kwargs)
+    
+    console_logger.info(
+        f"Updated milestone #{number}",
+        extra={
+            "operation": "github_update_milestone",
+            "number": number,
+            "updated_fields": list(update_kwargs.keys())
         }
-        
-    except Exception as e:
-        error_msg = f"Failed to update milestone: {str(e)}"
-        console_logger.error(error_msg)
-        return {"error": error_msg}
+    )
+    
+    return {
+        "success": True,
+        "milestone": milestone,
+        "updated_fields": list(update_kwargs.keys()),
+        "message": f"Milestone #{number} updated successfully"
+    }
 
 
 @mcp.tool()
+@github_operation("close milestone", require_repo=True)
 def github_close_milestone(number: int) -> Dict[str, Any]:
     """
     Close a completed milestone.
@@ -7179,33 +6937,24 @@ def github_close_milestone(number: int) -> Dict[str, Any]:
     Returns:
         Updated milestone information
     """
-    try:
-        error, instances = validate_github_prerequisites(require_repo=True)
-        if error:
-            return error
-        github_client, _, _, _, _ = instances
-        
-        milestone = github_client.close_milestone(number)
-        
-        console_logger.info(
-            f"Closed milestone #{number}",
-            extra={
-                "operation": "github_close_milestone",
-                "number": number,
-                "title": milestone["title"]
-            }
-        )
-        
-        return {
-            "success": True,
-            "milestone": milestone,
-            "message": f"Milestone #{number} '{milestone['title']}' closed successfully"
+    github_client, _, _, _, _ = get_github_instances()
+    
+    milestone = github_client.close_milestone(number)
+    
+    console_logger.info(
+        f"Closed milestone #{number}",
+        extra={
+            "operation": "github_close_milestone",
+            "number": number,
+            "title": milestone["title"]
         }
-        
-    except Exception as e:
-        error_msg = f"Failed to close milestone: {str(e)}"
-        console_logger.error(error_msg)
-        return {"error": error_msg}
+    )
+    
+    return {
+        "success": True,
+        "milestone": milestone,
+        "message": f"Milestone #{number} '{milestone['title']}' closed successfully"
+    }
 
 
 # Context tracking tools
@@ -7362,13 +7111,13 @@ def get_apple_silicon_status() -> Dict[str, Any]:
             pass
         
         # Add system memory info
-        import psutil
-        memory = psutil.virtual_memory()
-        status['system_memory'] = {
-            'total_gb': memory.total / (1024**3),
-            'available_gb': memory.available / (1024**3),
-            'percent_used': memory.percent
-        }
+        if PSUTIL_AVAILABLE:
+            memory = psutil.virtual_memory()
+            status['system_memory'] = {
+                'total_gb': memory.total / (1024**3),
+                'available_gb': memory.available / (1024**3),
+                'percent_used': memory.percent
+            }
         
         return status
         
@@ -7394,34 +7143,47 @@ def trigger_apple_silicon_cleanup(level: str = "standard") -> Dict[str, Any]:
             return {"error": "Not running on Apple Silicon"}
         
         # Get before status
-        import psutil
-        before_memory = psutil.virtual_memory()
-        before_process = psutil.Process().memory_info()
+        if PSUTIL_AVAILABLE:
+            before_memory = psutil.virtual_memory()
+            before_process = psutil.Process().memory_info()
+        else:
+            before_memory = None
+            before_process = None
         
         # Perform cleanup
         memory_manager.perform_apple_silicon_cleanup(level)
         
         # Get after status
-        after_memory = psutil.virtual_memory()
-        after_process = psutil.Process().memory_info()
+        if PSUTIL_AVAILABLE:
+            after_memory = psutil.virtual_memory()
+            after_process = psutil.Process().memory_info()
+        else:
+            after_memory = None
+            after_process = None
         
-        return {
-            "cleanup_level": level,
-            "before": {
-                "available_gb": before_memory.available / (1024**3),
-                "process_gb": before_process.rss / (1024**3),
-                "system_percent": before_memory.percent
-            },
-            "after": {
-                "available_gb": after_memory.available / (1024**3),
-                "process_gb": after_process.rss / (1024**3),
-                "system_percent": after_memory.percent
-            },
-            "memory_freed": {
-                "system_gb": (after_memory.available - before_memory.available) / (1024**3),
-                "process_gb": (before_process.rss - after_process.rss) / (1024**3)
+        if PSUTIL_AVAILABLE and before_memory and after_memory:
+            return {
+                "cleanup_level": level,
+                "before": {
+                    "available_gb": before_memory.available / (1024**3),
+                    "process_gb": before_process.rss / (1024**3),
+                    "system_percent": before_memory.percent
+                },
+                "after": {
+                    "available_gb": after_memory.available / (1024**3),
+                    "process_gb": after_process.rss / (1024**3),
+                    "system_percent": after_memory.percent
+                },
+                "memory_freed": {
+                    "system_gb": (after_memory.available - before_memory.available) / (1024**3),
+                    "process_gb": (before_process.rss - after_process.rss) / (1024**3)
+                }
             }
-        }
+        else:
+            return {
+                "cleanup_level": level,
+                "message": "Cleanup performed, but memory statistics unavailable (psutil not installed)"
+            }
         
     except Exception as e:
         return {"error": str(e)}
@@ -7544,8 +7306,26 @@ if __name__ == "__main__":
     try:
         # Run MCP server
         console_logger.info("🚀 Starting Qdrant RAG MCP Server...")
+        console_logger.info(f"   Version: {__version__}")
+        console_logger.info(f"   Process ID: {os.getpid()}")
+        console_logger.info(f"   Working Directory: {os.getcwd()}")
+        console_logger.info(f"   Python: {sys.executable}")
         if args.watch:
             console_logger.info("✅ Auto-reindexing enabled")
+        
+        # Add startup timestamp to help diagnose timing issues
+        startup_time = datetime.now().isoformat()
+        console_logger.info(f"   Started at: {startup_time}")
+        
+        # Test Qdrant connection before starting
+        try:
+            qdrant_client = get_qdrant_client()
+            console_logger.info("✅ Qdrant connection established")
+        except Exception as e:
+            console_logger.warning(f"⚠️  Qdrant connection warning: {e}")
+            console_logger.info("   Server will retry connection when needed")
+        
+        console_logger.info("🎯 MCP server ready for connections")
         mcp.run()
     except KeyboardInterrupt:
         console_logger.info("🛑 Shutting down...")

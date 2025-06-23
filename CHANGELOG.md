@@ -7,6 +7,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.4.post7] - 2025-06-18
+
+### 🔧 Code Quality Enhancement (Part 1)
+
+This release implements the first phase of code quality improvements based on automated analysis, focusing on critical bug fixes and embedding management enhancements.
+
+### Fixed
+
+- **MPS Memory Management**: Fixed hardcoded MPS memory fraction that was preventing specialized models from loading
+  - Now properly respects `PYTORCH_MPS_HIGH_WATERMARK_RATIO` environment variable
+  - Removes hardcoded `set_per_process_memory_fraction(0.7)` that was overriding environment settings
+  - Allows CodeRankEmbed and other specialized models to utilize configured memory limits
+  - Prevents premature model eviction on Apple Silicon systems
+
+- **Duplicate Function Definition**: Resolved F811 linting error in GitHub integration
+  - Renamed local `get_github_instances()` to `_create_github_instances()` to avoid name collision
+  - Fixed decorator pattern validation flow
+
+### Added
+
+- **Embedding Model Metadata Tracking**: All indexed vectors now include model metadata
+  - Added `embedding_model` field to chunk metadata during indexing
+  - Tracks which model created each embedding for better observability
+  - Helps diagnose model compatibility issues and supports future migration strategies
+  - Applied to all indexers: code, config, and documentation
+
+- **Code Consolidation - Core Abstractions** (Issue #73): Created comprehensive abstractions to eliminate code duplication
+  - **GitHub Operation Decorator Pattern**: Successfully implemented centralized error handling for ALL GitHub MCP tools
+    - Created `@github_operation` decorator in `src/core/decorators.py` for consistent validation and error handling
+    - Applied decorator to **all 34 GitHub functions**, reducing code duplication by ~30-40%
+    - Provides centralized GitHub client validation and initialization
+    - Standardizes error messages and exception handling across all operations
+    - **100% completion**: All GitHub functions now use the decorator pattern
+  
+  - **HTTP Endpoint Base Handler**: Created reusable patterns for HTTP API endpoints
+    - Created `src/core/handlers.py` with `AsyncEndpointHandler` base class
+    - Implemented `@endpoint_handler` decorator for automatic error handling
+    - Refactored 48 out of 51 HTTP endpoints (94% complete)
+    - Eliminated ~600-720 lines of boilerplate code
+    - 3 GitHub Projects endpoints kept custom async implementation for performance
+  
+  - **Utility Abstractions**: Created reusable utilities in `src/core/utils.py`
+    - `OperationLogger`: Consistent logging with timing and context
+    - `MemoryManagementMixin`: Centralized memory management
+    - `ModelLoadingStrategy`: Model loading with automatic fallbacks
+    - `CollectionNameGenerator`: Single source of truth for collection naming
+  
+  - **Total Impact**: Eliminated ~1,000+ lines of duplicate code across the codebase
+
+### Technical Improvements
+
+- **Import Organization**: Partially resolved E402 import errors
+  - Reduced from 34 to 18 import organization issues
+  - Reorganized imports to follow PEP8 standards where possible
+  - Remaining errors are acceptable due to dotenv loading requirements
+- Improved thread safety in specialized embeddings manager
+- Better memory pressure handling for Apple Silicon systems
+- Enhanced model lifecycle tracking and debugging capabilities
+
+### Parent Issue
+
+This work is part of the comprehensive code quality enhancement initiative tracked in issue #72, with specific improvements addressing automated analysis findings from issue #73.
+
 ## [0.3.4.post6] - 2025-06-13
 
 ### 🐛 Bug Fixes

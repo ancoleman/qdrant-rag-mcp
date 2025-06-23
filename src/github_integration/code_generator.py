@@ -6,7 +6,7 @@ Generates code fixes and suggestions based on issue analysis and RAG search resu
 
 import re
 import logging
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any
 from datetime import datetime
 from pathlib import Path
 
@@ -105,7 +105,6 @@ except {exception_type} as e:
             
             issue_type = issue_analysis["extracted_info"]["issue_type"]
             relevant_files = issue_analysis["analysis"]["relevant_files"]
-            errors = issue_analysis["extracted_info"]["errors"]
             
             # Generate fixes based on issue type
             if issue_type == "bug":
@@ -138,12 +137,12 @@ except {exception_type} as e:
         fixes = []
         file_modifications = []
         
-        errors = issue_analysis["extracted_info"]["errors"]
+        errors = issue_analysis["extracted_info"].get("errors", [])
         relevant_files = issue_analysis["analysis"]["relevant_files"]
         
         # Analyze error patterns
         for error in errors[:3]:  # Limit to top 3 errors
-            error_fixes = self._analyze_error_pattern(error, relevant_files)
+            error_fixes = self._analyze_error_pattern(error)
             fixes.extend(error_fixes)
         
         # Generate file modifications for common bug patterns
@@ -171,7 +170,7 @@ except {exception_type} as e:
         new_files = []
         file_modifications = []
         
-        features = issue_analysis["extracted_info"]["features_requested"]
+        features = issue_analysis["extracted_info"].get("features_requested", [])
         relevant_files = issue_analysis["analysis"]["relevant_files"]
         
         # Analyze requested features
@@ -220,7 +219,7 @@ except {exception_type} as e:
             "file_modifications": file_modifications
         }
     
-    def _analyze_error_pattern(self, error: str, relevant_files: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _analyze_error_pattern(self, error: str) -> List[Dict[str, Any]]:
         """Analyze an error pattern and suggest fixes."""
         fixes = []
         
@@ -303,6 +302,10 @@ except {exception_type} as e:
             "modifications": [],
             "suggestions": []
         }
+        
+        # TODO: Use relevant_files to suggest modifications to existing files
+        # instead of always creating new ones
+        _ = relevant_files  # Currently unused but available for context
         
         feature_lower = feature.lower()
         
@@ -469,8 +472,8 @@ except {exception_type} as e:
     
     def _calculate_confidence(self, issue_analysis: Dict[str, Any]) -> str:
         """Calculate confidence level for generated suggestions."""
-        confidence_score = issue_analysis["analysis"]["confidence_score"]
-        relevant_files_count = len(issue_analysis["analysis"]["relevant_files"])
+        confidence_score = issue_analysis["analysis"].get("confidence_score", 0.0)
+        relevant_files_count = len(issue_analysis["analysis"].get("relevant_files", []))
         
         if confidence_score > 80 and relevant_files_count > 3:
             return "high"

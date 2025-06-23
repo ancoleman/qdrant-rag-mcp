@@ -38,6 +38,12 @@ else
     MCP_SERVER_DIR="$(readlink -f "$HOME/.mcp-servers/qdrant-rag")"
 fi
 
+# Clean up any stale processes before starting
+# This prevents connection issues from multiple server instances
+for PID in $(ps aux | grep -E "qdrant_mcp_context_aware.py" | grep -v grep | grep -v $$ | awk '{print $2}'); do
+    kill -9 $PID 2>/dev/null
+done
+
 # IMPORTANT: Save current directory for context detection
 CURRENT_DIR="$(pwd)"
 

@@ -81,15 +81,19 @@ class SpecializedEmbeddingManager(MemoryComponent):
         self.memory_limit_gb = memory_limit_gb
         self.cache_dir = cache_dir or os.path.expanduser("~/.cache/qdrant-mcp/models")
         
-        # Apply Apple Silicon optimizations if detected
+        # Apply Apple Silicon optimizations if detected (unless disabled)
         if memory_manager.is_apple_silicon and self.device == "mps":
-            # Conservative limits for unified memory architecture
-            if self.memory_limit_gb > 3.0:
-                logger.info(f"Reducing memory limit from {self.memory_limit_gb}GB to 3.0GB for Apple Silicon")
-                self.memory_limit_gb = 3.0
-            if self.max_models_in_memory > 2:
-                logger.info(f"Reducing max models from {self.max_models_in_memory} to 2 for Apple Silicon")
-                self.max_models_in_memory = 2
+            # Check if conservative limits are disabled
+            if not os.getenv('QDRANT_DISABLE_APPLE_SILICON_LIMITS', '').lower() == 'true':
+                # Conservative limits for unified memory architecture
+                if self.memory_limit_gb > 3.0:
+                    logger.info(f"Reducing memory limit from {self.memory_limit_gb}GB to 3.0GB for Apple Silicon")
+                    self.memory_limit_gb = 3.0
+                if self.max_models_in_memory > 2:
+                    logger.info(f"Reducing max models from {self.max_models_in_memory} to 2 for Apple Silicon")
+                    self.max_models_in_memory = 2
+            else:
+                logger.info(f"Apple Silicon limits disabled - using configured limits: {self.memory_limit_gb}GB, {self.max_models_in_memory} models")
         
         # Apply memory settings from config or env vars
         if config and 'memory' in config:
@@ -522,7 +526,14 @@ class SpecializedEmbeddingManager(MemoryComponent):
                     # Post-loading MPS optimization for CodeRankEmbed
                     import torch
                     if hasattr(torch.mps, 'set_per_process_memory_fraction'):
-                        torch.mps.set_per_process_memory_fraction(0.7)  # Limit MPS usage to 70%
+                        # Use environment variable or default to 1.0 (no limit)
+                        watermark_ratio = float(os.environ.get('PYTORCH_MPS_HIGH_WATERMARK_RATIO', '0.0'))
+                        if watermark_ratio == 0.0:
+                            # 0.0 means no limit, so use full memory
+                            torch.mps.set_per_process_memory_fraction(1.0)
+                        else:
+                            # Use the specified ratio
+                            torch.mps.set_per_process_memory_fraction(watermark_ratio)
                     
                     return model
                     

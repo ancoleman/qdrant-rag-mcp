@@ -48,8 +48,15 @@ from qdrant_mcp_context_aware import (
     github_create_sub_issue, github_reorder_sub_issues, github_add_sub_issues_to_project,
     # Enhanced GitHub Issue Management functions (v0.3.4.post5)
     github_close_issue, github_assign_issue, github_update_issue, github_search_issues,
-    github_list_milestones, github_create_milestone, github_update_milestone, github_close_milestone
+    github_list_milestones, github_create_milestone, github_update_milestone, github_close_milestone,
+    # Context tracking functions
+    get_context_status, get_context_timeline, get_context_summary,
+    # Memory management functions
+    get_memory_status, trigger_memory_cleanup, rebuild_bm25_indices
 )
+
+# Import our new core handlers
+from core.handlers import endpoint_handler
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -325,302 +332,189 @@ async def health():
     return {"status": "healthy", "server": "qdrant-rag-http-api"}
 
 @app.post("/index_code")
+@endpoint_handler("index_code")
 async def index_code_endpoint(request: IndexCodeRequest):
     """Index a code file"""
-    try:
-        result = index_code(file_path=request.file_path)
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return index_code(file_path=request.file_path)
 
 @app.post("/index_config")
+@endpoint_handler("index_config")
 async def index_config_endpoint(request: IndexConfigRequest):
     """Index a configuration file"""
-    try:
-        result = index_config(file_path=request.file_path)
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return index_config(file_path=request.file_path)
 
 @app.post("/index_directory")
+@endpoint_handler("index_directory")
 async def index_directory_endpoint(request: IndexDirectoryRequest):
     """Index an entire directory"""
-    try:
-        result = index_directory(
-            directory=request.directory,
-            patterns=request.patterns,
-            recursive=True
-        )
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return index_directory(
+        directory=request.directory,
+        patterns=request.patterns,
+        recursive=True
+    )
 
 @app.post("/search")
+@endpoint_handler("search")
 async def search_endpoint(request: SearchRequest):
     """General search across all collections"""
-    try:
-        result = search(
-            query=request.query,
-            n_results=request.n_results,
-            cross_project=request.cross_project,
-            search_mode=request.search_mode,
-            include_dependencies=request.include_dependencies,
-            include_context=request.include_context,
-            context_chunks=request.context_chunks,
-            # Progressive context parameters
-            context_level=request.context_level,
-            progressive_mode=request.progressive_mode,
-            include_expansion_options=request.include_expansion_options,
-            semantic_cache=request.semantic_cache
-        )
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return search(
+        query=request.query,
+        n_results=request.n_results,
+        cross_project=request.cross_project,
+        search_mode=request.search_mode,
+        include_dependencies=request.include_dependencies,
+        include_context=request.include_context,
+        context_chunks=request.context_chunks,
+        # Progressive context parameters
+        context_level=request.context_level,
+        progressive_mode=request.progressive_mode,
+        include_expansion_options=request.include_expansion_options,
+        semantic_cache=request.semantic_cache
+    )
 
 @app.post("/search_code")
+@endpoint_handler("search_code")
 async def search_code_endpoint(request: SearchCodeRequest):
     """Search in code collection with filtering"""
-    try:
-        result = search_code(
-            query=request.query,
-            language=request.language,
-            n_results=request.n_results,
-            cross_project=request.cross_project,
-            search_mode=request.search_mode,
-            include_dependencies=request.include_dependencies,
-            include_context=request.include_context,
-            context_chunks=request.context_chunks,
-            # Progressive context parameters
-            context_level=request.context_level,
-            progressive_mode=request.progressive_mode,
-            include_expansion_options=request.include_expansion_options,
-            semantic_cache=request.semantic_cache
-        )
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return search_code(
+        query=request.query,
+        language=request.language,
+        n_results=request.n_results,
+        cross_project=request.cross_project,
+        search_mode=request.search_mode,
+        include_dependencies=request.include_dependencies,
+        include_context=request.include_context,
+        context_chunks=request.context_chunks,
+        # Progressive context parameters
+        context_level=request.context_level,
+        progressive_mode=request.progressive_mode,
+        include_expansion_options=request.include_expansion_options,
+        semantic_cache=request.semantic_cache
+    )
 
 @app.post("/search_config")
+@endpoint_handler("search_config")
 async def search_config_endpoint(request: SearchConfigRequest):
     """Search in config collection with filtering"""
-    try:
-        result = search_config(
-            query=request.query,
-            file_type=request.file_type,
-            n_results=request.n_results,
-            cross_project=request.cross_project,
-            search_mode=request.search_mode,
-            include_context=request.include_context,
-            context_chunks=request.context_chunks,
-            context_level=request.context_level,
-            progressive_mode=request.progressive_mode,
-            include_expansion_options=request.include_expansion_options,
-            semantic_cache=request.semantic_cache
-        )
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return search_config(
+        query=request.query,
+        file_type=request.file_type,
+        n_results=request.n_results,
+        cross_project=request.cross_project,
+        search_mode=request.search_mode,
+        include_context=request.include_context,
+        context_chunks=request.context_chunks,
+        context_level=request.context_level,
+        progressive_mode=request.progressive_mode,
+        include_expansion_options=request.include_expansion_options,
+        semantic_cache=request.semantic_cache
+    )
 
 @app.post("/index_documentation")
+@endpoint_handler("index_documentation")
 async def index_documentation_endpoint(request: IndexDocumentationRequest):
     """Index a documentation file"""
-    try:
-        result = index_documentation(
-            file_path=request.file_path,
-            force_global=request.force_global
-        )
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return index_documentation(
+        file_path=request.file_path,
+        force_global=request.force_global
+    )
 
 @app.post("/search_docs")
+@endpoint_handler("search_docs")
 async def search_docs_endpoint(request: SearchDocsRequest):
     """Search in documentation collection"""
-    try:
-        result = search_docs(
-            query=request.query,
-            doc_type=request.doc_type,
-            n_results=request.n_results,
-            cross_project=request.cross_project,
-            search_mode=request.search_mode,
-            include_context=request.include_context,
-            context_chunks=request.context_chunks,
-            # Progressive context parameters
-            context_level=request.context_level,
-            progressive_mode=request.progressive_mode,
-            include_expansion_options=request.include_expansion_options,
-            semantic_cache=request.semantic_cache
-        )
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return search_docs(
+        query=request.query,
+        doc_type=request.doc_type,
+        n_results=request.n_results,
+        cross_project=request.cross_project,
+        search_mode=request.search_mode,
+        include_context=request.include_context,
+        context_chunks=request.context_chunks,
+        # Progressive context parameters
+        context_level=request.context_level,
+        progressive_mode=request.progressive_mode,
+        include_expansion_options=request.include_expansion_options,
+        semantic_cache=request.semantic_cache
+    )
 
 @app.post("/reindex_directory")
+@endpoint_handler("reindex_directory")
 async def reindex_directory_endpoint(request: ReindexDirectoryRequest):
     """Reindex a directory with smart incremental support"""
-    try:
-        result = reindex_directory(
-            directory=request.directory,
-            patterns=request.patterns,
-            recursive=request.recursive,
-            force=request.force,
-            incremental=request.incremental
-        )
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return reindex_directory(
+        directory=request.directory,
+        patterns=request.patterns,
+        recursive=request.recursive,
+        force=request.force,
+        incremental=request.incremental
+    )
 
 @app.post("/detect_changes")
+@endpoint_handler("detect_changes")
 async def detect_changes_endpoint(request: DetectChangesRequest):
     """Detect changes in directory compared to indexed state"""
-    try:
-        result = detect_changes(directory=request.directory)
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return detect_changes(directory=request.directory)
 
 @app.post("/get_file_chunks")
+@endpoint_handler("get_file_chunks")
 async def get_file_chunks_endpoint(request: GetFileChunksRequest):
     """Get chunks for a specific file"""
-    try:
-        result = get_file_chunks(
-            file_path=request.file_path,
-            start_chunk=request.start_chunk,
-            end_chunk=request.end_chunk
-        )
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return get_file_chunks(
+        file_path=request.file_path,
+        start_chunk=request.start_chunk,
+        end_chunk=request.end_chunk
+    )
 
 @app.get("/get_context")
+@endpoint_handler("get_context")
 async def get_context_endpoint():
     """Get current project context information"""
-    try:
-        result = get_context()
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return get_context()
 
 @app.post("/switch_project")
+@endpoint_handler("switch_project")
 async def switch_project_endpoint(request: SwitchProjectRequest):
     """Switch to a different project context"""
-    try:
-        result = switch_project(project_path=request.project_path)
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return switch_project(project_path=request.project_path)
 
 @app.get("/health_check")
+@endpoint_handler("health_check")
 async def health_check_endpoint():
     """Detailed health check of all services"""
-    try:
-        result = health_check()
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return health_check()
 
 @app.get("/collections")
+@endpoint_handler("get_collections")
 async def get_collections():
     """Get information about Qdrant collections"""
-    try:
-        # Use the get_context function to get collection info
-        context = get_context()
-        if "error" in context:
-            raise HTTPException(status_code=500, detail=context["error"])
-        
-        # Extract collections from context or use direct qdrant client
-        from qdrant_mcp_context_aware import get_qdrant_client
-        qdrant_client = get_qdrant_client()
-        collections = qdrant_client.get_collections()
-        return {"collections": [c.name for c in collections.collections]}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    # Use the get_context function to get collection info
+    context = get_context()
+    if "error" in context:
+        raise HTTPException(status_code=500, detail=context["error"])
+    
+    # Extract collections from context or use direct qdrant client
+    from qdrant_mcp_context_aware import get_qdrant_client
+    qdrant_client = get_qdrant_client()
+    collections = qdrant_client.get_collections()
+    return {"collections": [c.name for c in collections.collections]}
 
 # GitHub Integration Endpoints (v0.3.0)
 
 @app.get("/github/repositories")
+@endpoint_handler("github_list_repositories")
 async def github_list_repositories_endpoint(owner: Optional[str] = None):
     """List GitHub repositories for a user/organization"""
-    try:
-        result = github_list_repositories(owner=owner)
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return github_list_repositories(owner=owner)
 
 @app.post("/github/switch_repository")
+@endpoint_handler("github_switch_repository")
 async def github_switch_repository_endpoint(request: GitHubSwitchRepositoryRequest):
     """Switch to a different GitHub repository context"""
-    try:
-        result = github_switch_repository(owner=request.owner, repo=request.repo)
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return github_switch_repository(owner=request.owner, repo=request.repo)
 
 @app.get("/github/issues")
+@endpoint_handler("github_fetch_issues")
 async def github_fetch_issues_endpoint(
     state: Optional[str] = "open",
     labels: Optional[str] = None,
@@ -632,180 +526,112 @@ async def github_fetch_issues_endpoint(
     limit: Optional[int] = None
 ):
     """Fetch GitHub issues from current repository with enhanced filtering"""
-    try:
-        # Parse labels from comma-separated string
-        labels_list = labels.split(",") if labels else None
-        
-        result = github_fetch_issues(
-            state=state,
-            labels=labels_list,
-            milestone=milestone,
-            assignee=assignee,
-            since=since,
-            sort=sort,
-            direction=direction,
-            limit=limit
-        )
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    # Parse labels from comma-separated string
+    labels_list = labels.split(",") if labels else None
+    
+    return github_fetch_issues(
+        state=state,
+        labels=labels_list,
+        milestone=milestone,
+        assignee=assignee,
+        since=since,
+        sort=sort,
+        direction=direction,
+        limit=limit
+    )
 
 @app.get("/github/issues/{issue_number}")
+@endpoint_handler("github_get_issue")
 async def github_get_issue_endpoint(issue_number: int):
     """Get detailed information about a specific GitHub issue"""
-    try:
-        result = github_get_issue(issue_number=issue_number)
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return github_get_issue(issue_number=issue_number)
 
 @app.post("/github/issues")
+@endpoint_handler("github_create_issue")
 async def github_create_issue_endpoint(request: GitHubCreateIssueRequest):
     """Create a new GitHub issue"""
-    try:
-        result = github_create_issue(
-            title=request.title,
-            body=request.body,
-            labels=request.labels,
-            assignees=request.assignees
-        )
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return github_create_issue(
+        title=request.title,
+        body=request.body,
+        labels=request.labels,
+        assignees=request.assignees
+    )
 
 @app.post("/github/issues/{issue_number}/comment")
+@endpoint_handler("github_add_comment")
 async def github_add_comment_endpoint(issue_number: int, request: GitHubAddCommentRequest):
     """Add a comment to an existing GitHub issue"""
-    try:
-        result = github_add_comment(
-            issue_number=issue_number,
-            body=request.body
-        )
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return github_add_comment(
+        issue_number=issue_number,
+        body=request.body
+    )
 
 @app.post("/github/issues/{issue_number}/analyze")
+@endpoint_handler("github_analyze_issue")
 async def github_analyze_issue_endpoint(issue_number: int):
     """Perform comprehensive analysis of a GitHub issue using RAG search"""
-    try:
-        result = github_analyze_issue(issue_number=issue_number)
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return github_analyze_issue(issue_number=issue_number)
 
 @app.post("/github/issues/{issue_number}/suggest_fix")
+@endpoint_handler("github_suggest_fix")
 async def github_suggest_fix_endpoint(issue_number: int):
     """Generate fix suggestions for a GitHub issue using RAG analysis"""
-    try:
-        result = github_suggest_fix(issue_number=issue_number)
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return github_suggest_fix(issue_number=issue_number)
 
 @app.post("/github/pull_requests")
+@endpoint_handler("github_create_pull_request")
 async def github_create_pull_request_endpoint(request: GitHubCreatePullRequestRequest):
     """Create a GitHub pull request"""
-    try:
-        result = github_create_pull_request(
-            title=request.title,
-            body=request.body,
-            head=request.head,
-            base=request.base,
-            files=request.files
-        )
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return github_create_pull_request(
+        title=request.title,
+        body=request.body,
+        head=request.head,
+        base=request.base,
+        files=request.files
+    )
 
 @app.post("/github/issues/{issue_number}/resolve")
+@endpoint_handler("github_resolve_issue")
 async def github_resolve_issue_endpoint(
     issue_number: int,
     dry_run: Optional[bool] = True
 ):
     """Attempt to resolve a GitHub issue with automated analysis and PR creation"""
-    try:
-        result = github_resolve_issue(
-            issue_number=issue_number,
-            dry_run=dry_run
-        )
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return github_resolve_issue(
+        issue_number=issue_number,
+        dry_run=dry_run
+    )
 
 @app.get("/github/health")
+@endpoint_handler("github_health")
 async def github_health_endpoint():
     """Check GitHub integration health and authentication status"""
-    try:
-        # Get overall health check which includes GitHub status
-        result = health_check()
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        # Extract GitHub-specific health information
-        github_health = result.get("services", {}).get("github", {
-            "status": "not_configured",
-            "message": "GitHub integration not configured or available"
-        })
-        
-        return {
-            "github": github_health,
-            "timestamp": result.get("timestamp")
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    # Get overall health check which includes GitHub status
+    result = health_check()
+    
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    
+    # Extract GitHub-specific health information
+    github_health = result.get("services", {}).get("github", {
+        "status": "not_configured",
+        "message": "GitHub integration not configured or available"
+    })
+    
+    return {
+        "github": github_health,
+        "timestamp": result.get("timestamp")
+    }
 
 # GitHub Projects V2 Endpoints (v0.3.4)
 
 @app.get("/github/projects")
+@endpoint_handler("github_list_projects")
 async def github_list_projects_endpoint(owner: Optional[str] = None, limit: int = 20):
     """List GitHub Projects V2 for a user or organization"""
-    try:
-        from qdrant_mcp_context_aware import github_list_projects
-        
-        result = github_list_projects(owner=owner, limit=limit)
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    from qdrant_mcp_context_aware import github_list_projects
+    
+    return github_list_projects(owner=owner, limit=limit)
 
 @app.post("/github/projects")
 async def github_create_project_endpoint(request: GitHubCreateProjectRequest):
@@ -896,106 +722,65 @@ async def github_get_project_endpoint(owner: str, number: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/github/projects/items")
+@endpoint_handler("github_add_project_item")
 async def github_add_project_item_endpoint(request: GitHubAddProjectItemRequest):
     """Add an issue or PR to a GitHub Project"""
-    try:
-        # The MCP tool takes either issue_number or pr_number, not both
-        # If pr_number is provided, use it as issue_number (GitHub treats them the same)
-        issue_num = request.issue_number if request.issue_number else request.pr_number
+    # The MCP tool takes either issue_number or pr_number, not both
+    # If pr_number is provided, use it as issue_number (GitHub treats them the same)
+    issue_num = request.issue_number if request.issue_number else request.pr_number
+    
+    if not issue_num:
+        raise HTTPException(status_code=400, detail="Either issue_number or pr_number is required")
         
-        if not issue_num:
-            raise HTTPException(status_code=400, detail="Either issue_number or pr_number is required")
-            
-        result = github_add_project_item(
-            project_id=request.project_id,
-            issue_number=issue_num
-        )
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return github_add_project_item(
+        project_id=request.project_id,
+        issue_number=issue_num
+    )
 
 @app.post("/github/projects/items/smart")
+@endpoint_handler("github_smart_add_project_item")
 async def github_smart_add_project_item_endpoint(request: GitHubAddProjectItemRequest):
     """Add an issue to a project with intelligent field assignment"""
-    try:
-        # The MCP tool takes either issue_number or pr_number, not both
-        issue_num = request.issue_number if request.issue_number else request.pr_number
+    # The MCP tool takes either issue_number or pr_number, not both
+    issue_num = request.issue_number if request.issue_number else request.pr_number
+    
+    if not issue_num:
+        raise HTTPException(status_code=400, detail="Either issue_number or pr_number is required")
         
-        if not issue_num:
-            raise HTTPException(status_code=400, detail="Either issue_number or pr_number is required")
-            
-        result = github_smart_add_project_item(
-            project_id=request.project_id,
-            issue_number=issue_num
-        )
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return github_smart_add_project_item(
+        project_id=request.project_id,
+        issue_number=issue_num
+    )
 
 @app.put("/github/projects/items")
+@endpoint_handler("github_update_project_item")
 async def github_update_project_item_endpoint(request: GitHubUpdateProjectItemRequest):
     """Update a field value for a project item"""
-    try:
-        result = github_update_project_item(
-            project_id=request.project_id,
-            item_id=request.item_id,
-            field_id=request.field_id,
-            value=request.value
-        )
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return github_update_project_item(
+        project_id=request.project_id,
+        item_id=request.item_id,
+        field_id=request.field_id,
+        value=request.value
+    )
 
 @app.post("/github/projects/fields")
+@endpoint_handler("github_create_project_field")
 async def github_create_project_field_endpoint(request: GitHubCreateProjectFieldRequest):
     """Create a custom field in a GitHub Project"""
-    try:
-        result = github_create_project_field(
-            project_id=request.project_id,
-            name=request.name,
-            data_type=request.data_type,
-            options=request.options
-        )
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return github_create_project_field(
+        project_id=request.project_id,
+        name=request.name,
+        data_type=request.data_type,
+        options=request.options
+    )
 
 @app.delete("/github/projects/{project_id}")
+@endpoint_handler("github_delete_project")
 async def github_delete_project_endpoint(project_id: str):
     """Delete a GitHub Project V2"""
-    try:
-        from qdrant_mcp_context_aware import github_delete_project
-        
-        result = github_delete_project(project_id=project_id)
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    from qdrant_mcp_context_aware import github_delete_project
+    
+    return github_delete_project(project_id=project_id)
 
 @app.get("/github/projects/{owner}/{number}/status")
 async def github_get_project_status_endpoint(owner: str, number: int):
@@ -1034,305 +819,172 @@ async def github_get_project_status_endpoint(owner: str, number: int):
 
 # GitHub Sub-Issues endpoints (v0.3.4.post4)
 @app.post("/github/list_sub_issues")
+@endpoint_handler("github_list_sub_issues")
 async def github_list_sub_issues_endpoint(request: GitHubListSubIssuesRequest):
     """List all sub-issues for a parent issue"""
-    try:
-        result = github_list_sub_issues(parent_issue_number=request.parent_issue_number)
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return github_list_sub_issues(parent_issue_number=request.parent_issue_number)
 
 
 @app.post("/github/add_sub_issue")
+@endpoint_handler("github_add_sub_issue")
 async def github_add_sub_issue_endpoint(request: GitHubAddSubIssueRequest):
     """Add a sub-issue relationship to a parent issue"""
-    try:
-        result = github_add_sub_issue(
-            parent_issue_number=request.parent_issue_number,
-            sub_issue_number=request.sub_issue_number,
-            replace_parent=request.replace_parent
-        )
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return github_add_sub_issue(
+        parent_issue_number=request.parent_issue_number,
+        sub_issue_number=request.sub_issue_number,
+        replace_parent=request.replace_parent
+    )
 
 
 @app.post("/github/remove_sub_issue")
+@endpoint_handler("github_remove_sub_issue")
 async def github_remove_sub_issue_endpoint(request: GitHubRemoveSubIssueRequest):
     """Remove a sub-issue relationship from a parent issue"""
-    try:
-        result = github_remove_sub_issue(
-            parent_issue_number=request.parent_issue_number,
-            sub_issue_number=request.sub_issue_number
-        )
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return github_remove_sub_issue(
+        parent_issue_number=request.parent_issue_number,
+        sub_issue_number=request.sub_issue_number
+    )
 
 
 @app.post("/github/create_sub_issue")
+@endpoint_handler("github_create_sub_issue")
 async def github_create_sub_issue_endpoint(request: GitHubCreateSubIssueRequest):
     """Create a new issue and immediately add it as a sub-issue"""
-    try:
-        result = github_create_sub_issue(
-            parent_issue_number=request.parent_issue_number,
-            title=request.title,
-            body=request.body,
-            labels=request.labels
-        )
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return github_create_sub_issue(
+        parent_issue_number=request.parent_issue_number,
+        title=request.title,
+        body=request.body,
+        labels=request.labels
+    )
 
 
 @app.post("/github/reorder_sub_issues")
+@endpoint_handler("github_reorder_sub_issues")
 async def github_reorder_sub_issues_endpoint(request: GitHubReorderSubIssuesRequest):
     """Reorder sub-issues within a parent issue"""
-    try:
-        result = github_reorder_sub_issues(
-            parent_issue_number=request.parent_issue_number,
-            sub_issue_numbers=request.sub_issue_numbers
-        )
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return github_reorder_sub_issues(
+        parent_issue_number=request.parent_issue_number,
+        sub_issue_numbers=request.sub_issue_numbers
+    )
 
 
 @app.post("/github/add_sub_issues_to_project")
+@endpoint_handler("github_add_sub_issues_to_project")
 async def github_add_sub_issues_to_project_endpoint(request: GitHubAddSubIssuesToProjectRequest):
     """Add all sub-issues of a parent issue to a GitHub Project V2"""
-    try:
-        result = github_add_sub_issues_to_project(
-            project_id=request.project_id,
-            parent_issue_number=request.parent_issue_number
-        )
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return github_add_sub_issues_to_project(
+        project_id=request.project_id,
+        parent_issue_number=request.parent_issue_number
+    )
 
 
 # Enhanced GitHub Issue Management Endpoints (v0.3.4.post5)
 
 @app.patch("/github/issues/{issue_number}/close")
+@endpoint_handler("github_close_issue")
 async def github_close_issue_endpoint(issue_number: int, request: GitHubCloseIssueRequest):
     """Close a GitHub issue with state reason"""
-    try:
-        result = github_close_issue(
-            issue_number=issue_number,
-            reason=request.reason,
-            comment=request.comment
-        )
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return github_close_issue(
+        issue_number=issue_number,
+        reason=request.reason,
+        comment=request.comment
+    )
 
 
 @app.post("/github/issues/{issue_number}/assignees")
+@endpoint_handler("github_assign_issue")
 async def github_assign_issue_endpoint(issue_number: int, request: GitHubAssignIssueRequest):
     """Assign or unassign users to/from a GitHub issue"""
-    try:
-        result = github_assign_issue(
-            issue_number=issue_number,
-            assignees=request.assignees,
-            operation=request.operation
-        )
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return github_assign_issue(
+        issue_number=issue_number,
+        assignees=request.assignees,
+        operation=request.operation
+    )
 
 
 @app.patch("/github/issues/{issue_number}")
+@endpoint_handler("github_update_issue")
 async def github_update_issue_endpoint(issue_number: int, request: GitHubUpdateIssueRequest):
     """Update issue properties"""
-    try:
-        result = github_update_issue(
-            issue_number=issue_number,
-            title=request.title,
-            body=request.body,
-            labels=request.labels,
-            milestone=request.milestone,
-            assignees=request.assignees,
-            state=request.state
-        )
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return github_update_issue(
+        issue_number=issue_number,
+        title=request.title,
+        body=request.body,
+        labels=request.labels,
+        milestone=request.milestone,
+        assignees=request.assignees,
+        state=request.state
+    )
 
 
 @app.post("/github/issues/search")
+@endpoint_handler("github_search_issues")
 async def github_search_issues_endpoint(request: GitHubSearchIssuesRequest):
     """Search issues using GitHub's search API"""
-    try:
-        result = github_search_issues(
-            query=request.query,
-            sort=request.sort,
-            order=request.order,
-            limit=request.limit
-        )
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return github_search_issues(
+        query=request.query,
+        sort=request.sort,
+        order=request.order,
+        limit=request.limit
+    )
 
 
 # Milestone Management Endpoints
 
 @app.get("/github/milestones")
+@endpoint_handler("github_list_milestones")
 async def github_list_milestones_endpoint(
     state: str = "open",
     sort: str = "due_on",
     direction: str = "asc"
 ):
     """List repository milestones"""
-    try:
-        result = github_list_milestones(
-            state=state,
-            sort=sort,
-            direction=direction
-        )
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return github_list_milestones(
+        state=state,
+        sort=sort,
+        direction=direction
+    )
 
 
 @app.post("/github/milestones")
+@endpoint_handler("github_create_milestone")
 async def github_create_milestone_endpoint(request: GitHubCreateMilestoneRequest):
     """Create a new milestone"""
-    try:
-        result = github_create_milestone(
-            title=request.title,
-            description=request.description,
-            due_on=request.due_on
-        )
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return github_create_milestone(
+        title=request.title,
+        description=request.description,
+        due_on=request.due_on
+    )
 
 
 @app.patch("/github/milestones/{number}")
+@endpoint_handler("github_update_milestone")
 async def github_update_milestone_endpoint(number: int, request: GitHubUpdateMilestoneRequest):
     """Update milestone properties"""
-    try:
-        result = github_update_milestone(
-            number=number,
-            title=request.title,
-            description=request.description,
-            due_on=request.due_on,
-            state=request.state
-        )
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return github_update_milestone(
+        number=number,
+        title=request.title,
+        description=request.description,
+        due_on=request.due_on,
+        state=request.state
+    )
 
 
 @app.delete("/github/milestones/{number}")
+@endpoint_handler("github_close_milestone")
 async def github_close_milestone_endpoint(number: int):
     """Close a milestone"""
-    try:
-        result = github_close_milestone(number=number)
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return github_close_milestone(number=number)
 
 
 # Apple Silicon optimization endpoints
 @app.get("/apple_silicon_status")
+@endpoint_handler("apple_silicon_status")
 async def apple_silicon_status_endpoint():
     """Get Apple Silicon optimization status and memory information"""
-    try:
-        # Import the functions from the MCP server
-        from qdrant_mcp_context_aware import get_apple_silicon_status
-        result = get_apple_silicon_status()
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    # Import the functions from the MCP server
+    from qdrant_mcp_context_aware import get_apple_silicon_status
+    return get_apple_silicon_status()
 
 
 class CleanupRequest(BaseModel):
@@ -1340,20 +992,51 @@ class CleanupRequest(BaseModel):
 
 
 @app.post("/apple_silicon_cleanup")
+@endpoint_handler("apple_silicon_cleanup")
 async def apple_silicon_cleanup_endpoint(request: CleanupRequest):
     """Manually trigger Apple Silicon memory cleanup"""
-    try:
-        # Import the function from the MCP server
-        from qdrant_mcp_context_aware import trigger_apple_silicon_cleanup
-        result = trigger_apple_silicon_cleanup(level=request.level)
-        
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    # Import the function from the MCP server
+    from qdrant_mcp_context_aware import trigger_apple_silicon_cleanup
+    return trigger_apple_silicon_cleanup(level=request.level)
 
+
+# Context tracking endpoints
+@app.get("/context_status")
+@endpoint_handler("get_context_status")
+async def get_context_status_endpoint():
+    """Get current context window usage and statistics"""
+    return get_context_status()
+
+@app.get("/context_timeline")
+@endpoint_handler("get_context_timeline")
+async def get_context_timeline_endpoint():
+    """Get chronological timeline of context events"""
+    return get_context_timeline()
+
+@app.get("/context_summary")
+@endpoint_handler("get_context_summary")
+async def get_context_summary_endpoint():
+    """Get a natural language summary of current context"""
+    return get_context_summary()
+
+# Memory management endpoints
+@app.get("/memory_status")
+@endpoint_handler("get_memory_status")
+async def get_memory_status_endpoint():
+    """Get detailed memory status of the MCP server"""
+    return get_memory_status()
+
+@app.post("/memory_cleanup")
+@endpoint_handler("trigger_memory_cleanup")
+async def trigger_memory_cleanup_endpoint(request: CleanupRequest):
+    """Manually trigger memory cleanup"""
+    return trigger_memory_cleanup(aggressive=(request.level == "aggressive"))
+
+@app.post("/rebuild_bm25_indices")
+@endpoint_handler("rebuild_bm25_indices")
+async def rebuild_bm25_indices_endpoint():
+    """Rebuild BM25 indices for keyword search"""
+    return rebuild_bm25_indices()
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8081)

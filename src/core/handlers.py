@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 from fastapi import HTTPException
 from pydantic import BaseModel
 
-from ..utils.logging_config import get_logger
+from utils.logging import get_project_logger
 
 # Type variable for generic return types
 T = TypeVar('T')
@@ -42,7 +42,7 @@ class AsyncEndpointHandler:
         """
         self.operation_name = operation_name
         self.log_params = log_params
-        self.logger = get_logger()
+        self.logger = get_project_logger()
     
     async def handle(
         self,
@@ -67,11 +67,8 @@ class AsyncEndpointHandler:
         start_time = time.time()
         
         # Prepare parameters
-        if request:
-            # Convert Pydantic model to dict and merge with kwargs
-            params = {**request.dict(exclude_unset=True), **kwargs}
-        else:
-            params = kwargs
+        # Don't include request in params since it's handled by the lambda
+        params = kwargs
         
         try:
             # Log request
@@ -81,7 +78,11 @@ class AsyncEndpointHandler:
             }
             
             if self.log_params:
-                log_extra["params"] = self._sanitize_params(params)
+                # Include both request and kwargs in logging
+                log_params = params.copy()
+                if request:
+                    log_params.update(request.model_dump(exclude_unset=True))
+                log_extra["params"] = self._sanitize_params(log_params)
             
             self.logger.info(
                 f"HTTP {self.operation_name} started",
@@ -156,11 +157,16 @@ class AsyncEndpointHandler:
         """
         if asyncio.iscoroutinefunction(handler):
             # Handler is async, await it directly
-            return await handler(**kwargs)
+            result = await handler(**kwargs)
         else:
-            # Handler is sync, run in thread pool to avoid blocking
-            loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(None, handler, **kwargs)
+            # Handler is sync, call it directly
+            result = handler(**kwargs)
+        
+        # If the result is a coroutine (e.g., from an async endpoint that wasn't awaited)
+        if asyncio.iscoroutine(result):
+            result = await result
+            
+        return result
     
     def _sanitize_params(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -230,21 +236,35 @@ def endpoint_handler(
         async def wrapper(*args, **kwargs):
             # Extract request from args if present
             request = None
-            func_kwargs = kwargs
+            func_kwargs = kwargs.copy()
             
-            # Check if first arg is a Pydantic model
-            if args and hasattr(args[0], 'dict'):
+            # Check if 'request' is in kwargs (FastAPI passes it this way)
+            if 'request' in func_kwargs and hasattr(func_kwargs['request'], 'model_dump'):
+                request = func_kwargs.pop('request')
+                func_args = args
+            elif args and hasattr(args[0], 'model_dump'):
+                # Check if first arg is a Pydantic model
                 request = args[0]
                 func_args = args[1:]
             else:
                 func_args = args
             
             # Create a lambda that calls the original function
-            if func_args:
-                # If there are positional args, include them
-                request_handler = lambda **kw: func(*func_args, **kw)
+            # The original function expects request as first positional arg
+            # Note: These need to be async lambdas since the endpoints are async
+            if request is not None:
+                if func_args:
+                    # Request + additional args
+                    request_handler = lambda **kw: func(request, *func_args, **kw)
+                else:
+                    # Just request
+                    request_handler = lambda **kw: func(request, **kw)
             else:
-                request_handler = func
+                # No request extracted
+                if func_args:
+                    request_handler = lambda **kw: func(*func_args, **kw)
+                else:
+                    request_handler = lambda **kw: func(**kw)
             
             return await handler.handle(
                 request_handler,
